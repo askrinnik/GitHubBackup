@@ -48,4 +48,4 @@ Smoke tests against real GitHub carry a separate trait/category and do not run b
 
 ## Commands
 
-Run tests with `dotnet test` on the solution or a single test project after a separate `dotnet build`, with `--no-build`. Filter with `--filter` (MTP) when iterating on one class. Capture long output to a file and read only the summary and the first failures.
+Tests run on Microsoft.Testing.Platform (`xunit.v3.mtp-v2`, selected in `global.json`). Run them after a separate `dotnet build`, with `--no-build`: `dotnet test --solution src/GitHubBackup.slnx --no-build` for the solution, `dotnet test --project src/<Project>/<Project>.csproj --no-build` for one project — never a positional path. While iterating on one class, filter with the xUnit MTP options (`--filter-class "*<Class>"`, `--filter-method`, `--filter-trait "Category=…"`), not the VSTest `--filter` expression. Capture long output to a file and read only the summary and the first failures.

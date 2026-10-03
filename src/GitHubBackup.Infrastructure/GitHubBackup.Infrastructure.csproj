@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitHubBackup.Core\GitHubBackup.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="GitHubBackup.Infrastructure.Tests" />
+    <InternalsVisibleTo Include="GitHubBackup.Infrastructure.IntegrationTests" />
+  </ItemGroup>
+
+</Project>

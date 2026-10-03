@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitHubBackup.Core\GitHubBackup.Core.csproj" />
+  </ItemGroup>
+
+</Project>
