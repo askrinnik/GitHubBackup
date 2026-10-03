@@ -58,6 +58,7 @@
       "Bash(git switch *)",
       "Bash(git pull --ff-only*)",
       "Bash(git commit *)",
+      "Bash(git push *)",
       "Bash(gh issue edit *)",
       "Bash(gh issue comment *)",
       "Bash(gh pr create *)",
@@ -67,6 +68,7 @@
       "PowerShell(git switch *)",
       "PowerShell(git pull --ff-only*)",
       "PowerShell(git commit *)",
+      "PowerShell(git push *)",
       "PowerShell(gh issue edit *)",
       "PowerShell(gh issue comment *)",
       "PowerShell(gh pr create *)",
@@ -74,7 +76,6 @@
       "PowerShell(pwsh -NoProfile -File .claude/skills/_local.*)"
     ],
     "ask": [
-      "Bash(git push *)",
       "Bash(gh pr merge *)",
       "Bash(gh pr comment *)",
       "Bash(gh pr edit *)",
@@ -83,7 +84,6 @@
       "Bash(gh api repos/*)",
       "Bash(gh api -X *)",
       "Bash(gh api --method *)",
-      "PowerShell(git push *)",
       "PowerShell(gh pr merge *)",
       "PowerShell(gh pr comment *)",
       "PowerShell(gh pr edit *)",
