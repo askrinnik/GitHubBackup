@@ -1,0 +1,48 @@
+name: UI and smoke tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      category:
+        description: Test category to run
+        type: choice
+        options:
+          - UI
+          - Smoke
+        default: UI
+
+permissions:
+  contents: read
+
+jobs:
+  ui-smoke-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/GitHubBackup.slnx
+
+      - name: Build
+        run: dotnet build src/GitHubBackup.slnx --no-restore -clp:ErrorsOnly
+
+      # Projects without tests of the chosen category report exit code 8 (zero tests ran).
+      # No Smoke tests exist yet, so choosing Smoke currently runs nothing.
+      - name: Test
+        run: >
+          dotnet test --solution src/GitHubBackup.slnx --no-build
+          --filter-trait "Category=${{ inputs.category }}"
+          --ignore-exit-code 8
+          --report-xunit-trx --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ inputs.category }}
+          path: TestResults/*.trx
+          if-no-files-found: warn

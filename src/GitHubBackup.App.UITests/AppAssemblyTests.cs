@@ -14,4 +14,14 @@ public sealed class AppAssemblyTests
 
         assembly.GetName().Name.ShouldBe("GitHubBackup.App");
     }
+
+    [Fact]
+    public void TestAssembly_HasUiCategoryTrait_SoMainCiWorkflowSkipsIt()
+    {
+        var trait = typeof(AppAssemblyTests).Assembly
+            .GetCustomAttributes<TraitAttribute>()
+            .Single(attribute => attribute.Name == "Category");
+
+        trait.Value.ShouldBe("UI");
+    }
 }

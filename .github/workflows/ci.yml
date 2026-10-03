@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore src/GitHubBackup.slnx
+
+      - name: Build
+        run: dotnet build src/GitHubBackup.slnx --no-restore -clp:ErrorsOnly
+
+      - name: Format check
+        run: dotnet format src/GitHubBackup.slnx --verify-no-changes --no-restore
+
+      # UI and Smoke suites run in ui-smoke-tests.yml. A project whose tests are all excluded
+      # reports exit code 8 (zero tests ran), which is expected here.
+      - name: Test
+        run: >
+          dotnet test --solution src/GitHubBackup.slnx --no-build
+          --filter-not-trait "Category=UI" --filter-not-trait "Category=Smoke"
+          --ignore-exit-code 8
+          --report-xunit-trx --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/*.trx
+          if-no-files-found: warn

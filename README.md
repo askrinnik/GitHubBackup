@@ -50,6 +50,15 @@ src/    решение GitHubBackup.slnx: проекты и парные тес�
 
 Тесты работают на Microsoft.Testing.Platform (xUnit v3). Решение и проект передаются через `--solution` и `--project`, а не позиционным аргументом.
 
+Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=UI"` или `--filter-trait "Category=UI"`. Если в проекте все тесты отфильтрованы, платформа возвращает код 8 (ни один тест не запущен), поэтому в CI он игнорируется: `--ignore-exit-code 8`.
+
+## CI
+
+| Workflow | Запуск | Что делает |
+|---|---|---|
+| `.github/workflows/ci.yml` | push и pull request | `windows-latest`: restore, build, проверка форматирования, тесты без категорий `UI` и `Smoke`; результаты (`*.trx`) публикуются артефактом `test-results` |
+| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, тесты выбранной категории (`UI` или `Smoke`); артефакт `test-results-<категория>` |
+
 Предупреждения компилятора и анализаторов считаются ошибками. Версии NuGet-пакетов задаются только в `src/Directory.Packages.props`, общие настройки сборки — в `src/Directory.Build.props`.
 
 ## Соглашения
