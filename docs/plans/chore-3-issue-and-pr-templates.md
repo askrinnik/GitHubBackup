@@ -1,0 +1,36 @@
+# План: #3 F0.2: Issue and pull request templates linking to the PRD
+
+| Поле | Значение |
+|---|---|
+| Issue | [#3](https://github.com/askrinnik/GitHubBackup/issues/3) |
+| Заголовок | F0.2: Issue and pull request templates linking to the PRD |
+| Тип | chore |
+| Сложность | S |
+| Дата | 2026-10-03 |
+
+## 1. Цель
+
+Каждый новый issue и pull request создаётся из шаблона, который ведёт к `docs/PRD.md` и требует указать источник требований.
+
+## 2. Критерии приёмки
+
+- [x] Новый issue из шаблона содержит ссылку на PRD — оба шаблона содержат блок «Источник требований» с ссылкой и полем номеров требований
+- [x] PR-шаблон подставляется автоматически — `.github/pull_request_template.md` в ветке по умолчанию; проверяется на PR
+
+## 3. Подход
+
+- `.github/ISSUE_TEMPLATE/task.yml` и `bug.yml` — формы issues (YAML); поля «Источник требований» и «Критерии приёмки» обязательны; предзаполнены ссылкой на PRD и структурой тела, принятой в репозитории. Метки `type:feature` и `bug` ставятся автоматически.
+- `.github/ISSUE_TEMPLATE/config.yml` — `blank_issues_enabled: false`, ссылка на PRD.
+- `.github/pull_request_template.md` — на английском (NFR-7): `Closes #<issue>`, чек-лист из критерия issue, раздел проверки.
+- `README.md` — раздел о шаблонах.
+
+## 4. Вне рамок
+
+Автоматическая проверка заполнения шаблонов, шаблон для типов `chore` и `test` (выбираются меткой после создания), GitHub-проект.
+
+## 5. Задачи
+
+- [x] Шаблоны issues
+- [x] Шаблон PR
+- [x] `README.md`
+- [x] Проверка после пуша: форма открывается на GitHub, шаблон PR подставлен
