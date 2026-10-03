@@ -78,6 +78,7 @@ Every C# type and member gets a `///` XML doc comment; implementations and overr
 - Make focused, reviewable changes; reuse existing abstractions before adding new ones.
 - Read narrowly: grep first, then read around the match. Do not re-read a file you just edited.
 - Keep tool output small at the source; a successful write (commit, `gh` edit) is its own confirmation.
+- **Run simple commands.** The working directory is already the repository root: do not prefix commands with `cd`, and avoid `&&` chains, pipes, loops and heredocs where one plain command does the job. Plain commands match the permission rules in `.claude/settings.json`; compound ones cannot be allowed permanently and interrupt the user with a one-time prompt. When text must reach a command (commit message, comment, PR body), write it to a file in the scratchpad and pass the file (`-F`, `--body-file`).
 - Delegate read-heavy or noisy work: broad research → `Explore`; planning an issue → `issue-planner`; implementing an approved plan → `issue-developer`; commit/PR/comment text → `skill-runner`.
 
 ## Custom agents (`.claude/agents/`)
