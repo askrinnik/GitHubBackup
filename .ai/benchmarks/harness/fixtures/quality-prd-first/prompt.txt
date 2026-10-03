@@ -1,0 +1,3 @@
+Add a --since <date> option to the backup command of the console application, so that a run processes only the
+repositories that were pushed to on or after that date. Tell me how you would implement it and what you would
+change. Do not edit any files.
