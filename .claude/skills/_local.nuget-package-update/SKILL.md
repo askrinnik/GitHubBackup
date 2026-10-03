@@ -76,6 +76,6 @@ Edit the `Version` attribute of the `<PackageVersion>` element directly; `dotnet
 After **each** step, as separate commands:
 
 - `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly` — must be clean (warnings are errors);
-- `dotnet test src/GitHubBackup.slnx --no-build` — every test passes.
+- `dotnet test --solution src/GitHubBackup.slnx --no-build` — every test passes.
 
 A red step stops the run; earlier green steps stay in the working tree. Report what was applied, what failed and why, and what was skipped.

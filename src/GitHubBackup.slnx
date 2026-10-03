@@ -1,0 +1,13 @@
+<Solution>
+  <Project Path="GitHubBackup.App.Tests/GitHubBackup.App.Tests.csproj" />
+  <Project Path="GitHubBackup.App.UITests/GitHubBackup.App.UITests.csproj" />
+  <Project Path="GitHubBackup.App/GitHubBackup.App.csproj" />
+  <Project Path="GitHubBackup.ArchitectureTests/GitHubBackup.ArchitectureTests.csproj" />
+  <Project Path="GitHubBackup.Cli.Tests/GitHubBackup.Cli.Tests.csproj" />
+  <Project Path="GitHubBackup.Cli/GitHubBackup.Cli.csproj" />
+  <Project Path="GitHubBackup.Core.Tests/GitHubBackup.Core.Tests.csproj" />
+  <Project Path="GitHubBackup.Core/GitHubBackup.Core.csproj" />
+  <Project Path="GitHubBackup.Infrastructure.IntegrationTests/GitHubBackup.Infrastructure.IntegrationTests.csproj" />
+  <Project Path="GitHubBackup.Infrastructure.Tests/GitHubBackup.Infrastructure.Tests.csproj" />
+  <Project Path="GitHubBackup.Infrastructure/GitHubBackup.Infrastructure.csproj" />
+</Solution>

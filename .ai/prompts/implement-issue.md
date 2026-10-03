@@ -93,11 +93,10 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 Run these yourself, as separate commands, even if `issue-developer` reported success:
 
 - `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly` — a full rebuild so every diagnostic is current. Warnings are errors; the build must be clean.
-- `dotnet test src/GitHubBackup.slnx --no-build` — every test passes, including the architecture tests; nothing regresses. Capture the output to a file and read the summary.
+- `dotnet test --solution src/GitHubBackup.slnx --no-build` — every test passes, including the architecture tests; nothing regresses. Capture the output to a file and read the summary.
 - `dotnet format src/GitHubBackup.slnx --verify-no-changes` — no formatting drift.
 - **Review the comments this change adds**, including those the developer agent wrote: `git diff -U0 -- '*.cs' '*.xaml'` lines starting with `+` and containing `//`, `///` or `<!--`. Check each against the comment-hygiene rules (no change narration, no issue references, no line numbers, no repetition) and fix what fails.
 - For a change in `Infrastructure`, `Cli` or the token path, run the `security-reviewer` agent on the working tree and fix CRITICAL and IMPORTANT findings.
-- Until #2 (F0.1) creates the solution, steps that need it do not apply; say so in the summary.
 - **Milestone:** hand the user the step-9 `/compact` command.
 
 ## 10. Verify

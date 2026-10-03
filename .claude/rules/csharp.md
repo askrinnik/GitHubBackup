@@ -126,7 +126,8 @@ Issue references are correct in commit messages, PR descriptions, issue comments
 - File-scoped namespaces, one top-level type per file, file named after the type.
 - PascalCase for types, members and constants; `_camelCase` for private fields; camelCase for locals and parameters; interfaces start with `I`; async methods end with `Async`.
 - Use the latest C# (14): pattern matching and switch expressions, collection expressions (`[]`), `required` and `init` members, records for immutable data, `nameof` instead of member-name strings.
-- Target-typed `new()` when the type is apparent from the target; keep the explicit type for `var` locals, `throw` and when the target is a base type or interface.
+- `var` for every local, including built-in types and when the type is not apparent from the right-hand side (enforced as a build error).
+- Target-typed `new()` for fields, properties and arguments when the type is apparent from the target; keep the explicit type in `throw` and when the target is a base type or interface.
 - New extension members use the C# 14 `extension(TReceiver receiver) { … }` block form.
 - Prefer a named type over an anonymous object or `dynamic` whenever one models the shape.
 - `is null` / `is not null` instead of `== null`; trust nullable annotations and validate only at entry points (`ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrEmpty`).

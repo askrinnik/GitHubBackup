@@ -128,8 +128,8 @@ docs/
 
 ## Разрешения (`.claude/settings.json`)
 
-- Без вопросов: сборка, тесты, `dotnet format`, чтение через git и `gh`, инструменты MCP-серверов, скрипты скиллов `_local.*`, `gh api graphql`, локальные `git add`, `git switch`, `git pull --ff-only`, а также `git commit`, `gh issue comment`, `gh issue edit`, `gh pr create`. Для последних четырёх подтверждение даёт пользователь в чате: шлюзы процесса `implement-issue` требуют явного «да» перед каждым из этих действий, поэтому системный запрос не дублирует его.
-- С системным вопросом: `git push`, `gh pr merge`, `gh pr comment`, `gh pr edit`, `gh issue create`, `gh issue close`, REST-вызовы `gh api` (`repos/…`, `-X`, `--method`) — действия, которые трудно отменить или которые меняют чужие данные.
+- Без вопросов: сборка, тесты, `dotnet format`, чтение через git и `gh`, инструменты MCP-серверов, скрипты скиллов `_local.*`, `gh api graphql`, локальные `git add`, `git switch`, `git pull --ff-only`, а также `git commit`, `git push`, `gh issue comment`, `gh issue edit`, `gh pr create`. Для последних пяти подтверждение даёт пользователь в чате: шлюзы процесса `implement-issue` требуют явного «да» перед каждым из этих действий, поэтому системный запрос не дублирует его.
+- С системным вопросом: `gh pr merge`, `gh pr comment`, `gh pr edit`, `gh issue create`, `gh issue close`, REST-вызовы `gh api` (`repos/…`, `-X`, `--method`) — действия, которые трудно отменить или которые меняют чужие данные.
 - Запрещено: `git push --force`, `git reset --hard`, `git clean`, `rm -rf`, чтение `.env`.
 - Подпись `Co-Authored-By` в коммитах и PR отключена.
 - Правило «спрашивать» сильнее правила «разрешено», поэтому разрешение для узкого шаблона не работает, если более широкий шаблон стоит в «спрашивать».

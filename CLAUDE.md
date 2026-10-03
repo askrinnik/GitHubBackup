@@ -35,11 +35,22 @@ src/
 
 - Dependencies point inward only: `Cli`, `App` → `Infrastructure` → `Core`. `Core` references none of the others and no I/O library; `GitHubBackup.ArchitectureTests` enforces it.
 - Every production project has its test project next to it (`<Project>.Tests`).
-- The solution does not exist yet; it is created by #2 (F0.1), which also fills in the build section below.
+- `GitHubBackup.Core` and `GitHubBackup.Core.Tests` target `net10.0`; every other project targets `net10.0-windows`. Shared settings live in `src/Directory.Build.props`, package versions only in `src/Directory.Packages.props`.
+- `global.json` (repository root) pins the SDK band (`10.0.100`, `rollForward: latestFeature`) and selects Microsoft.Testing.Platform as the `dotnet test` runner.
 
 ## Build and test
 
-Commands are added by #2 (F0.1). Until then there is nothing to build.
+Run from the repository root, each as a separate command:
+
+| Purpose | Command |
+|---|---|
+| Build (full rebuild, errors only) | `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly` |
+| Test the solution | `dotnet test --solution src/GitHubBackup.slnx --no-build` |
+| Test one project | `dotnet test --project src/<Project>/<Project>.csproj --no-build` |
+| Test one class | `dotnet test --project src/<Project>/<Project>.csproj --no-build --filter-class "*<Class>"` |
+| Format check | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
+
+Tests run on Microsoft.Testing.Platform (`xunit.v3.mtp-v2`): the solution or project goes after `--solution`/`--project`, never as a positional argument, and filters are the xUnit MTP options (`--filter-class`, `--filter-method`, `--filter-trait`).
 
 Terminal hygiene: run build and test as separate commands, never chained with a short timeout; keep output small (`-clp:ErrorsOnly`, or capture to a file and read only the summary).
 
