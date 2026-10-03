@@ -61,7 +61,7 @@ function Read-Session($file) {
     $g = [string]$sessionCtx.context.gitStatus
     if ($g -match 'Current branch:\s*(.+)') { $branch = $Matches[1].Trim() }
     if ($g -match 'Git user:\s*(.+)') { $author = $Matches[1].Trim() }
-    if ($g -match 'Recent commits:\s*\r?\n\s*([0-9a-f]{7,40})') { $commit = $Matches[1].Substring(0, 8) }
+    if ($g -match 'Recent commits:\s*\r?\n\s*([0-9a-f]{7,40})') { $commit = $Matches[1].Substring(0, [Math]::Min(8, $Matches[1].Length)) }
     if ($g -match 'Status:\s*\r?\n\s*\(clean\)') { $dirty = 'no' } elseif ($g -match 'Status:') { $dirty = 'yes' }
   }
 

@@ -1,0 +1,41 @@
+{
+  "run": "2026-10-03-09-14_baseline-of-the-initial-harness",
+  "note": "baseline of the initial harness",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-10-03 09:14",
+  "commit": "574b07ad",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "51e56bb3-af87-4721-a7a8-9487c0f4bdfb",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "26d22bc6-bcf7-4601-a01f-7425034a1d22",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "e1a32ccf-388b-4c0a-b6cf-9def938c6aed",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "e3dcdd36-4e00-4e4d-a396-40a91c729912",
+      "hash": "bcddb96e",
+      "judged": true
+    }
+  ]
+}
