@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Требования (PRD)
+    url: https://github.com/askrinnik/GitHubBackup/blob/main/docs/PRD.md
+    about: Источник истины для всех задач. Изменения требований вносятся в PRD до создания issue.

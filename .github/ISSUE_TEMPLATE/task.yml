@@ -1,0 +1,55 @@
+name: Задача
+description: Новая функциональность, инфраструктура или тесты. Требования берутся из docs/PRD.md.
+title: "F<phase>.<n>: <English title>"
+labels: ["type:feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **PRD — источник истины.** Требования берутся из [docs/PRD.md](https://github.com/askrinnik/GitHubBackup/blob/main/docs/PRD.md). Если задача требует поведения, которого в PRD нет, сначала обновляется PRD, затем issue.
+        Заголовок — на английском; тело — на русском.
+  - type: textarea
+    id: prd-sections
+    attributes:
+      label: Источник требований — разделы PRD
+      description: Ссылки на разделы `docs/PRD.md`, которые реализует задача.
+      value: |
+        Главный документ: [docs/PRD.md](https://github.com/askrinnik/GitHubBackup/blob/main/docs/PRD.md).
+
+        Разделы PRD:
+        - [<номер. Название>](https://github.com/askrinnik/GitHubBackup/blob/main/docs/PRD.md#<якорь>)
+    validations:
+      required: true
+  - type: input
+    id: requirement-ids
+    attributes:
+      label: Источник требований — номера требований
+      description: Идентификаторы требований из PRD (`FR-x.y`, `NFR-x`). Если их нет, поставьте «—».
+      placeholder: FR-1.1, FR-1.2, NFR-3
+    validations:
+      required: true
+  - type: textarea
+    id: task
+    attributes:
+      label: Задача
+      description: Что должно быть сделано.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые условия готовности, списком флажков.
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Зависимости
+      description: Номера блокирующих issue (`- #n`) или «—». Те же связи задаются в GitHub как «blocked by».
+      value: |
+        -
+    validations:
+      required: true
