@@ -12,7 +12,7 @@ Never create, update or merge a PR without the user's explicit go-ahead.
 
 ## Tooling
 
-Use the `gh` CLI (`gh pr create`, `gh pr view`, `gh pr checks`). Write the description to a file and pass it with `--body-file`; do not inline long text in the command line.
+Use the `gh` CLI (`gh pr create`, `gh pr view`, `gh pr checks`). Write the description to a scratch file outside the repository (the session's scratch directory, or the system temp folder) and pass it with `--body-file`; do not inline long text in the command line.
 
 ## Target, title and linkage
 
@@ -21,7 +21,7 @@ Use the `gh` CLI (`gh pr create`, `gh pr view`, `gh pr checks`). Write the descr
 - **Title:** `#<n> <exact issue title>` — the same first line as the commits.
 - **Linkage:** the description contains `Closes #<n>` on its own line, so GitHub links the issue and closes it when the PR is merged. One PR resolves one issue, except a batch (`/implement-issues`): its branch is `<first>-<last>-<short-slug>`, the title is `#<a> #<b> #<c> <shared summary>`, and the description starts with one `Closes #<n>` line per issue.
 - **Merge:** the user merges with a merge commit (not squash, not rebase). Do not merge unless the user explicitly asks.
-- After creating, report the PR URL. A successful `gh pr create` is its own confirmation — do not re-read the PR to verify the title.
+- After creating, report the PR URL. A successful `gh pr create` is its own confirmation — do not re-read the PR to verify the title. Then delete the scratch file (`rm <file>`); if `gh pr create` failed, keep it and say where it is.
 
 ## Description
 

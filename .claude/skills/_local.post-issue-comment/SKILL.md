@@ -60,13 +60,13 @@ Add `**PRD:** updated to <version> — <what changed>` under *Key note* when the
 
 ## Posting
 
-Write the body to a scratch file and post it after the user's go-ahead:
+Write the body to a scratch file outside the repository (the session's scratch directory, or the system temp folder) and post it after the user's go-ahead:
 
 ```
 gh issue comment <n> --body-file <file>
 ```
 
-The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify.
+The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify. Once the comment is posted, delete the scratch file (`rm <file>`); if posting failed, keep it and say where it is.
 
 ## Acceptance boxes
 

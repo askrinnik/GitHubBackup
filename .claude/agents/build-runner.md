@@ -28,6 +28,8 @@ The working directory is already the repository root. Run **one command per tool
 
 Read only what the report needs: grep the output files for errors, the summary lines and failed tests. Do not read whole logs into the report.
 
+**Clean up when green.** Once the report is written and the build, the tests and (for `full`) the format check all passed, delete the output files (`rm <file>`, one call per file) and then the scratch directory (`rmdir <dir>`). On any failure keep them: the caller may need more than the report holds, and the next run into the same directory overwrites them.
+
 ## Report
 
 Return at most about 30 lines, in this order, with no preamble:
@@ -43,7 +45,7 @@ Tests: OK | FAILED | SKIPPED (build failed) (exit <code>)
 Format: OK | DRIFT | NOT RUN (exit <code>)
 <on drift: the reported files, at most 10>
 
-Output files: <scratch directory>
+Output files: <scratch directory> | deleted (all green)
 ```
 
 ## Hard limits
