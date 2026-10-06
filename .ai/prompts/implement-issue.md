@@ -103,6 +103,7 @@ Run the gate independently of `issue-developer`, even if it reported success:
 - **Bug lane:** the reproducing test passes; re-run the original reproduction (CLI run or scenario) and confirm the failure is gone.
 - **Feature lane:** verify **every** acceptance item and record how: a named test, a command with its observed output, or a CLI run against a temp folder with local repositories (exit code, summary, files on disk, log entries). Exercise the obvious negatives the PRD defines: invalid configuration, missing tool, failing repository, cancellation, `--dry-run` changing nothing.
 - UI issues: ViewModel tests and FlaUI tests per the plan; manual inspection of the running app only when the user asks for it.
+- **This step is not optional.** The user's go-ahead to skip the plan review or to go straight through the workflow does not cover it, and a green test run alone does not replace the per-item record above. Skip an item only when the user explicitly says so for this issue, and name it in step 11 as not verified.
 - If anything fails, go back to step 8 (or step 4 if the approach must change), then re-run steps 9–10.
 
 ## 11. Ask for confirmation
