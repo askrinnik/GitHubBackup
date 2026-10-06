@@ -90,11 +90,9 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 
 ## 9. Build and test
 
-Run these yourself, as separate commands, even if `issue-developer` reported success:
+Run the gate independently of `issue-developer`, even if it reported success:
 
-- `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly` — a full rebuild so every diagnostic is current. Warnings are errors; the build must be clean.
-- `dotnet test --solution src/GitHubBackup.slnx --no-build` — every test passes, including the architecture tests; nothing regresses. Capture the output to a file and read the summary.
-- `dotnet format src/GitHubBackup.slnx --verify-no-changes` — no formatting drift.
+- **Build, tests, format** — one call to the `build-runner` agent (cheap model) with scope `full` and a scratch directory. It runs a full rebuild (`-t:Rebuild`, warnings are errors), the whole solution's tests including the architecture tests, and `dotnet format --verify-no-changes`, and returns the test runner's summary lines verbatim with the first errors. Everything must be green. On a failure, hand the reported errors back to `issue-developer` (or fix a trivial cause inline) and call `build-runner` again; do not re-run the commands yourself to see the same output.
 - **Review the comments this change adds**, including those the developer agent wrote: `git diff -U0 -- '*.cs' '*.xaml'` lines starting with `+` and containing `//`, `///` or `<!--`. Check each against the comment-hygiene rules (no change narration, no issue references, no line numbers, no repetition) and fix what fails.
 - For a change in `Infrastructure`, `Cli` or the token path, run the `security-reviewer` agent on the working tree and fix CRITICAL and IMPORTANT findings.
 - **Milestone:** hand the user the step-9 `/compact` command.
@@ -117,7 +115,7 @@ Run these yourself, as separate commands, even if `issue-developer` reported suc
 
 **Get the go-ahead, delegate the action.** The commit, the issue comment and the pull request are each carried out end to end by the `skill-runner` agent (cheap model, isolated context), which follows the whole skill — composes the text, runs the `git`/`gh` command and checks the result. Ask the user first; only after the go-ahead make one `skill-runner` call for that one action. Give it the skill name (`git-commit`, `post-issue-comment`, `pull-request`), the compact facts you already hold — issue number and exact title, lane, one line per changed file, the acceptance table, build and test results — the action-specific inputs named in the skill's *Inline or delegated* section, and a scratch file path for the text. Push, acceptance ticks and the CI check stay with you.
 
-- **Re-sync the base.** `git fetch origin`; if `origin/main` moved since step 0, pull it (`git pull --ff-only`; the uncommitted changes travel with you) and re-run step 9 so nothing regressed against the newer base. Otherwise say it is unchanged.
+- **Re-sync the base.** `git fetch origin`; if `origin/main` moved since step 0, pull it (`git pull --ff-only`; the uncommitted changes travel with you) and re-run step 9 (a `build-runner` call with scope `full`) so nothing regressed against the newer base. Otherwise say it is unchanged.
 - **Tick the plan** checklist in `docs/plans/…` to match the work; the plan file goes into the same commit.
 - **Commit** after the user's go-ahead: one `skill-runner` call with the `git-commit` skill, the exact files to stage (including the plan file) and the branch — `<n>-<slug>`, which it creates from the up-to-date `main`, or the existing branch you stayed on at the user's request (step 0). It reports the short SHA and the first line.
 - **Push** (`git push -u origin <branch>`) after the user's go-ahead.

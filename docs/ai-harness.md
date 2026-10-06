@@ -13,7 +13,7 @@ CLAUDE.md                          главные инструкции, загр
   settings.json                    разрешения, MCP, отключённая подпись в коммитах
   settings.local.json              личные настройки (не в git)
   commands/                        implement-issue, implement-issues, next-issue
-  agents/                          issue-planner, issue-developer, skill-runner, architect, security-reviewer
+  agents/                          issue-planner, issue-developer, build-runner, skill-runner, architect, security-reviewer
   rules/                           правила, которые подгружаются по путям файлов
   skills/                          _local.* (свои) и сторонние скиллы
 .ai/
@@ -38,6 +38,8 @@ docs/
 
 - `<сессия>` — основная сессия на той модели, на которой она запущена (Opus, Sonnet и т. д.);
 - у агентов модель указана явно: она задана в `.claude/agents/*.md` и от модели сессии не зависит (обоснование — в разделе [Агенты и модели](#агенты-и-модели));
+- 🤖 — вызов агента (`.claude/agents/`);
+- 🧩 — скилл (`.claude/skills/`);
 - **[Ты]** — точка, где процесс ждёт пользователя.
 
 ```
@@ -46,7 +48,7 @@ docs/
 ├─ 0. Подготовка ветки ───────────── <сессия>: git status → git switch main → git pull --ff-only
 │                                    (есть незакоммиченные изменения → стоп, вопрос тебе)
 ├─ 1. Чтение issue ───────────────── <сессия>: gh issue view 12
-│                                    (нет номера → скилл next-issue → [Ты] выбираешь)
+│                                    (нет номера → 🧩 next-issue → [Ты] выбираешь)
 ├─ 2. Зависимости, lane, назначение ─ <сессия>: gh api graphql (blockedBy), метка bug/feature,
 │                                    gh issue edit --add-assignee @me
 │                                    (открытый блокер → стоп, вопрос тебе)
@@ -55,32 +57,36 @@ docs/
 │                                    Feature: список приёмки
 │                                    (нужна правка PRD → [Ты] одобряешь правку)
 │
-├─ 4. План ──────────────────────────────────▶ issue-planner (Opus, только чтение)
+├─ 4. План ──────────────────────────────────▶ 🤖 issue-planner (Opus, только чтение)
 │                                    ◀── план на русском + сложность S/M/L
 ├─ 5–6. Сохранение и ревью ───────── <сессия>: docs/plans/<type>-12-<slug>.md
 │                                    [Ты] ревью → правки → снова ревью
 ├─ 7. План одобрен ───────────────── [Ты] /compact (готовая команда)
 │
-├─ 8. Реализация ────────────────────────────▶ issue-developer
+├─ 8. Реализация ────────────────────────────▶ 🤖 issue-developer
 │                                    (Sonnet для S/M, Opus для L)
 │                                    код + тесты, без коммитов
 │                                    ◀── сводка изменений
-├─ 9. Сборка и тесты ─────────────── <сессия>: dotnet build -t:Rebuild
-│                                    <сессия>: dotnet test (вывод в файл, читается итог)
-│                                    <сессия>: dotnet format --verify-no-changes
-│                                    <сессия>: проверка добавленных комментариев
-│                                    если Infrastructure/Cli/токен ──▶ security-reviewer (Opus)
-│                                    ◀── замечания → исправления
-│                                    [Ты] /compact
+├─ 9. Сборка и тесты
+│    ├─ <сессия> ──1 вызов──▶ 🤖 build-runner (Haiku), scope full
+│    │                         dotnet build -t:Rebuild
+│    │                         dotnet test (вывод в файл)
+│    │                         dotnet format --verify-no-changes
+│    │    <сессия> ◀── дословные итоговые строки + первые ошибки
+│    │    (красное → ошибки в 🤖 issue-developer → снова 🤖 build-runner)
+│    ├─ <сессия>: проверка добавленных комментариев
+│    ├─ если Infrastructure/Cli/токен: <сессия> ──▶ 🤖 security-reviewer (Opus)
+│    │    <сессия> ◀── замечания → исправления
+│    └─ [Ты] /compact
 ├─ 10. Проверка ──────────────────── <сессия>: каждый пункт приёмки → тест/команда/результат
 │                                    (провал → назад к 8 или 4)
 ├─ 11. Подтверждение результата ──── [Ты] «результат принят?» → /compact
 │
 ├─ 12. Коммит и push
-│    ├─ <сессия>: git fetch; если main ушёл вперёд → git pull --ff-only и повтор шага 9
+│    ├─ <сессия>: git fetch; если main ушёл вперёд → git pull --ff-only и повтор шага 9 (🤖 build-runner)
 │    ├─ <сессия>: отмечает чек-лист в плане
 │    ├─ [Ты] «да, коммить»
-│    │    <сессия> ──1 вызов──▶ skill-runner (Haiku) + скилл git-commit
+│    │    <сессия> ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 git-commit
 │    │                           создаёт ветку 12-<slug>
 │    │                           git add <переданный список>
 │    │                           пишет текст → git commit -F
@@ -90,18 +96,81 @@ docs/
 │
 ├─ 13. Комментарий, приёмка, PR
 │    ├─ [Ты] «да, комментарий»
-│    │    <сессия> ──1 вызов──▶ skill-runner (Haiku) + post-issue-comment
+│    │    <сессия> ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 post-issue-comment
 │    │                           текст → gh issue comment --body-file
 │    │    <сессия> ◀── ссылка на комментарий
 │    ├─ [Ты] «да, отметить приёмку» → <сессия>: gh issue edit (- [ ] → - [x])
 │    ├─ [Ты] «да, PR»
-│    │    <сессия> ──1 вызов──▶ skill-runner (Haiku) + pull-request
+│    │    <сессия> ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 pull-request
 │    │                           текст → gh pr create --body-file
 │    │    <сессия> ◀── ссылка на PR
 │    └─ <сессия>: gh pr checks (один раз, без опроса)
 │
-└─ 14. Что дальше ────────────────── <сессия>: скилл next-issue -AssumeClosed 12
+└─ 14. Что дальше ────────────────── <сессия>: 🧩 next-issue -AssumeClosed 12
                                      → «смержи PR → новая сессия → /implement-issue N»
+```
+
+Та же схема в виде диаграммы (GitHub рисует Mermaid сам), без `/compact` и мелких команд — они есть в текстовой схеме выше. Серые блоки — основная сессия, синие — агенты, зелёные — скиллы, жёлтые — ожидание пользователя, красный — возврат к реализации.
+
+```mermaid
+flowchart TD
+    START(["/implement-issue N"]) --> S0["0. Подготовка ветки<br/>git switch main · git pull --ff-only"]:::session
+    S0 --> S1["1. Чтение issue<br/>gh issue view"]:::session
+    S1 -. "нет номера" .-> NI0["🧩 next-issue"]:::skill
+    NI0 -.-> U1{{"[Ты] выбор задачи"}}:::user
+    U1 -.-> S1
+    S1 --> S2["2. Зависимости, lane, назначение"]:::session
+    S2 --> S3["3. Понимание задачи<br/>PRD · приёмка или воспроизведение"]:::session
+    S3 -. "нужна правка PRD" .-> U3{{"[Ты] одобрение правки PRD"}}:::user
+    U3 -.-> S3
+    S3 --> A4["4. План<br/>🤖 issue-planner · Opus<br/>план + сложность S/M/L"]:::agent
+    A4 --> S5["5–6. Сохранение плана<br/>docs/plans/…"]:::session
+    S5 --> U5{{"[Ты] ревью плана"}}:::user
+    U5 -- "замечания" --> S5
+    U5 -- "одобрен" --> A8["8. Реализация<br/>🤖 issue-developer<br/>Sonnet · Opus для L"]:::agent
+    subgraph STEP9["9. Сборка и проверки"]
+        A9["Сборка и тесты<br/>🤖 build-runner · Haiku<br/>build · test · format"]:::agent
+        S9["Проверка добавленных<br/>комментариев"]:::session
+        A9S["Проверка безопасности<br/>🤖 security-reviewer · Opus"]:::agent
+        A9 -- "зелёное" --> S9
+        S9 -. "Infrastructure / Cli / токен" .-> A9S
+    end
+    A8 --> A9
+    S9 --> S10["10. Проверка каждого пункта приёмки"]:::session
+    S10 --> U11{{"11. [Ты] результат принят?"}}:::user
+    A9 -- "красное" --> FIX(["↩ исправления: назад к шагу 8"]):::fix
+    A9S -. "замечания" .-> FIX
+    S10 -- "провал" --> FIX
+    U11 -- "нет" --> FIX
+    subgraph STEP12["12. Коммит и push"]
+        U12{{"[Ты] да, коммить"}}:::user
+        A12["Коммит<br/>🤖 skill-runner · Haiku<br/>🧩 git-commit<br/>ветка · git add · commit · проверка"]:::agent
+        U12P{{"[Ты] да, push"}}:::user
+        S12P["git push"]:::session
+        U12 --> A12 --> U12P --> S12P
+    end
+    subgraph STEP13["13. Комментарий, приёмка, PR"]
+        U13C{{"[Ты] да, комментарий"}}:::user
+        A13C["Комментарий в issue<br/>🤖 skill-runner · Haiku<br/>🧩 post-issue-comment"]:::agent
+        U13T{{"[Ты] да, отметить приёмку"}}:::user
+        S13T["Отметки приёмки<br/>gh issue edit<br/>- [ ] → - [x]"]:::session
+        U13P{{"[Ты] да, PR"}}:::user
+        A13P["Pull request<br/>🤖 skill-runner · Haiku<br/>🧩 pull-request"]:::agent
+        U13C --> A13C --> U13T --> S13T --> U13P --> A13P
+    end
+    U11 -- "да" --> U12
+    S12P --> U13C
+    A13P --> NI14["14. Что дальше<br/>🧩 next-issue -AssumeClosed N"]:::skill
+    NI14 --> END(["смержи PR → новая сессия → /implement-issue"])
+
+    classDef session fill:#f3f4f6,stroke:#6b7280,color:#111827
+    classDef agent fill:#dbeafe,stroke:#2563eb,color:#1e3a8a
+    classDef skill fill:#dcfce7,stroke:#16a34a,color:#14532d
+    classDef user fill:#fef3c7,stroke:#d97706,color:#78350f
+    classDef fix fill:#fee2e2,stroke:#dc2626,color:#7f1d1d
+    style STEP9 fill:#f8fafc,stroke:#64748b,stroke-dasharray:4 3
+    style STEP12 fill:#f8fafc,stroke:#64748b,stroke-dasharray:4 3
+    style STEP13 fill:#f8fafc,stroke:#64748b,stroke-dasharray:4 3
 ```
 
 Остаться на текущей ветке вместо шага 0 можно, только явно сказав об этом: `/implement-issue 5 stay on current branch`.
@@ -123,8 +192,8 @@ docs/
 |---|---|
 | Остановки | По умолчанию их нет. Пакет останавливается при нерешённом вопросе, необходимости изменить PRD, открытом блокирующем issue вне списка, закрытом issue, плане сложности `L`, невоспроизводимой ошибке, сбое, который не исправляют две попытки. `--review-plans` возвращает остановку на ревью плана |
 | Спорные решения | Принимаются сами, записываются в раздел «Решения» плана и сводкой выдаются в конце |
-| На каждую задачу | План, реализация, полная пересборка и тесты затронутых проектов, коммит (запуск пакета разрешает коммиты) |
-| Один раз в конце | Тесты всего решения, `dotnet format`, `security-reviewer` по диффу ветки (если затронуты Infrastructure, Cli, путь токена, процессы, архивы или пакеты); исправления — дополнительными коммитами под номером своей задачи |
+| На каждую задачу | План, реализация, `build-runner` (полная пересборка и тесты затронутых проектов), коммит (запуск пакета разрешает коммиты) |
+| Один раз в конце | `build-runner` с тестами всего решения и `dotnet format`, `security-reviewer` по диффу ветки (если затронуты Infrastructure, Cli, путь токена, процессы, архивы или пакеты); исправления — дополнительными коммитами под номером своей задачи |
 | Выдача | Одно подтверждение результата; затем push, PR и комментарии — каждое после «да» пользователя либо без вопросов с `--ship`. В PR по строке `Closes #<n>` на задачу |
 | Ограничения | Не больше 5 задач сложности S или M; коммиты пакета не переписываются |
 
@@ -142,6 +211,7 @@ docs/
 |---|---|---|
 | `issue-planner` | Opus | Только чтение, возвращает план. Ошибка плана стоит дороже всего, а объём вывода мал |
 | `issue-developer` | Sonnet по умолчанию, Opus для сложности L | Самый «дорогой» по токенам агент (чтение, сборки, итерации); по согласованному детальному плану Sonnet обычно достаточно |
+| `build-runner` | Haiku | Шлюз сборки на шаге 9: полная пересборка, тесты, `dotnet format --verify-no-changes`. Возвращает дословные итоговые строки инструментов и первые ошибки, поэтому пересказ не может исказить результат. Основная сессия тратит на шлюз один вызов вместо 4–6, а шумный вывод сборки не попадает в её контекст. Проверяет независимо от `issue-developer`, ничего не исправляет |
 | `skill-runner` | Haiku | Выполняет одно уже подтверждённое действие целиком по скиллу: коммит (`git-commit`), комментарий в issue (`post-issue-comment`) или PR (`pull-request`) — пишет текст на английском, запускает команду `git`/`gh`, проверяет результат. Основная сессия тратит на действие один вызов и не загружает скилл в свой контекст. Push, правку тела issue и merge агент не делает |
 | `architect` | Opus | Проектные вопросы: границы слоёв, отказоустойчивость, отмена |
 | `security-reviewer` | Opus | Риски приложения: утечка токена, инъекция аргументов git, выход за пределы папок, архивы |
@@ -234,13 +304,14 @@ docs/
 
 Без изменений переносятся:
 - механизм `implement-issue` (шаги, контрольные точки, экономия контекста);
-- агенты `issue-planner`, `issue-developer`, `skill-runner`;
+- агенты `issue-planner`, `issue-developer`, `skill-runner`, а `build-runner` — с заменой команд сборки (см. ниже);
 - скиллы `_local.git-commit`, `_local.pull-request`, `_local.post-issue-comment`, `_local.next-issue` — для любого репозитория на GitHub;
 - гигиена комментариев (`csharp.md`);
 - бенчмарк (`_local.harness-quality-check` и `bench-base`).
 
 Нужно переписать под проект:
 - `CLAUDE.md`;
+- команды сборки, тестов и формата в агенте `build-runner`;
 - правила по стеку (`wpf-mvvm.md`, `cli.md`, `external-processes.md`, `security.md`, раздел «GitHubBackup patterns» в `csharp.md`);
 - семейства пакетов в `_local.nuget-package-update`;
 - эталоны фикстур `quality-*`.

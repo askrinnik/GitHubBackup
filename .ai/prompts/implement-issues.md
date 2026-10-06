@@ -16,7 +16,7 @@ For every issue run the workflow in [.ai/prompts/implement-issue.md](implement-i
 | Step 0, per issue | Once, before the first issue |
 | Branch created at the commit in step 12 | Created at the first issue's commit, then reused (see *Branch*) |
 | Steps 5–7, plan review stop and compact milestone | Save the plan and continue; stop only with `--review-plans` |
-| Step 9, full solution test, format check and security review per issue | Full rebuild and the tests of the touched projects per issue; the solution test run, `dotnet format` and the security review once at the end |
+| Step 9, `build-runner` with scope `full` and security review per issue | `build-runner` with scope `projects` (the touched test projects) per issue; scope `full` and the security review once at the end |
 | Step 10, verification per issue | Per issue as written; FlaUI UI tests once at the end |
 | Step 11, result confirmation per issue | One confirmation for the whole batch |
 | Steps 12–13, commit, push, comment, PR per issue | A commit per issue; one comment per issue, one push and one PR at the end |
@@ -38,16 +38,16 @@ Do not create the branch during preflight or planning; as in `implement-issue`, 
 
 1. Run `implement-issue` steps 1–10 with the differences above. Plan with `issue-planner`, implement with `issue-developer`, review the added comments, keep the plan file in the working tree.
 2. **Questions.** A question the issue, the PRD, the code and sensible defaults do not settle stops the batch: ask the user, then continue from the same issue. A needed PRD change always stops the batch (PRD first: propose the text, the version bump and the history row, wait for approval). A choice that is yours to make but could be questioned (a UI presentation, a behaviour change beyond the acceptance list, a skipped refactor, a deviation from a convention) is **not** a stop: make it, record it in the plan's *Решения* section and in a running list for the final report.
-3. Run the full rebuild (`dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly`) and the tests of the touched projects. Failures go back to implementation; do not commit red.
+3. Call `build-runner` with scope `projects` and the test projects the change touches (full rebuild, then those tests). Failures go back to implementation; do not commit red.
 4. **Commit** — starting the batch authorises the commits, one per issue; the first one also creates the branch (see *Branch*). Make one `skill-runner` call with the `git-commit` skill (Case 1: `#<n> <exact issue title>`, a blank line, dash-prefixed actions): it creates or checks the branch, stages exactly the files you list, commits, checks the message and reports the short SHA. List only that issue's changes, including the plan file with its checklist ticked and the documentation the change updates.
 5. The next issue starts from the committed state. Between issues give the user the ready `/compact` command from `implement-issue` (focus: issue numbers and titles, acceptance lists, branch name, commits so far, the running decision list, changed files) once the conversation passes about 40 tool calls.
 
 ## Final verification (once, after the last commit)
 
-Run on the branch as a whole, against `git diff main...HEAD`, each as a separate command:
+Run on the branch as a whole, against `git diff main...HEAD`, in this order:
 
-1. `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly`, then `dotnet test --solution src/GitHubBackup.slnx --no-build` (output to a file, read the summary and the first failures), then `dotnet format src/GitHubBackup.slnx --verify-no-changes`.
-2. **UI tests** — included in the solution test run; make sure the FlaUI tests ran when `GitHubBackup.App` changed.
+1. `build-runner` with scope `full`: full rebuild, the whole solution's tests, `dotnet format --verify-no-changes`; it returns the summary lines verbatim and the first failures.
+2. **UI tests** — included in the solution test run; when `GitHubBackup.App` changed, make sure the `build-runner` summary shows the `GitHubBackup.App.UITests` run.
 3. **Security review** — `security-reviewer` on the branch diff when any issue touched `Infrastructure`, `Cli`, the token path, process or archive handling, or packages; fix CRITICAL and IMPORTANT findings.
 4. Re-verify the acceptance items of every issue that the final run could affect.
 5. Fix what fails or what the review finds as **additional commits**, each under the `#<n>` of the issue it belongs to (Case 1), then re-run the affected checks.

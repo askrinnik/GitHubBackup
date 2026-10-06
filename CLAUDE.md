@@ -92,12 +92,13 @@ Every C# type and member gets a `///` XML doc comment; implementations and overr
 - Read narrowly: grep first, then read around the match. Do not re-read a file you just edited.
 - Keep tool output small at the source; a successful write (commit, `gh` edit) is its own confirmation.
 - **Run simple commands.** The working directory is already the repository root: do not prefix commands with `cd`, and avoid `&&` chains, pipes, loops and heredocs where one plain command does the job. Plain commands match the permission rules in `.claude/settings.json`; compound ones cannot be allowed permanently and interrupt the user with a one-time prompt. When text must reach a command (commit message, comment, PR body), write it to a file in the scratchpad and pass the file (`-F`, `--body-file`).
-- Delegate read-heavy or noisy work: broad research → `Explore`; planning an issue → `issue-planner`; implementing an approved plan → `issue-developer`; an approved commit, issue comment or PR inside `/implement-issue(s)` → `skill-runner`.
+- Delegate read-heavy or noisy work: broad research → `Explore`; planning an issue → `issue-planner`; implementing an approved plan → `issue-developer`; the build-and-test gate inside `/implement-issue(s)` → `build-runner`; an approved commit, issue comment or PR inside `/implement-issue(s)` → `skill-runner`.
 
 ## Custom agents (`.claude/agents/`)
 
 - **issue-planner** — read-only research; returns a review-ready plan for one issue.
 - **issue-developer** — implements an approved plan with tests; never commits, pushes or posts.
+- **build-runner** — runs the build, tests and format check on a cheap model and returns the tools' summary lines verbatim; never edits or fixes anything.
 - **skill-runner** — carries out one approved commit, issue comment or pull request end to end by following the matching skill (`git-commit`, `post-issue-comment`, `pull-request`) on a cheap model; never pushes and never acts beyond that one action. The caller gets the user's go-ahead first.
 - **architect** — designs changes that keep the layer boundaries; surfaces trade-offs.
 - **security-reviewer** — reviews changes for the risks of this application (token leakage, argument injection into git, path escape, unsafe archives).
