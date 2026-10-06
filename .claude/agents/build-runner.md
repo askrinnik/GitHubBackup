@@ -28,9 +28,7 @@ First, in a call of its own and without a redirect, make sure the scratch direct
    - `projects`: `dotnet test --project src/<Project>/<Project>.csproj --no-build` for each listed project (one file per project).
 3. `full` only: `dotnet format src/GitHubBackup.slnx --verify-no-changes` → `format.txt`. Run it even when the build or the tests failed; it is independent.
 
-Read only what the report needs: grep the output files for errors, the summary lines and failed tests. Do not read whole logs into the report.
-
-**Clean up when green.** Once the report is written and the build, the tests and (for `full`) the format check all passed, delete the scratch directory together with its files in one call: `Remove-Item -Recurse -Force <dir>` in PowerShell, or `rm -r <dir>` in Bash (`rm -rf` is denied). If the directory holds files you did not write, delete only your own output files and leave the directory. On any failure keep them: the caller may need more than the report holds, and the next run into the same directory overwrites them.
+Read only what the report needs: grep the output files for errors, the summary lines and failed tests. Do not read whole logs into the report. Leave the output files in place; the next run into the same directory overwrites them.
 
 ## Report
 
@@ -47,7 +45,7 @@ Tests: OK | FAILED | SKIPPED (build failed) (exit <code>)
 Format: OK | DRIFT | NOT RUN (exit <code>)
 <on drift: the reported files, at most 10>
 
-Output files: <scratch directory> | deleted (all green)
+Output files: <scratch directory>
 ```
 
 ## Hard limits

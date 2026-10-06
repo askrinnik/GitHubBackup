@@ -69,7 +69,7 @@ Write the body to a scratch file outside the repository (the session's scratch d
 gh issue comment <n> --body-file <file>
 ```
 
-The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify. Once the comment is posted, delete the scratch file (`rm <file>`); if posting failed, keep it and say where it is.
+The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify.
 
 ## Acceptance boxes
 

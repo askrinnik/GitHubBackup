@@ -78,5 +78,4 @@ Run this skill **inline** when the user asks for a commit directly. Inside `/imp
 4. Compose the message and write it to a scratch file outside the repository (the session's scratch directory, or the system temp folder).
 5. `git commit -F <file>` — a successful exit is the confirmation. Do not push.
 6. Check `git log -1 --format=%B` against the format above. On a deviation fix the commit just made with `git commit --amend -F <file>`; never amend an earlier or a pushed commit.
-7. Once the commit and the check succeeded, delete the scratch file (`rm <file>`). If either failed, keep it and say where it is.
-8. Report the short SHA and the first line.
+7. Report the short SHA and the first line.
