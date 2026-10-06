@@ -48,7 +48,7 @@ Run on the branch as a whole, against `git diff main...HEAD`, in this order:
 
 1. `build-runner` with scope `full`: full rebuild, the whole solution's tests, `dotnet format --verify-no-changes`; it returns the summary lines verbatim and the first failures.
 2. **UI tests** — included in the solution test run; when `GitHubBackup.App` changed, make sure the `build-runner` summary shows the `GitHubBackup.App.UITests` run.
-3. **Security review** — `security-reviewer` on the branch diff when any issue touched `Infrastructure`, `Cli`, the token path, process or archive handling, or packages; fix CRITICAL and IMPORTANT findings.
+3. **Security review** — `security-reviewer` on the branch diff when any issue touched `Infrastructure`, `Cli`, the token path, process or archive handling, CI workflows or packages; fix CRITICAL and IMPORTANT findings.
 4. Re-verify the acceptance items of every issue that the final run could affect.
 5. Fix what fails or what the review finds as **additional commits**, each under the `#<n>` of the issue it belongs to (Case 1), then re-run the affected checks.
 
