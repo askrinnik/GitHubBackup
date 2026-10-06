@@ -18,6 +18,9 @@ Add a comment to a GitHub issue summarizing the work just done. The comment is t
 
 English (NFR-7), GitHub Markdown. Base it strictly on what was actually changed and verified — never invent details. No screenshots, no local absolute paths, no secrets.
 
+- Take every number, name and list from the facts you work from, verbatim: do not recount, merge, reattribute or extend them. If something looks inconsistent, keep it as given and point it out instead of correcting it.
+- The *Acceptance Criteria* table has one row per acceptance item of the issue — exactly those items, in their order; never add rows.
+
 **Bug lane:**
 
 ```markdown
