@@ -1,0 +1,41 @@
+{
+  "run": "2026-10-06-18-57_workflows-and-skills-improvements",
+  "note": "workflows and skills improvements",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-10-06 18:57",
+  "commit": "4d117ea2",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "a2ec8e8e-8b49-47eb-a8b1-7de3cf1cfa28",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "946f97db-1ab1-4a99-a32e-4b51c51792e3",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "9c0743ad-6b23-4919-b166-52fcd5361ec7",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "3c65d1c3-2b7d-4a05-8b5e-51c09f1c5fe4",
+      "hash": "bcddb96e",
+      "judged": true
+    }
+  ]
+}
