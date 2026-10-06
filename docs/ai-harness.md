@@ -99,7 +99,7 @@ docs/
 │    │    <сессия> ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 post-issue-comment
 │    │                           текст → gh issue comment --body-file
 │    │    <сессия> ◀── ссылка на комментарий
-│    ├─ [Ты] «да, отметить приёмку» → <сессия>: gh issue edit (- [ ] → - [x])
+│    ├─ [Ты] «да, отметить приёмку» → <сессия>: Set-AcceptanceChecks.ps1 (- [ ] → - [x])
 │    ├─ [Ты] «да, PR»
 │    │    <сессия> ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 pull-request
 │    │                           текст → gh pr create --body-file
@@ -153,7 +153,7 @@ flowchart TD
         U13C{{"[Ты] да, комментарий"}}:::user
         A13C["Комментарий в issue<br/>🤖 skill-runner · Haiku<br/>🧩 post-issue-comment"]:::agent
         U13T{{"[Ты] да, отметить приёмку"}}:::user
-        S13T["Отметки приёмки<br/>gh issue edit<br/>- [ ] → - [x]"]:::session
+        S13T["Отметки приёмки<br/>Set-AcceptanceChecks.ps1<br/>- [ ] → - [x]"]:::session
         U13P{{"[Ты] да, PR"}}:::user
         A13P["Pull request<br/>🤖 skill-runner · Haiku<br/>🧩 pull-request"]:::agent
         U13C --> A13C --> U13T --> S13T --> U13P --> A13P
@@ -245,7 +245,7 @@ flowchart TD
 |---|---|
 | `_local.git-commit` | Ветки `<n>-<slug>`, формат коммита `#<n> <title>` + пункты, без подписи |
 | `_local.pull-request` | PR в `main`, `Closes #<n>`, содержание описания, однократная проверка CI |
-| `_local.post-issue-comment` | Комментарий в issue: RCA для бага, итоги реализации для остальных |
+| `_local.post-issue-comment` | Комментарий в issue: RCA для бага, итоги реализации для остальных. Скрипт `Set-AcceptanceChecks.ps1` одним вызовом отмечает проверенные пункты `## Критерии приёмки` по их номерам; остальной текст issue он не меняет и отказывается писать, если изменилось бы что-то кроме отметок |
 | `_local.write-tests` | Выбор слоя тестов, регрессионный тест сначала для бага |
 | `_local.debug-issue` | Воспроизведение, разбор логов, поиск причины |
 | `_local.refactor-code` | Рефакторинг без изменения поведения |
@@ -277,7 +277,7 @@ flowchart TD
 
 ## Разрешения (`.claude/settings.json`)
 
-- Без вопросов: сборка, тесты, `dotnet format`, чтение через git и `gh`, инструменты MCP-серверов, скрипты скиллов `_local.*`, `gh api graphql`, локальные `git add`, `git switch`, `git pull --ff-only`, а также `git commit`, `git push`, `gh issue comment`, `gh issue edit`, `gh pr create`. Для последних пяти подтверждение даёт пользователь в чате: шлюзы процесса `implement-issue` требуют явного «да» перед каждым из этих действий, поэтому системный запрос не дублирует его.
+- Без вопросов: сборка, тесты, `dotnet format`, чтение через git и `gh`, инструменты MCP-серверов, скрипты скиллов `_local.*`, `gh api graphql`, локальные `git add`, `git switch`, `git pull --ff-only`, а также `git commit`, `git push`, `gh issue comment`, `gh issue edit`, `gh pr create`. Для последних пяти подтверждение даёт пользователь в чате: шлюзы процесса `implement-issue` требуют явного «да» перед каждым из этих действий, поэтому системный запрос не дублирует его. То же относится к скрипту `Set-AcceptanceChecks.ps1`: он запускается без системного запроса, как все скрипты `_local.*`, но правит тело issue и потому вызывается только после «да» пользователя.
 - С системным вопросом: `gh pr merge`, `gh pr comment`, `gh pr edit`, `gh issue create`, `gh issue close`, REST-вызовы `gh api` (`repos/…`, `-X`, `--method`) — действия, которые трудно отменить или которые меняют чужие данные.
 - Запрещено: `git push --force`, `git reset --hard`, `git clean`, `rm -rf`, чтение `.env`.
 - Подпись `Co-Authored-By` в коммитах и PR отключена.

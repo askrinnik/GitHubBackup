@@ -123,7 +123,7 @@ Run the gate independently of `issue-developer`, even if it reported success:
 ## 13. Issue comment, acceptance boxes, pull request
 
 - **Issue comment.** After the user's go-ahead, one `skill-runner` call with the `post-issue-comment` skill (Bug → *Root Cause Analysis / Resolution / Verification*; Feature → *Implementation / Acceptance Criteria / Verification*); it posts the comment and reports its URL.
-- **Acceptance boxes.** After the user's go-ahead, tick in the issue body the `- [ ]` items of `## Критерии приёмки` that were verified (`gh issue view <n> --json body` → replace `- [ ]` with `- [x]` for those items only → `gh issue edit <n> --body-file <file>`). Leave unverified items unticked and name them.
+- **Acceptance boxes.** After the user's go-ahead, tick the verified items of `## Критерии приёмки` with one call of the `Set-AcceptanceChecks.ps1` script (`post-issue-comment` skill, *Acceptance boxes*), passing their positions. Leave unverified items unticked and name them from the script's output.
 - **Pull request.** After the user's go-ahead, one `skill-runner` call with the `pull-request` skill, the head branch and the posted comment; it opens the PR into `main` (title `#<n> <exact title>`, body with `Closes #<n>`) and reports the URL. Pass the URL on to the user.
 - **CI.** Check once with `gh pr checks <pr>`. If checks are still running, say so — the desktop app can watch CI; do not poll in a loop. If a check fails, report the failing job and first error, and fix it on the same branch after the user agrees.
 - The user merges the PR (merge commit). Do not merge unless asked.

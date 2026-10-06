@@ -70,7 +70,7 @@ Without `--ship` each step below needs the user's go-ahead; with it, run them in
 1. **Re-sync the base:** `git fetch origin`; if `origin/main` moved, `git pull --ff-only` onto the branch (rebase never) and re-run the final verification.
 2. **Push** the branch (`git push -u origin <branch>`).
 3. **One pull request** into `main` — one `skill-runner` call with the `pull-request` skill: title `#<a> #<b> #<c> <shared summary>`, a description that starts with one `Closes #<n>` line per issue, then what changed, the debatable decisions and how it was verified. Do not repeat the per-issue acceptance tables.
-4. **Issue comments:** one comment per issue for its lane, each linking the PR — one `skill-runner` call per issue with the `post-issue-comment` skill, which posts it. Post them after the PR is open so the link is real. Tick the verified `- [ ]` boxes in each issue body yourself.
+4. **Issue comments:** one comment per issue for its lane, each linking the PR — one `skill-runner` call per issue with the `post-issue-comment` skill, which posts it. Post them after the PR is open so the link is real. Tick the verified `- [ ]` boxes in each issue body yourself, with one `Set-AcceptanceChecks.ps1` call per issue (`post-issue-comment` skill, *Acceptance boxes*).
 5. **CI:** check once with `gh pr checks <pr>`; never poll. Merging stays with the user.
 6. Run the `next-issue` skill with `-AssumeClosed` for every issue of the batch and end with the same short message as `implement-issue` step 14 (merge the PR, start a new session, the next `/implement-issue` or `/implement-issues`).
 

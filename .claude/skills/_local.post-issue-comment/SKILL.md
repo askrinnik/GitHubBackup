@@ -68,6 +68,18 @@ gh issue comment <n> --body-file <file>
 
 The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify.
 
+## Acceptance boxes
+
+After the comment, and after the user's go-ahead, tick the verified items of `## Критерии приёмки` in the issue body with the script — one call, no reading or rewriting of the body by hand:
+
+```
+pwsh -NoProfile -File .claude/skills/_local.post-issue-comment/scripts/Set-AcceptanceChecks.ps1 -Issue <n> -Items 1,2,4
+```
+
+- `-Items` are the positions of the verified checkboxes within that section, 1-based, in document order, as one comma-separated value.
+- The script changes only those `- [ ]` marks and refuses to write if anything else in the body would differ; it never unticks.
+- Its output lists every checkbox with `ticked now`, `already ticked` or `left unticked` — name the unticked ones to the user. `-DryRun` shows the result without editing.
+
 ## Inline or delegated
 
 Run this skill inline when the user asks for a comment directly. Inside `/implement-issue` and `/implement-issues`, after the user's go-ahead, the whole skill — composing and posting — runs in the `skill-runner` agent: the caller hands it this skill's name, the compact facts (issue number and title, lane, changed files with one line each, acceptance items with how each was verified, build and test results, the PR URL if it exists) and a scratch file path for the body; it posts the comment and returns its URL. If you *are* the skill-runner, do not delegate again.
