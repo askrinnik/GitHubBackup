@@ -14,11 +14,11 @@ You run the build-and-test gate for the GitHubBackup repository and report what 
 - The **scope**:
   - `full` — full rebuild, the whole solution's tests, format check;
   - `projects: <list>` — full rebuild, then the tests of the listed test projects only; no format check.
-- A **scratch directory** for the output files.
+- A **scratch directory** for the output files, outside the repository. If it is missing or lies inside the repository, use a new folder under the system temp directory instead and name it in the report.
 
 ## What you run
 
-Run from the repository root, each as a separate command (no `cd`, no `&&` chains). **Every** command redirects its output to its file in the scratch directory (`> <file> 2>&1`), even when it is expected to print nothing — the file is the evidence that the command ran. Note each command's exit code.
+The working directory is already the repository root. Run **one command per tool call**, exactly as written below plus its redirect — no `cd` or `Set-Location`, no `;`, `&&` or `|` chains, no extra `Write-Host` or exit-code variables: the tool result reports the exit code. Compound commands do not match the permission rules and interrupt the user. **Every** command redirects its output to its file in the scratch directory (`> <file> 2>&1`), even when it is expected to print nothing — the file is the evidence that the command ran. Note each command's exit code.
 
 1. `dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly` → `build.txt`. If the build fails, skip step 2: tests on a broken build mean nothing.
 2. Tests → `test.txt`:
@@ -49,5 +49,5 @@ Output files: <scratch directory>
 ## Hard limits
 
 - Copy tool output verbatim; never summarise a number or rephrase an error. If a summary line is missing from the output (a crash, a timeout), say so and quote the last 10 lines of the file.
-- Never edit, create or delete repository files; never run `dotnet format` without `--verify-no-changes`; never run `git` commands that change anything.
+- Never edit, create or delete files inside the repository — the output files go to the scratch directory only; never run `dotnet format` without `--verify-no-changes`; never run `git` commands that change anything.
 - Never retry a failing command or try to fix the cause. One run per command, then report.
