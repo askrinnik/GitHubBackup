@@ -19,7 +19,7 @@ Use the `gh` CLI (`gh pr create`, `gh pr view`, `gh pr checks`). Write the descr
 - **Source:** the issue branch `<n>-<slug>`, pushed (`git push -u origin <branch>`) after the user's go-ahead.
 - **Target:** `main`.
 - **Title:** `#<n> <exact issue title>` — the same first line as the commits.
-- **Linkage:** the description contains `Closes #<n>` on its own line, so GitHub links the issue and closes it when the PR is merged. One PR resolves one issue.
+- **Linkage:** the description contains `Closes #<n>` on its own line, so GitHub links the issue and closes it when the PR is merged. One PR resolves one issue, except a batch (`/implement-issues`): its branch is `<first>-<last>-<short-slug>`, the title is `#<a> #<b> #<c> <shared summary>`, and the description starts with one `Closes #<n>` line per issue.
 - **Merge:** the user merges with a merge commit (not squash, not rebase). Do not merge unless the user explicitly asks.
 - After creating, report the PR URL. A successful `gh pr create` is its own confirmation — do not re-read the PR to verify the title.
 

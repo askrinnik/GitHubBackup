@@ -32,7 +32,7 @@ All commit text is **English** (NFR-7).
 - <second action>
 ```
 
-- **Line 1:** `#`, the issue number, one space, the exact issue title as on GitHub (`gh issue view <n> --json title --jq .title`). It is identical on every commit of the branch.
+- **Line 1:** `#`, the issue number, one space, the exact issue title as on GitHub (`gh issue view <n> --json title --jq .title`). It is identical on every commit of the branch. In a batch (`/implement-issues`) the branch holds one commit per issue, each with its own issue's `#<n> <title>`, on a branch named `<first>-<last>-<short-slug>`.
 - **Line 2:** blank.
 - **From line 3:** one action per line, each starting with `- `, imperative mood ("Add", "Fix", "Update", "Remove"), contiguous — no blank lines between them. A single-action commit has one bullet.
 
