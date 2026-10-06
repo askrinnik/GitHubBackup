@@ -115,19 +115,18 @@ Run these yourself, as separate commands, even if `issue-developer` reported suc
 
 ## 12. Commit and push
 
-**Delegate the text, keep the action.** The commit message, the issue comment and the PR text are composed by the `skill-runner` agent (cheap model, isolated context). Give it the skill name (`git-commit`, `post-issue-comment`, `pull-request`) and the compact facts you already hold — issue number and exact title, lane, `git diff --stat` with one line per changed file, the acceptance table, build and test results, and for the PR the posted comment. You run every `git`/`gh` action yourself, after the user's go-ahead.
+**Get the go-ahead, delegate the action.** The commit, the issue comment and the pull request are each carried out end to end by the `skill-runner` agent (cheap model, isolated context), which follows the whole skill — composes the text, runs the `git`/`gh` command and checks the result. Ask the user first; only after the go-ahead make one `skill-runner` call for that one action. Give it the skill name (`git-commit`, `post-issue-comment`, `pull-request`), the compact facts you already hold — issue number and exact title, lane, one line per changed file, the acceptance table, build and test results — the action-specific inputs named in the skill's *Inline or delegated* section, and a scratch file path for the text. Push, acceptance ticks and the CI check stay with you.
 
 - **Re-sync the base.** `git fetch origin`; if `origin/main` moved since step 0, pull it (`git pull --ff-only`; the uncommitted changes travel with you) and re-run step 9 so nothing regressed against the newer base. Otherwise say it is unchanged.
-- **Create the branch** `<n>-<slug>` from the up-to-date `main`: `git switch -c <n>-<slug>`. If you stayed on an existing branch at the user's request (step 0), commit there.
 - **Tick the plan** checklist in `docs/plans/…` to match the work; the plan file goes into the same commit.
-- **Commit** with the message from `skill-runner` (`git-commit` skill) after the user's go-ahead.
+- **Commit** after the user's go-ahead: one `skill-runner` call with the `git-commit` skill, the exact files to stage (including the plan file) and the branch — `<n>-<slug>`, which it creates from the up-to-date `main`, or the existing branch you stayed on at the user's request (step 0). It reports the short SHA and the first line.
 - **Push** (`git push -u origin <branch>`) after the user's go-ahead.
 
 ## 13. Issue comment, acceptance boxes, pull request
 
-- **Issue comment.** Compose with `skill-runner` (`post-issue-comment` skill: Bug → *Root Cause Analysis / Resolution / Verification*; Feature → *Implementation / Acceptance Criteria / Verification*), then post it after the user's go-ahead: `gh issue comment <n> --body-file <file>`.
+- **Issue comment.** After the user's go-ahead, one `skill-runner` call with the `post-issue-comment` skill (Bug → *Root Cause Analysis / Resolution / Verification*; Feature → *Implementation / Acceptance Criteria / Verification*); it posts the comment and reports its URL.
 - **Acceptance boxes.** After the user's go-ahead, tick in the issue body the `- [ ]` items of `## Критерии приёмки` that were verified (`gh issue view <n> --json body` → replace `- [ ]` with `- [x]` for those items only → `gh issue edit <n> --body-file <file>`). Leave unverified items unticked and name them.
-- **Pull request.** Compose with `skill-runner` (`pull-request` skill) from the posted comment, then after the user's go-ahead: `gh pr create --base main --head <branch> --title "#<n> <exact title>" --body-file <file>`. The body contains `Closes #<n>`. Report the PR URL.
+- **Pull request.** After the user's go-ahead, one `skill-runner` call with the `pull-request` skill, the head branch and the posted comment; it opens the PR into `main` (title `#<n> <exact title>`, body with `Closes #<n>`) and reports the URL. Pass the URL on to the user.
 - **CI.** Check once with `gh pr checks <pr>`. If checks are still running, say so — the desktop app can watch CI; do not poll in a loop. If a check fails, report the failing job and first error, and fix it on the same branch after the user agrees.
 - The user merges the PR (merge commit). Do not merge unless asked.
 

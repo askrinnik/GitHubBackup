@@ -66,14 +66,16 @@ All lines are actions starting with `- `, contiguous, no header line:
 - Stage the intended files explicitly with `git add <paths>`. Never stage unrelated or in-progress files without confirmation; never `git add -A` blindly.
 - If a plan for the issue exists under `docs/plans/` (`*-<n>-*.md`), stage it in the **same** commit, with its checklist ticked to match the work.
 
-## Composing — inline or delegated
+## Inline or delegated
 
-Compose the message **inline** by default. Inside a larger workflow (`/implement-issue`) you may delegate to the `skill-runner` agent with this skill's name and the compact facts: issue number and exact title, `git diff --stat`, one line per changed file. If you *are* the skill-runner, do not delegate again.
+Run this skill **inline** when the user asks for a commit directly. Inside `/implement-issue` and `/implement-issues` the whole skill — branch, staging, message, commit and the check — runs in the `skill-runner` agent: the caller hands it this skill's name, the compact facts (issue number and exact title, one line per changed file), the exact files to stage, the branch and a scratch file path for the message. If you *are* the skill-runner, do not delegate again.
 
 ## Procedure
 
 1. Determine the case (branch name, workflow context, or ask for the issue number).
 2. Check or create the branch as above.
 3. Review and stage.
-4. Compose the message.
-5. `git commit` — a successful exit is the confirmation; report the short SHA and the first line. Do not push.
+4. Compose the message and write it to a scratch file.
+5. `git commit -F <file>` — a successful exit is the confirmation. Do not push.
+6. Check `git log -1 --format=%B` against the format above. On a deviation fix the commit just made with `git commit --amend -F <file>`; never amend an earlier or a pushed commit.
+7. Report the short SHA and the first line.

@@ -68,6 +68,6 @@ gh issue comment <n> --body-file <file>
 
 The command prints the comment URL — report it; that is the confirmation. Do not re-read the issue to verify.
 
-## Composing — inline or delegated
+## Inline or delegated
 
-Compose inline by default. Inside `/implement-issue` delegate to the `skill-runner` agent with this skill's name and the compact facts (issue number and title, lane, changed files with one line each, acceptance items with how each was verified, build and test results); it returns the text and you post it.
+Run this skill inline when the user asks for a comment directly. Inside `/implement-issue` and `/implement-issues`, after the user's go-ahead, the whole skill — composing and posting — runs in the `skill-runner` agent: the caller hands it this skill's name, the compact facts (issue number and title, lane, changed files with one line each, acceptance items with how each was verified, build and test results, the PR URL if it exists) and a scratch file path for the body; it posts the comment and returns its URL. If you *are* the skill-runner, do not delegate again.

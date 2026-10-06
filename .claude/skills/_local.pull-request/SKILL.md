@@ -39,6 +39,6 @@ Do **not** repeat what the issue comment already holds (the full RCA or acceptan
 - Check CI once with `gh pr checks <pr>`; if it is still running, say so and stop — the desktop app can watch CI; do not poll in a loop.
 - If CI fails, report the failing job and the first error lines (`gh run view <run> --log-failed`, captured to a file and grepped), and fix it on the same branch after the user agrees.
 
-## Composing — inline or delegated
+## Inline or delegated
 
-Compose inline by default. Inside `/implement-issue` delegate to the `skill-runner` agent with this skill's name, the issue number and exact title, and the posted issue comment; it returns the title and description. You run the `gh` commands yourself after the user's go-ahead.
+Run this skill inline when the user asks for a PR directly. Inside `/implement-issue` and `/implement-issues`, after the user's go-ahead and once the branch is pushed, the whole skill — composing and `gh pr create` — runs in the `skill-runner` agent: the caller hands it this skill's name, the issue number(s) and exact title(s), the head branch, the posted issue comment (in a batch, where the comments follow the PR, a short summary per issue instead) and a scratch file path for the body; it opens the PR and returns its URL. Checking CI stays with the caller. If you *are* the skill-runner, do not delegate again.
