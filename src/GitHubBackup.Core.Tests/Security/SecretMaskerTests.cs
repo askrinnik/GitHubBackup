@@ -117,4 +117,51 @@ public sealed class SecretMaskerTests
     [InlineData("")]
     [InlineData("  ")]
     public void Register_EmptySecret_Throws(string secret) => Should.Throw<ArgumentException>(() => _masker.Register(secret));
+
+    [Theory]
+    [InlineData("""a"b""", """a\"b""")]
+    [InlineData("""a\b""", """a\\b""")]
+    [InlineData("a\nb", """a\nb""")]
+    [InlineData("a\tb", """a\tb""")]
+    [InlineData("a\u0001b", """a\u0001b""")]
+    [InlineData("a\u0008b", """a\u0008b""")]
+    public void Mask_JsonEscapedFormOfRegisteredSecret_ReplacesIt(string secret, string escaped)
+    {
+        _masker.Register(secret);
+
+        _masker.Mask($$"""{"Token":"{{escaped}}"}""").ShouldBe("""{"Token":"***"}""");
+    }
+
+    [Theory]
+    [InlineData("""a"b""")]
+    [InlineData("""a\b""")]
+    [InlineData("a\nb")]
+    [InlineData("a\u0001b")]
+    public void Mask_RawFormOfRegisteredSecretWithSpecialCharacters_ReplacesIt(string secret)
+    {
+        _masker.Register(secret);
+
+        _masker.Mask($"x {secret} y").ShouldBe("x *** y");
+    }
+
+    [Fact]
+    public void Mask_RegisteredSecretEndingWithBackslashInsideJsonString_KeepsJsonValid()
+    {
+        _masker.Register("""s3cret\""");
+
+        var masked = _masker.Mask("""{"Token":"s3cret\\"}""");
+
+        masked.ShouldBe("""{"Token":"***"}""");
+        using var document = JsonDocument.Parse(masked);
+        document.RootElement.GetProperty("Token").GetString().ShouldBe(SecretMasker.Replacement);
+    }
+
+    [Fact]
+    public void Mask_SecretWithSpecialCharactersRegisteredTwice_ReplacesIt()
+    {
+        _masker.Register("""a"b\c""");
+        _masker.Register("""a"b\c""");
+
+        _masker.Mask("""a"b\c and a\"b\\c""").ShouldBe("*** and ***");
+    }
 }

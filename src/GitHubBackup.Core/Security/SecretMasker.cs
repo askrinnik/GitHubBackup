@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using System.Text.RegularExpressions;
 
 namespace GitHubBackup.Core.Security;
@@ -13,23 +15,91 @@ public sealed partial class SecretMasker : ISecretMasker
     private readonly Lock _registrationLock = new();
 
     /// <summary>
-    /// The registered secrets, longest first, so that a secret containing a shorter one is replaced as a whole.
-    /// The array is replaced, never changed, so <see cref="Mask"/> reads it without the lock.
+    /// The registered secrets in their raw and JSON-escaped forms, longest first, so that a secret containing a
+    /// shorter one is replaced as a whole. The array is replaced, never changed, so <see cref="Mask"/> reads it
+    /// without the lock.
     /// </summary>
     private string[] _secrets = [];
 
-    /// <inheritdoc />
+    /// <summary>
+    /// Registers the raw secret and, when it differs, its JSON-escaped form, because a JSON log file stores the
+    /// escaped text.
+    /// </summary>
+    /// <param name="secret">The secret value.</param>
+    /// <inheritdoc cref="ISecretMasker.Register" path="/exception"/>
     public void Register(string secret)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(secret);
 
+        var escaped = EscapeAsJsonString(secret);
+
         lock (_registrationLock)
         {
-            if (!_secrets.Contains(secret, StringComparer.Ordinal))
+            var secrets = _secrets.ToList();
+            AddIfMissing(secrets, secret);
+            AddIfMissing(secrets, escaped);
+
+            if (secrets.Count != _secrets.Length)
             {
-                _secrets = [.. _secrets.Append(secret).OrderByDescending(value => value.Length)];
+                _secrets = [.. secrets.OrderByDescending(value => value.Length)];
             }
         }
+    }
+
+    /// <summary>
+    /// Adds <paramref name="value"/> to <paramref name="secrets"/> unless the list already holds it.
+    /// </summary>
+    /// <param name="secrets">The list to extend.</param>
+    /// <param name="value">The form of a secret.</param>
+    private static void AddIfMissing(List<string> secrets, string value)
+    {
+        if (!secrets.Contains(value, StringComparer.Ordinal))
+        {
+            secrets.Add(value);
+        }
+    }
+
+    /// <summary>
+    /// Escapes <paramref name="value"/> the way the Serilog JSON formatter writes a string: quotes, backslashes and
+    /// control characters are escaped, everything else, including non-ASCII text, is written as is.
+    /// </summary>
+    /// <param name="value">The raw text.</param>
+    /// <returns>The text as it appears between the quotes of a JSON string.</returns>
+    private static string EscapeAsJsonString(string value)
+    {
+        var builder = new StringBuilder(value.Length + 8);
+        foreach (var character in value)
+        {
+            switch (character)
+            {
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case < ' ':
+                    builder.Append("\\u").Append(((int)character).ToString("X4", CultureInfo.InvariantCulture));
+                    break;
+                default:
+                    builder.Append(character);
+                    break;
+            }
+        }
+
+        return builder.ToString();
     }
 
     /// <inheritdoc />
