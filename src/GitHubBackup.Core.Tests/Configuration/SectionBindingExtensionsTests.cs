@@ -63,6 +63,35 @@ public sealed class SectionBindingExtensionsTests
     }
 
     [Fact]
+    public void BindSection_ValueImitatingTemplateWithLongerDecoyKey_DoesNotLeakValueFragment()
+    {
+        var exception = Should.Throw<OptionsValidationException>(() => Resolve(new()
+        {
+            ["Backup:ShortHashLength"] = "c' at 'Backup:LongerKey' to type 'SECRET",
+            ["Backup:LongerKey"] = "c",
+        }));
+
+        var failure = exception.Failures.ShouldHaveSingleItem();
+        failure.ShouldBe("Backup:ShortHashLength cannot be converted to System.Int32.");
+        failure.ShouldNotContain("SECRET");
+        failure.ShouldNotContain("LongerKey");
+    }
+
+    [Fact]
+    public void DescribeBindingFailure_TypeContainsQuote_NamesSectionAndOptionsTypeOnly()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Backup:LongerKey"] = "c" })
+            .Build();
+
+        var message = SectionBindingExtensions.DescribeBindingFailure<BackupOptions>(
+            configuration.GetSection(BackupOptions.SectionName),
+            new InvalidOperationException("Failed to convert configuration value 'c' at 'Backup:LongerKey' to type 'SECRET' at 'x' to type 'System.Int32'."));
+
+        message.ShouldBe("The Backup section cannot be bound to BackupOptions.");
+    }
+
+    [Fact]
     public void DescribeBindingFailure_MessageMatchesNoLeaf_NamesSectionAndOptionsTypeOnly()
     {
         var configuration = new ConfigurationBuilder()

@@ -47,9 +47,10 @@ public static class SectionBindingExtensions
     /// </summary>
     /// <remarks>
     /// The binder reports <c>Failed to convert configuration value '&lt;value&gt;' at '&lt;key&gt;' to type '&lt;type&gt;'.</c>
-    /// The text is searched only for the markers of the section's own key-value pairs, so a value that imitates the
-    /// template cannot name a different key. When no marker matches, the message names the section and the options
-    /// type and the text of <paramref name="exception"/> is not used.
+    /// A key-value pair of the section is accepted only when its complete marker follows the fixed prefix and the rest
+    /// of the message is a type name that ends the message, so a value that imitates the template cannot name a
+    /// different key or inject text into the type. When no pair, or more than one, qualifies, the message names the
+    /// section and the options type and the text of <paramref name="exception"/> is not used.
     /// </remarks>
     /// <typeparam name="TOptions">The option class bound to the section.</typeparam>
     /// <param name="section">The section that failed to bind.</param>
@@ -57,34 +58,35 @@ public static class SectionBindingExtensions
     /// <returns>A message that holds the key and the target type, or the section name and the options type.</returns>
     internal static string DescribeBindingFailure<TOptions>(IConfigurationSection section, InvalidOperationException exception)
     {
+        const string prefix = "Failed to convert configuration value ";
         var message = exception.Message;
-        string? bestPath = null;
-        var bestTypeStart = 0;
+        string? matchedPath = null;
+        string? matchedType = null;
+        var matches = 0;
         foreach (var (path, value) in section.AsEnumerable(false))
         {
-            if (string.IsNullOrEmpty(value) || (bestPath is not null && path.Length <= bestPath.Length))
+            if (string.IsNullOrEmpty(value))
             {
                 continue;
             }
 
-            var marker = $"'{value}' at '{path}' to type '";
-            var index = message.IndexOf(marker, StringComparison.Ordinal);
-            if (index >= 0)
+            var marker = $"{prefix}'{value}' at '{path}' to type '";
+            if (!message.StartsWith(marker, StringComparison.Ordinal) || !message.EndsWith("'.", StringComparison.Ordinal))
             {
-                bestPath = path;
-                bestTypeStart = index + marker.Length;
+                continue;
+            }
+
+            var type = message[marker.Length..^2];
+            if (type.Length > 0 && !type.Contains('\''))
+            {
+                matchedPath = path;
+                matchedType = type;
+                matches++;
             }
         }
 
-        if (bestPath is not null)
-        {
-            var typeEnd = message.IndexOf("'.", bestTypeStart, StringComparison.Ordinal);
-            if (typeEnd > bestTypeStart)
-            {
-                return $"{bestPath} cannot be converted to {message[bestTypeStart..typeEnd]}.";
-            }
-        }
-
-        return $"The {section.Key} section cannot be bound to {typeof(TOptions).Name}.";
+        return matches == 1
+            ? $"{matchedPath} cannot be converted to {matchedType}."
+            : $"The {section.Key} section cannot be bound to {typeof(TOptions).Name}.";
     }
 }
