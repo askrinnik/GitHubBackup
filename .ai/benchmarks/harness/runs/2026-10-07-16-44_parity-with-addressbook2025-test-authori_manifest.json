@@ -1,0 +1,41 @@
+{
+  "run": "2026-10-07-16-44_parity-with-addressbook2025-test-authori",
+  "note": "parity with AddressBook2025: test-authoring lane, github-issue and open-pr skills, generic skills",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-10-07 16:44",
+  "commit": "41cb2300",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "b1a438a5-3cb8-41c1-840c-c5377d489308",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "399326a4-2734-4fb3-9fd6-113fc804026b",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "ed71bc5a-55c4-4dd3-9ea9-3b70ca0d2200",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "dfde49a4-d01f-4ab9-a78f-4ec0e79b4860",
+      "hash": "bcddb96e",
+      "judged": true
+    }
+  ]
+}
