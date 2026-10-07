@@ -4,4 +4,9 @@
     <ProjectReference Include="..\GitHubBackup.Core\GitHubBackup.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Configuration" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" />
+  </ItemGroup>
+
 </Project>
