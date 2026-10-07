@@ -26,9 +26,6 @@ public static class SectionBindingExtensions
         /// <returns>The same builder, for chaining.</returns>
         public OptionsBuilder<TOptions> BindSection(IConfiguration configuration, string sectionName)
         {
-            ArgumentNullException.ThrowIfNull(configuration);
-            ArgumentException.ThrowIfNullOrEmpty(sectionName);
-
             var optionsName = builder.Name;
             return builder.Configure(options =>
             {

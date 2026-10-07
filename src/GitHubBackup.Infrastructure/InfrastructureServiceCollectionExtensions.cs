@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -16,7 +17,8 @@ public static class InfrastructureServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the infrastructure services and binds <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>,
+        /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
+        /// token, and binds <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>,
         /// <see cref="HistoryOptions"/> and <see cref="OpenTelemetryOptions"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
@@ -28,7 +30,7 @@ public static class InfrastructureServiceCollectionExtensions
         /// <returns>The same service collection, for chaining.</returns>
         public IServiceCollection AddGitHubBackupInfrastructure(IConfiguration configuration)
         {
-            ArgumentNullException.ThrowIfNull(configuration);
+            services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<GitHubOptions>, GitHubOptionsValidator>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ToolsOptions>, ToolsOptionsValidator>());
@@ -50,5 +52,23 @@ public static class InfrastructureServiceCollectionExtensions
 
             return services;
         }
+    }
+
+    /// <summary>
+    /// Creates the <see cref="ISecretMasker"/> of the host with <see cref="GitHubOptions.TokenKey"/> registered when
+    /// the configuration sets it.
+    /// </summary>
+    /// <param name="configuration">The application configuration.</param>
+    /// <returns>The masker.</returns>
+    private static SecretMasker CreateSecretMasker(IConfiguration configuration)
+    {
+        var masker = new SecretMasker();
+        var token = configuration[GitHubOptions.TokenKey];
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            masker.Register(token);
+        }
+
+        return masker;
     }
 }

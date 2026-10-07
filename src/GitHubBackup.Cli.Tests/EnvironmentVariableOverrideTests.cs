@@ -19,6 +19,7 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
 
     private readonly string? _previousPrefixedValue = Environment.GetEnvironmentVariable(PrefixedVariable);
     private readonly string? _previousUnprefixedValue = Environment.GetEnvironmentVariable(UnprefixedVariable);
+    private readonly TemporaryContentRoot _contentRoot = new();
 
     [Fact]
     public void BuildHost_PrefixedVariable_OverridesAppSettings()
@@ -52,7 +53,7 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
         using var standardError = new StringWriter();
 
         var exitCode = await new CliApplication(standardError).RunAsync(
-            CliApplicationTests.CreateSettings(CliApplicationTests.ValidAppSettings),
+            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings),
             TestContext.Current.CancellationToken);
 
         exitCode.ShouldBe(ExitCode.Critical);
@@ -60,12 +61,13 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
     }
 
     /// <summary>
-    /// Restores the variables the tests change.
+    /// Restores the variables the tests change and deletes the content root.
     /// </summary>
     public void Dispose()
     {
         Environment.SetEnvironmentVariable(PrefixedVariable, _previousPrefixedValue);
         Environment.SetEnvironmentVariable(UnprefixedVariable, _previousUnprefixedValue);
+        _contentRoot.Dispose();
     }
 
     /// <summary>
@@ -73,9 +75,10 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
     /// </summary>
     /// <param name="args">The command-line arguments.</param>
     /// <returns>The bound value.</returns>
-    private static int ShortHashLength(params string[] args)
+    private int ShortHashLength(params string[] args)
     {
-        using var host = CliApplication.BuildHost(CliApplicationTests.CreateSettings(CliApplicationTests.ValidAppSettings, args));
+        using var host = CliApplication.BuildHost(
+            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings, args));
         return host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength;
     }
 }

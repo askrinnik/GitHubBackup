@@ -1,6 +1,8 @@
 using GitHubBackup.Core;
 using GitHubBackup.Infrastructure.Hosting;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.Cli;
 
@@ -13,10 +15,15 @@ internal sealed class CliApplication(TextWriter standardError)
     /// <summary>The prefix of every line that reports a configuration error.</summary>
     public const string ConfigurationErrorPrefix = "Configuration error: ";
 
+    /// <summary>The version of the executable, written to the log when a run starts.</summary>
+    private static readonly string? _version = typeof(CliApplication).Assembly.GetName().Version?.ToString();
+
     /// <summary>
-    /// Builds the host, validates the configuration by starting it, and stops it again.
+    /// Builds the host, validates the configuration by starting it, logs the start and the end of the run, and stops
+    /// the host again.
     /// </summary>
     /// <remarks>
+    /// The start entry is written as soon as the host has started, so both log files of the day exist from then on.
     /// Invalid configuration produces one line per error on <c>standardError</c> and <see cref="ExitCode.Critical"/>;
     /// no stack trace is written, because the console shows results and the details belong in the log.
     /// </remarks>
@@ -25,8 +32,6 @@ internal sealed class CliApplication(TextWriter standardError)
     /// <returns>The exit code of the process.</returns>
     public async Task<ExitCode> RunAsync(GitHubBackupHostSettings settings, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-
         IHost host;
         try
         {
@@ -48,7 +53,13 @@ internal sealed class CliApplication(TextWriter standardError)
                 return await ReportAsync(messages);
             }
 
+            var logger = host.Services.GetRequiredService<ILogger<CliApplication>>();
+            var environment = host.Services.GetRequiredService<IHostEnvironment>();
+            CliLog.RunStarted(logger, _version, environment.EnvironmentName);
+
             await host.StopAsync(cancellationToken);
+
+            CliLog.RunFinished(logger, ExitCode.Success);
         }
 
         return ExitCode.Success;

@@ -19,8 +19,6 @@ public static class ConfigurationErrorMessages
     /// <returns><see langword="true"/> when <paramref name="exception"/> reports invalid configuration.</returns>
     public static bool TryGet(Exception exception, out IReadOnlyList<string> messages)
     {
-        ArgumentNullException.ThrowIfNull(exception);
-
         messages = exception switch
         {
             OptionsValidationException validation => [.. validation.Failures],

@@ -12,6 +12,9 @@ public sealed class GitHubOptions
     /// <summary>The configuration section the options bind to.</summary>
     public const string SectionName = "GitHub";
 
+    /// <summary>The configuration key of the token.</summary>
+    public const string TokenKey = SectionName + ":Token";
+
     /// <summary>Gets or sets the base URL of the GitHub REST API.</summary>
     public string ApiBaseUrl { get; set; } = "https://api.github.com";
 }

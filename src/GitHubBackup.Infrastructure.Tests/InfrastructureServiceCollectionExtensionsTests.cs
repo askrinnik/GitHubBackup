@@ -1,5 +1,6 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -38,6 +39,25 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         provider.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"C:\app\my-config.json");
         provider.GetRequiredService<IOptions<HistoryOptions>>().Value.DatabasePath.ShouldBe(@"C:\app\data\history.db");
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_TokenConfigured_SecretMaskerMasksToken()
+    {
+        using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = "configured-token-value" });
+
+        provider.GetRequiredService<ISecretMasker>().Mask("token configured-token-value").ShouldBe("token ***");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    public void AddGitHubBackupInfrastructure_NoToken_SecretMaskerLeavesTextUnchanged(string? token)
+    {
+        using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = token });
+
+        provider.GetRequiredService<ISecretMasker>().Mask("plain text").ShouldBe("plain text");
     }
 
     [Fact]

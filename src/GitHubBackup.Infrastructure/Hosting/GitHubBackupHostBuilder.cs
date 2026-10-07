@@ -1,4 +1,5 @@
 using GitHubBackup.Core;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -26,8 +27,9 @@ public static class GitHubBackupHostBuilder
     public const string UserSecretsId = "GitHubBackup";
 
     /// <summary>
-    /// Creates a host builder with the configuration sources, the service provider checks and the services of
-    /// <c>Core</c> and <c>Infrastructure</c> registered; the caller adds its own services and builds the host.
+    /// Creates a host builder with the configuration sources, the service provider checks, the services of
+    /// <c>Core</c> and <c>Infrastructure</c> and the file logging registered; the caller adds its own services and
+    /// builds the host.
     /// </summary>
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
@@ -35,8 +37,6 @@ public static class GitHubBackupHostBuilder
     /// <exception cref="InvalidDataException"><see cref="AppSettingsFileName"/> is not valid JSON.</exception>
     public static HostApplicationBuilder Create(GitHubBackupHostSettings settings)
     {
-        ArgumentNullException.ThrowIfNull(settings);
-
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
             DisableDefaults = true,
@@ -68,7 +68,8 @@ public static class GitHubBackupHostBuilder
 
         builder.Services
             .AddGitHubBackupCore(configuration)
-            .AddGitHubBackupInfrastructure(configuration);
+            .AddGitHubBackupInfrastructure(configuration)
+            .AddGitHubBackupLogging(configuration);
 
         return builder;
     }

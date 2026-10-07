@@ -37,8 +37,6 @@ public sealed record GitHubBackupHostSettings
     /// <returns>The settings of the current process.</returns>
     public static GitHubBackupHostSettings ForCurrentProcess(IReadOnlyList<string> args)
     {
-        ArgumentNullException.ThrowIfNull(args);
-
         var environmentName = Environment.GetEnvironmentVariable(EnvironmentVariableName);
         return new()
         {

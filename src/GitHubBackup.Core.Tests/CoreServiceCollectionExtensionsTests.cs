@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -26,6 +27,18 @@ public sealed class CoreServiceCollectionExtensionsTests
         var exception = Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<IStartupValidator>().Validate());
 
         exception.Failures.ShouldHaveSingleItem().ShouldBe("Backup:ShortHashLength must be between 4 and 40.");
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_RunContext_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+        using var otherProvider = BuildProvider(new());
+
+        var runContext = provider.GetRequiredService<IRunContext>();
+
+        provider.GetRequiredService<IRunContext>().ShouldBeSameAs(runContext);
+        otherProvider.GetRequiredService<IRunContext>().RunId.ShouldNotBe(runContext.RunId);
     }
 
     [Fact]
