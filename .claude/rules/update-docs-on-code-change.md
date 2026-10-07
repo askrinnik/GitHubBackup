@@ -19,7 +19,7 @@ The PRD comes **before** the code: a change of behaviour, command, option, setti
 | Behaviour, CLI command or option, setting, file format, exit code, item status | `docs/PRD.md` first (version and history row), then `README.md` where it describes the same thing |
 | Build, run, test or format commands; project layout | `CLAUDE.md` (*Build and test*, *Repository layout*) and `README.md` |
 | CI workflow added or changed | `README.md` (how CI runs) if the developer-visible behaviour changes |
-| AI harness: `CLAUDE.md`, `.claude/**`, `.ai/**`, `.mcp.json`, hooks | `docs/ai-harness.md` |
+| AI harness: `CLAUDE.md`, `.claude/**`, `.ai/**`, `.mcp.json`, hooks | `docs/ai/README.md`; a change to a workflow command's body (`.ai/prompts/<command>.md`) or the agents it calls also updates `docs/ai/<command>.md` |
 | Work that is deferred to later | a new issue with `## Зависимости` and a GitHub "blocked by" relation — not a TODO in a document or in code |
 
 Rules:

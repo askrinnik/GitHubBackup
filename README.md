@@ -31,9 +31,9 @@
 ## Структура репозитория
 
 ```
-docs/   документация: PRD, планы по issues, описание AI Harness (docs/ai-harness.md)
+docs/   документация: PRD, планы по issues, описание AI Harness (docs/ai/)
 src/    решение GitHubBackup.slnx: проекты и парные тестовые проекты
-.claude/ .ai/   AI Harness для Claude Code (см. docs/ai-harness.md)
+.claude/ .ai/   AI Harness для Claude Code (см. docs/ai/README.md)
 ```
 
 ## Сборка и запуск

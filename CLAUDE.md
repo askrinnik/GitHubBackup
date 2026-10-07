@@ -6,12 +6,12 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 
 - **`docs/PRD.md` is the single source of requirements.** Every issue links the PRD sections and requirement ids (`FR-x.y`, `NFR-x`) it implements. Read those sections, not the whole document.
 - **PRD first.** If a task needs behaviour the PRD does not describe, or contradicts it, stop and propose the PRD change (bump the version in the header, add a row to the change history). Code follows only after the user approves the change; the issue is updated after the PRD.
-- The AI harness itself (agents, rules, skills, workflow, benchmark) is described in `docs/ai-harness.md`.
+- The AI harness itself (agents, rules, skills, workflow, benchmark) is described in `docs/ai/README.md`; each workflow command has its own document next to it in `docs/ai/`.
 
 ## Language (NFR-7)
 
 - **English:** code, comments, logs, CLI and UI messages, issue titles, commit messages, PR titles and descriptions, issue and PR comments, and every file of the AI harness (`CLAUDE.md`, `.claude/**`, `.ai/**`).
-- **Russian:** documentation under `docs/` (PRD, plans, `ai-harness.md`), `README.md`, issue bodies.
+- **Russian:** documentation under `docs/` (PRD, plans, `ai/`), `README.md`, issue bodies.
 
 ## Repository layout
 
@@ -19,7 +19,7 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 docs/
   PRD.md                 requirements (source of truth)
   plans/                 one implementation plan per issue: <type>-<issue>-<slug>.md
-  ai-harness.md          how the AI harness works
+  ai/                    AI harness hub (README.md) and one document per workflow command (step tree and flowchart)
 src/
   GitHubBackup.slnx
   Directory.Build.props, Directory.Packages.props, .editorconfig

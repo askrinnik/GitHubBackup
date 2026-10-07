@@ -87,7 +87,7 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 - **Feature lane:** wire the whole slice the issue covers — `Core` logic, `Infrastructure` implementation, DI registration, the host (CLI command or WPF view) when the issue includes it. A half-wired feature is not done.
 - **New behaviour ships with tests** in the paired test project (`write-tests` skill, `.claude/rules/tests.md`). **Bug lane:** the reproducing test from step 3 is part of the change.
 - If the plan turns out wrong once in the code, say so, update the plan file, and confirm before diverging materially.
-- Update documentation the change affects in the same change (`.claude/rules/update-docs-on-code-change.md`): `CLAUDE.md` build commands, `README.md`, `docs/ai-harness.md`.
+- Update documentation the change affects in the same change (`.claude/rules/update-docs-on-code-change.md`): `CLAUDE.md` build commands, `README.md`, `docs/ai/`.
 
 ## 9. Build and test
 
