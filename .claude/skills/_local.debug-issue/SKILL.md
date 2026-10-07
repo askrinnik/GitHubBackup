@@ -20,6 +20,6 @@ Ask for the failing behaviour, the command or steps, and the log excerpt if they
 3. **Find the root cause, not the symptom.** Name the type and method where the wrong decision is made, and why it is wrong against the PRD requirement.
 4. **Fix minimally** in that layer, keeping the architecture and conventions; no unrelated cleanup.
 5. **Validate:** the reproducing test now passes, every existing test still passes, the build is clean.
-6. **Record** the root cause and the fix in a form ready for the `post-issue-comment` skill.
+6. **Record** the root cause and the fix in a form ready for the `github-issue` skill.
 
 Never "fix" a failure by weakening a test, deleting an assertion, or swallowing an exception.

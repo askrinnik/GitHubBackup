@@ -38,7 +38,7 @@ docs/
 
 | Команда | Документ | Что делает |
 |---|---|---|
-| `/implement-issue <n>` | [docs/ai/implement-issue.md](implement-issue.md) | Одна задача от чтения до PR; lane выбирают метки; две контрольные точки с пользователем |
+| `/implement-issue <n>` | [docs/ai/implement-issue.md](implement-issue.md) | Одна задача от чтения до PR; метки выбирают Bug, Feature или Test-authoring lane; две контрольные точки с пользователем |
 | `/implement-issues <n> <n> …` | [docs/ai/implement-issues.md](implement-issues.md) | Несколько небольших задач на одной ветке, по коммиту на задачу, один PR |
 
 Рядом с циклами действует правило из `CLAUDE.md`: ветки не создаются, не переключаются, не переименовываются и не удаляются, а `git stash` не вызывается без просьбы пользователя; исключение — ветка задачи, создаваемая вместе с разрешённым коммитом.
@@ -58,7 +58,7 @@ docs/
 | `issue-planner` | Opus | Только чтение, возвращает план. Ошибка плана стоит дороже всего, а объём вывода мал |
 | `issue-developer` | Sonnet по умолчанию, Opus для сложности L | Самый «дорогой» по токенам агент (чтение, сборки, итерации); по согласованному детальному плану Sonnet обычно достаточно |
 | `build-runner` | Haiku | Шлюз сборки на шаге 9: полная пересборка, тесты, `dotnet format --verify-no-changes`. Возвращает дословные итоговые строки инструментов и первые ошибки, поэтому пересказ не может исказить результат. Основная сессия тратит на шлюз один вызов вместо 4–6, а шумный вывод сборки не попадает в её контекст. Проверяет независимо от `issue-developer`, ничего не исправляет |
-| `skill-runner` | Haiku | Выполняет одно уже подтверждённое действие целиком по скиллу: коммит (`git-commit`), комментарий в issue (`post-issue-comment`) или PR (`pull-request`) — пишет текст на английском, запускает команду `git`/`gh`, проверяет результат. Основная сессия тратит на действие один вызов и не загружает скилл в свой контекст. Push, правку тела issue и merge агент не делает |
+| `skill-runner` | Haiku | Выполняет одно уже подтверждённое действие целиком по скиллу: коммит (`git-commit`), комментарий в issue (`github-issue`) или PR (`open-pr`) — пишет текст на английском, запускает команду `git`/`gh`, проверяет результат. Основная сессия тратит на действие один вызов и не загружает скилл в свой контекст. Push, правку тела issue и merge агент не делает |
 | `architect` | Opus | Проектные вопросы: границы слоёв, отказоустойчивость, отмена |
 | `security-reviewer` | Opus | Риски приложения: утечка токена, инъекция аргументов git, выход за пределы папок, архивы, CI-конвейеры (по правилам `.claude/rules/github-actions.md`) |
 
@@ -91,8 +91,8 @@ docs/
 | Скилл | Назначение |
 |---|---|
 | `_local.git-commit` | Ветки `<n>-<slug>`, формат коммита `#<n> <title>` + пункты, без подписи |
-| `_local.pull-request` | PR в `main`, `Closes #<n>`, содержание описания, однократная проверка CI |
-| `_local.post-issue-comment` | Комментарий в issue: RCA для бага, итоги реализации для остальных. Скрипт `Set-AcceptanceChecks.ps1` одним вызовом отмечает проверенные пункты `## Критерии приёмки` по их номерам; остальной текст issue он не меняет и отказывается писать, если изменилось бы что-то кроме отметок |
+| `_local.open-pr` | PR в `main`, `Closes #<n>`, содержание описания, merge commit, однократная проверка CI |
+| `_local.github-issue` | Чтение issue (тело, комментарии, подзадачи, ссылки на PRD), выбор lane по меткам, список приёмки; комментарий в issue: анализ причины для бага, итоги реализации для остальных. Скрипт `Set-AcceptanceChecks.ps1` одним вызовом отмечает проверенные пункты раздела приёмки (`## Критерии приёмки`, `## Acceptance criteria` или `## Acceptance`) по их номерам; остальной текст issue он не меняет и отказывается писать, если изменилось бы что-то кроме отметок |
 | `_local.write-tests` | Выбор слоя тестов, регрессионный тест сначала для бага |
 | `_local.debug-issue` | Воспроизведение, разбор логов, поиск причины |
 | `_local.refactor-code` | Рефакторинг без изменения поведения |
@@ -110,6 +110,9 @@ docs/
 | `directory-build-organization` | [dotnet/skills](https://github.com/dotnet/skills), плагин `dotnet-msbuild` |
 | `dotnet-pinvoke` | [dotnet/skills](https://github.com/dotnet/skills), плагин `dotnet-advanced` (для Credential Manager) |
 | `csharp-async`, `csharp-docs`, `ef-core`, `microsoft-docs` | из харнесса TimeTracker (исходно github/awesome-copilot) |
+| `update-docs`, `code-review-checklist`, `security-owasp`, `dotnet-best-practices`, `csharp-xunit`, `create-implementation-plan`, `create-specification`, `dotnet-timezone` | из харнесса AddressBook2025 (исходно github/awesome-copilot) |
+
+Общие чек-листы загружаются по требованию, а не лежат в каждом контексте. Редко нужные — `coverage-analysis`, `directory-build-organization`, `test-anti-patterns`, `create-specification`, `dotnet-timezone`, `_local.harness-quality-check` — помечены `disable-model-invocation: true`: их описания не попадают в стартовый контекст, и они запускаются только командой `/<имя>`.
 
 Правила `wpf-mvvm.md` и `github-actions.md` основаны на инструкциях `dotnet-wpf`, `mvvm-toolkit` и `github-actions-ci-cd-best-practices` из github/awesome-copilot.
 
@@ -153,7 +156,7 @@ docs/
 Без изменений переносятся:
 - механизм `implement-issue` (шаги, контрольные точки, экономия контекста);
 - агенты `issue-planner`, `issue-developer`, `skill-runner`, а `build-runner` — с заменой команд сборки (см. ниже);
-- скиллы `_local.git-commit`, `_local.pull-request`, `_local.post-issue-comment`, `_local.next-issue` — для любого репозитория на GitHub;
+- скиллы `_local.git-commit`, `_local.open-pr`, `_local.github-issue`, `_local.next-issue` — для любого репозитория на GitHub;
 - гигиена комментариев (`csharp.md`);
 - бенчмарк (`_local.harness-quality-check` и `bench-base`).
 

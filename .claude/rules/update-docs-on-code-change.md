@@ -12,7 +12,7 @@ paths:
 
 # Keep documentation in step with code
 
-The PRD comes **before** the code: a change of behaviour, command, option, setting, file format, exit code or status that the PRD does not already describe is proposed as a PRD change first and implemented after approval (see `CLAUDE.md`, *Source of truth*). Everything else in the table is updated **in the same change** as the code.
+The PRD comes **before** the code: a change of behaviour, command, option, setting, file format, exit code or status that the PRD does not already describe is proposed as a PRD change first and implemented after approval (see `CLAUDE.md`, *Source of truth*). Everything else in the table is updated **in the same change** as the code. The mechanics of finding stale text are in the `update-docs` skill.
 
 | Change | Update |
 |---|---|

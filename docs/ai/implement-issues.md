@@ -35,6 +35,7 @@
 │    │          (красное → назад к реализации; красные коммиты запрещены)
 │    └─ 💻 ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 git-commit
 │               первый коммит создаёт ветку <первая>-<последняя>-<slug>
+│               в коммит входят план и отметка задачи в docs/plans/*-plan.md, если она есть
 │               ◀── «a1b2c3d #5 Заголовок»
 │
 ├─ Итоговая проверка (один раз) ──── по git diff main...HEAD
@@ -54,8 +55,8 @@
 ├─ Выдача (каждый шаг — 🙋 «да», с --ship — без вопросов)
 │    ├─ 💻 git fetch; main ушёл вперёд → git pull --ff-only и повтор итоговой проверки
 │    ├─ 💻 git push -u origin <ветка>
-│    ├─ 💻 ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 pull-request: один PR, по строке «Closes #<n>» на задачу
-│    ├─ 💻 ──1 вызов на задачу──▶ 🤖 skill-runner (Haiku) + 🧩 post-issue-comment: комментарий со ссылкой на PR
+│    ├─ 💻 ──1 вызов──▶ 🤖 skill-runner (Haiku) + 🧩 open-pr: один PR, по строке «Closes #<n>» на задачу
+│    ├─ 💻 ──1 вызов на задачу──▶ 🤖 skill-runner (Haiku) + 🧩 github-issue: комментарий со ссылкой на PR
 │    │    💻 Set-AcceptanceChecks.ps1 по каждой задаче (- [ ] → - [x])
 │    └─ 💻 gh pr checks (один раз, без опроса)
 │
@@ -105,8 +106,8 @@ flowchart TD
     subgraph SHIP["Выдача (каждый шаг 🙋 да, с --ship без вопросов)"]
         U5{{"🙋 да, push"}}:::user
         S5["💻 git fetch · git push"]:::session
-        A5["Pull request<br/>🤖 skill-runner · Haiku<br/>🧩 pull-request"]:::agent
-        A6["Комментарий по задаче<br/>🤖 skill-runner · Haiku<br/>🧩 post-issue-comment"]:::agent
+        A5["Pull request<br/>🤖 skill-runner · Haiku<br/>🧩 open-pr"]:::agent
+        A6["Комментарий по задаче<br/>🤖 skill-runner · Haiku<br/>🧩 github-issue"]:::agent
         S6["💻 Отметки приёмки<br/>Set-AcceptanceChecks.ps1"]:::session
         S7["💻 gh pr checks"]:::session
         U5 --> S5 --> A5 --> A6 --> S6 --> S7

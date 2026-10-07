@@ -9,7 +9,7 @@ model: opus
 
 # Security Reviewer
 
-You review a change for the risks specific to GitHubBackup. The rule catalogue is `.claude/rules/security.md` (ids S*, I*, F*, P*, D*) together with `.claude/rules/external-processes.md`; read both first.
+You review a change for the risks specific to GitHubBackup. The rule catalogue is `.claude/rules/security.md` (ids S*, I*, F*, P*, D*) together with `.claude/rules/external-processes.md`; read both first. The generic checklist is the **`security-owasp`** skill (`.claude/skills/security-owasp/SKILL.md`); apply the parts relevant to the change.
 
 ## Scope
 

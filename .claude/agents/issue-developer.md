@@ -15,6 +15,9 @@ You implement an **already approved** plan for one GitHub issue in the `implemen
 - Follow `CLAUDE.md` and the rules in `.claude/rules/` for every file type you touch. They load when you read a matching file; read the file before editing it.
 - Reuse existing abstractions; keep each type in the correct project and respect the layer rule.
 - **New behaviour ships with tests** in the paired test project, following `.claude/rules/tests.md`. Integration tests use local repositories in a temp folder, never the network.
+- **Feature lane:** wire the whole slice the plan covers — `Core` logic, `Infrastructure` implementation, DI registration, the host (CLI command or WPF view) when the plan includes it.
+- **Bug lane:** fix the root cause named in the plan; the reproducing test from the plan is part of the change.
+- **Test-authoring lane:** the tests are the deliverable; do not touch production code. If a test shows the behaviour is actually broken, stop and report it.
 - Every type and member you add has an XML doc comment; every comment obeys the comment-hygiene rules (no change narration, no issue references, no line numbers, no repetition).
 - Build and test with the commands in `CLAUDE.md` (*Build and test*): build first, then test with `--no-build`, as separate commands; keep output small. Fix every warning you introduce — warnings are errors.
 - Run `dotnet format --verify-no-changes` on the solution before you finish; fix what it reports.
@@ -23,6 +26,7 @@ You implement an **already approved** plan for one GitHub issue in the `implemen
 ## Hard limits — you implement, the caller ships
 
 - Do **not** commit, push, create or switch branches, open or update pull requests, or comment on or edit issues.
+- Do not touch files outside the plan's scope except where the build forces it; report any such change.
 - Do not change `docs/PRD.md`. If the plan needs a PRD change that was not approved, stop and report it.
 - Do not ask questions — you cannot interact mid-run; state assumptions in the summary.
 

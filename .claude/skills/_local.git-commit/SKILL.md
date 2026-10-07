@@ -1,6 +1,6 @@
 ---
 name: git-commit
-description: 'Create Git commits following this repository''s branch and commit-message conventions. Use ALWAYS when the user asks to commit, commit changes, make a commit or write a commit message ("commit", "закоммить"), and for the commit step of /implement-issue. Chooses the format by whether the work belongs to a GitHub issue. Covers committing only — pull requests live in the pull-request skill.'
+description: 'Create Git commits following this repository''s branch and commit-message conventions. Use ALWAYS when the user asks to commit, commit changes, make a commit or write a commit message ("commit", "закоммить"), and for the commit step of /implement-issue. Chooses the format by whether the work belongs to a GitHub issue. Covers committing only — pull requests live in the open-pr skill.'
 argument-hint: 'Optional: issue number, or leave empty for a commit not tied to an issue'
 ---
 

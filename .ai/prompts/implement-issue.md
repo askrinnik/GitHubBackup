@@ -1,6 +1,30 @@
 Take a GitHub issue of `askrinnik/GitHubBackup` end to end: read it, check its dependencies and the PRD, plan, implement with tests, verify, record the outcome on the issue, open the pull request, and recommend the next issue. There are two checkpoints with the user — the plan review and the result confirmation — and every outward action (commit, push, comment, PR) needs the user's go-ahead.
 
-The issue's labels select the **lane** at step 2. Steps marked **Bug lane** or **Feature lane** apply only to that lane; unmarked steps apply to both.
+The issue's labels select the **lane** at step 2. Steps marked **Bug lane**, **Feature lane** or **Test-authoring lane** apply only to that lane; unmarked steps apply to all of them.
+
+This workflow orchestrates existing skills instead of re-deriving their mechanics:
+- **`github-issue`** — read the issue (body, comments, related issues, PRD links), establish acceptance criteria, and post the result comment at the end.
+- **`git-commit`** / **`open-pr`** — create the issue branch and commit onto it with the plan; open the PR into `main`.
+- **`next-issue`** — recommend what to take when no issue number is given, and what comes next after shipping.
+- **`debug-issue`** / **`write-tests`** — reproduce and diagnose a defect; pick the test layer and write the tests.
+
+## Delegation
+
+Noisy or specialised work goes to subagents so their raw output stays out of this conversation. Each role runs on the model that fits it:
+
+| Role | `subagent_type` | Model | Steps |
+|---|---|---|---|
+| Plan | `issue-planner` | Opus | 4 |
+| Design of a cross-layer change | `architect` | Opus | 4 (optional) |
+| Implement | `issue-developer` | Sonnet; Opus for complexity `L` | 8 |
+| Build, tests and format | `build-runner` | Haiku | 9, 12 |
+| Security review (when triggered) | `security-reviewer` | Opus | 9 |
+| Commit, issue comment, pull request (after the user's go-ahead) | `skill-runner` | Haiku | 12, 13 |
+| Broad code search | `Explore` (summary ≤ 30 lines) | default | 3 |
+
+- **You keep every gate:** the plan review, both confirmations with the user, the user's go-ahead before every outward action, the push, the acceptance ticks and the CI check. The implementer's "passed" is input, not proof: the build and the tests run again in `build-runner`, independently of it.
+- Hand each subagent only the compact facts it needs (issue number and exact title, lane, plan file path, acceptance list, decisions), not this conversation.
+- For a trivial change (a few lines, one file) you may plan or implement inline instead of delegating.
 
 ## Context budget
 
@@ -15,7 +39,7 @@ Every model call re-reads the whole conversation, so cost is roughly calls × co
 3. **One issue per session.** After step 14, recommend a new session for the next issue instead of continuing in this one.
 4. **Read narrowly.** Grep first, then read around the match. Read a whole file only when you will change most of it or it is under about 200 lines. Never re-read a file you just edited. Read only the PRD sections the issue links. For broad exploration use the `Explore` agent and ask for a summary of at most 30 lines.
 5. **Keep tool output small at the source.** `-clp:ErrorsOnly` for builds; test output captured to a file and only the summary and first failures read; `git diff --stat` before any full diff, then per file; `gh … --json <fields> --jq …`.
-6. **Delegate noisy work** to the agents named in this workflow (`issue-planner`, `issue-developer`, `build-runner`, `skill-runner`, `Explore`) so their raw output stays out of this conversation.
+6. **Delegate noisy work** to the agents in *Delegation* so their raw output stays out of this conversation.
 7. **Scratch paths stay outside the repository.** Every scratch directory or file you hand to `build-runner` or `skill-runner` lies in your session's scratch directory (or, without one, the system temp folder) — never under the repository root: files there show up in `git status`, can be staged by mistake, and the `rm -rf` you would need to clean them up is denied. Hand over a full path to the file or folder, not a hint such as "the system temp folder", and write it with forward slashes (`C:/Users/…/scratchpad/commit.txt`): the agents run commands in Bash, where a backslash is an escape character.
 
 ## 0. Start from an up-to-date `main`
@@ -33,14 +57,19 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 ## 1. Read the issue
 
 - If no issue number was given, run the `next-issue` skill, present its recommendation and ask which issue to take. Do nothing else until the user picks one.
-- `gh issue view <n> --json number,title,state,labels,milestone,body,comments,assignees`. Requirements are sometimes refined in comments — read them.
+- Use the **`github-issue`** skill to read issue `<n>` (`gh issue view <n> --json number,title,state,labels,milestone,body,comments,assignees`). Requirements are sometimes refined in comments — read them.
+- If the issue has a parent or sub-issues, the scope is **this** issue, not the whole parent.
 - If the issue is closed, stop and say so.
 - Note the PRD sections and requirement ids the issue links (`## Источник требований`), its task, its acceptance criteria (`## Критерии приёмки`, a `- [ ]` list) and its dependencies.
 
 ## 2. Check dependencies, determine the lane, take ownership
 
-- **Dependencies.** Read the blocking issues: `gh api graphql` for `blockedBy`, or the numbers in `## Зависимости`. If any blocker is still open, stop: name it, say whether it has an open PR, and ask how to proceed. Do not start on top of unmerged work unless the user explicitly says so.
-- **Lane.** Label `bug` → **Bug lane**: reproduce, fix the root cause, RCA comment. Any other type label (`type:feature`, `type:chore`, `type:test`) → **Feature lane**: acceptance list, plan, build, implementation comment.
+- **Dependencies.** Read the blocking issues: `gh api graphql` for `blockedBy`, and the numbers in `## Зависимости`. If any blocker is still open, stop: name it, say whether it has an open PR, and ask how to proceed. Do not start on top of unmerged work unless the user explicitly says so. If the body and the relations disagree, mention it.
+- **Lane.**
+  - **Bug lane** — labelled `bug`: reproduce, fix the root cause, guard it with a regression test, post a root-cause comment.
+  - **Test-authoring lane** — the issue asks only to add or extend tests for behaviour that **already exists**, typically labelled `type:test`. No production code is expected; the tests are the deliverable. A change to CI workflows, configuration or documentation is not test-authoring, even when it is labelled `type:test` or serves the tests: it takes the Feature lane.
+  - **Feature lane** — everything else (`type:feature`, `type:chore`; default): acceptance list, plan, build, implementation comment.
+  - State the lane and why in one line. If the labels and the issue text disagree (for example a `bug` label on what reads as a new feature), ask before going further.
 - **Ownership.** Assign the issue to the user: `gh issue edit <n> --add-assignee @me` (this is the one issue edit that needs no separate confirmation; it changes no content).
 
 ## 3. Understand the problem
@@ -51,9 +80,8 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 - Reproduce before planning a fix, preferably with a **failing test** in the layer that owns the decision (unit test; integration test on a local bare repository in a temp folder; or a CLI run against a temp folder with `file://` remotes, capturing exit code, summary and log). Follow the `debug-issue` skill.
 - If it cannot be reproduced as described, report what was tried and ask how to proceed.
 
-**Feature lane — acceptance and current state:**
-- Restate the requirement in a sentence or two: what is true when this issue is done.
-- Build the acceptance list: the issue's criteria verbatim, plus any observable behaviour the PRD requires and the issue omits (marked as added).
+**Feature lane and Test-authoring lane — acceptance and current state:**
+- Use the **`github-issue`** skill to restate the requirement in a sentence or two (what is true when this issue is done) and to build the acceptance list: the issue's criteria verbatim, plus any observable behaviour the PRD requires and the issue omits (marked as added).
 - **Flag gaps, don't invent.** If something material is undefined in both the issue and the PRD, ask before planning. Routine naming and structure calls are yours.
 
 **PRD first.** If the issue cannot be done without behaviour the PRD does not describe, or contradicts it, stop and propose the PRD change: the text, the version bump and the history row. Implement only after the user approves; the PRD edit is part of this issue's change. If the issue text itself is out of date against the PRD, propose updating the issue after the PRD.
@@ -61,7 +89,10 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 ## 4. Draft the plan
 
 - Delegate the research to the `issue-planner` agent. Hand it: issue number and exact title, lane, the PRD sections and requirement ids, the acceptance list (or the reproduced failure and the failing test), and any decisions already made with the user. It returns the plan text in Russian in the shape it defines, including a **complexity** of `S`, `M` or `L`.
-- For a trivial change you may draft the plan inline instead, in the same shape.
+- For a trivial change you may draft the plan inline instead, in the same shape. For a large or multi-layer change you may use the `architect` agent to shape it — but keep the final plan in the shape `issue-planner` defines.
+- **Bug lane:** the root cause, the types and methods to change, the regression risk, and the test that reproduces the bug and will keep it fixed.
+- **Test-authoring lane:** the test classes and cases to add, the fixtures and helpers they reuse, and confirmation that no production code changes.
+- **Feature and Test-authoring lanes — cross-check coverage against the code, not only the issue text.** For every type, command or view the plan touches or tests, list its inputs and code branches (required vs optional options, success/failure/empty/cancelled paths, boundary values) and compare them with the issue's scenarios. Each gap is either added to the plan (and the acceptance list) or named explicitly under *Вне рамок* — never silently skipped. Small, obviously in-scope additions are made without asking.
 - If the plan lists *Изменения PRD* or *Открытые вопросы*, resolve them with the user at the review in step 5.
 
 ## 5. Save the plan and get it reviewed
@@ -85,9 +116,10 @@ The previous issue usually leaves you on its own branch, and its pull request ma
 - For a trivial change, implement inline.
 - **You keep every gate:** build, tests, verification (steps 9–10) and all confirmation and shipping steps.
 - **Feature lane:** wire the whole slice the issue covers — `Core` logic, `Infrastructure` implementation, DI registration, the host (CLI command or WPF view) when the issue includes it. A half-wired feature is not done.
+- **Test-authoring lane:** the tests are the deliverable; do not touch production code. If, while writing them, you discover the behaviour is actually broken, stop and tell the user — that becomes a separate defect, not part of this issue.
 - **New behaviour ships with tests** in the paired test project (`write-tests` skill, `.claude/rules/tests.md`). **Bug lane:** the reproducing test from step 3 is part of the change.
 - If the plan turns out wrong once in the code, say so, update the plan file, and confirm before diverging materially.
-- Update documentation the change affects in the same change (`.claude/rules/update-docs-on-code-change.md`): `CLAUDE.md` build commands, `README.md`, `docs/ai/`.
+- Update documentation the change affects in the same change: the table in `.claude/rules/update-docs-on-code-change.md` says where (`CLAUDE.md` build commands, `README.md`, `docs/ai/`); the `update-docs` skill has the mechanics.
 
 ## 9. Build and test
 
@@ -102,7 +134,8 @@ Run the gate independently of `issue-developer`, even if it reported success:
 ## 10. Verify
 
 - **Bug lane:** the reproducing test passes; re-run the original reproduction (CLI run or scenario) and confirm the failure is gone.
-- **Feature lane:** verify **every** acceptance item and record how: a named test, a command with its observed output, or a CLI run against a temp folder with local repositories (exit code, summary, files on disk, log entries). Exercise the obvious negatives the PRD defines: invalid configuration, missing tool, failing repository, cancellation, `--dry-run` changing nothing.
+- **Feature lane:** verify **every** acceptance item and record how: a named test, a command with its observed output, or a CLI run against a temp folder with local repositories (exit code, summary, files on disk, log entries). Exercise the obvious negatives the PRD defines: invalid configuration, missing tool, failing repository, cancellation, `--dry-run` changing nothing. Verify an item without runtime behaviour (a CI workflow, configuration, documentation) with a command, a test or the pull request's CI run, and record how; an item only the CI run can confirm stays open until it has.
+- **Test-authoring lane:** the new or changed tests appear in the `build-runner` summary, pass, and actually assert the intended behaviour — a test that passes without asserting anything is not done.
 - UI issues: ViewModel tests and FlaUI tests per the plan; manual inspection of the running app only when the user asks for it.
 - **This step is not optional.** The user's go-ahead to skip the plan review or to go straight through the workflow does not cover it, and a green test run alone does not replace the per-item record above. Skip an item only when the user explicitly says so for this issue, and name it in step 11 as not verified.
 - If anything fails, go back to step 8 (or step 4 if the approach must change), then re-run steps 9–10.
@@ -110,24 +143,24 @@ Run the gate independently of `issue-developer`, even if it reported success:
 ## 11. Ask for confirmation
 
 - **Bug lane:** what was wrong (root cause), what was fixed, how it was verified.
-- **Feature lane:** what was implemented, and the acceptance list as a table: item → how verified → result. State explicitly anything not covered or left out.
+- **Feature and Test-authoring lanes:** what was implemented, and the acceptance list as a table: item → how verified → result. State explicitly anything not covered or left out.
 - Ask whether the result is acceptable. If not, return to step 8 (or 4) and iterate.
 - **Milestone:** once confirmed, hand the user the step-11 `/compact` command.
 
 ## 12. Commit and push
 
-**Get the go-ahead, delegate the action.** The commit, the issue comment and the pull request are each carried out end to end by the `skill-runner` agent (cheap model, isolated context), which follows the whole skill — composes the text, runs the `git`/`gh` command and checks the result. Ask the user first; only after the go-ahead make one `skill-runner` call for that one action. Give it the skill name (`git-commit`, `post-issue-comment`, `pull-request`), the compact facts you already hold — issue number and exact title, lane, one line per changed file, the acceptance table, build and test results — the action-specific inputs named in the skill's *Inline or delegated* section, and a scratch file path for the text outside the repository — for every action, the commit included. Push, acceptance ticks and the CI check stay with you.
+**Get the go-ahead, delegate the action.** The commit, the issue comment and the pull request are each carried out end to end by the `skill-runner` agent (cheap model, isolated context), which follows the whole skill — composes the text, runs the `git`/`gh` command and checks the result. Ask the user first; only after the go-ahead make one `skill-runner` call for that one action. Give it the skill name (`git-commit`, `github-issue`, `open-pr`), the compact facts you already hold — issue number and exact title, lane, one line per changed file, the acceptance table, build and test results — the action-specific inputs named in the skill's *Inline or delegated* section, and a scratch file path for the text outside the repository — for every action, the commit included. Push, acceptance ticks and the CI check stay with you.
 
 - **Re-sync the base.** `git fetch origin`; if `origin/main` moved since step 0, pull it (`git pull --ff-only`; the uncommitted changes travel with you) and re-run step 9 (a `build-runner` call with scope `full`) so nothing regressed against the newer base. Otherwise say it is unchanged.
-- **Tick the plan** checklist in `docs/plans/…` to match the work; the plan file goes into the same commit.
+- **Tick the plan** checklist in `docs/plans/…` to match the work. Also `Grep` `docs/plans/` for the issue's link (`issues/<n>)`): a hit is a task line `- [ ] **<id>** ([#<n>](…))` in a multi-issue plan `docs/plans/<topic>-plan.md`; change it to `- [x]` once the user has confirmed the result in step 11. Both go into the same commit as the work.
 - **Commit** after the user's go-ahead: one `skill-runner` call with the `git-commit` skill, the exact files to stage (including the plan file) and the branch — `<n>-<slug>`, which it creates from the up-to-date `main`, or the existing branch you stayed on at the user's request (step 0). It reports the short SHA and the first line.
 - **Push** (`git push -u origin <branch>`) after the user's go-ahead.
 
 ## 13. Issue comment, acceptance boxes, pull request
 
-- **Issue comment.** After the user's go-ahead, one `skill-runner` call with the `post-issue-comment` skill (Bug → *Root Cause Analysis / Resolution / Verification*; Feature → *Implementation / Acceptance Criteria / Verification*); it posts the comment and reports its URL.
-- **Acceptance boxes.** After the user's go-ahead, tick the verified items of `## Критерии приёмки` with one call of the `Set-AcceptanceChecks.ps1` script (`post-issue-comment` skill, *Acceptance boxes*), passing their positions. Leave unverified items unticked and name them from the script's output.
-- **Pull request.** After the user's go-ahead, one `skill-runner` call with the `pull-request` skill, the head branch and the posted comment; it opens the PR into `main` (title `#<n> <exact title>`, body with `Closes #<n>`) and reports the URL. Pass the URL on to the user.
+- **Issue comment.** After the user's go-ahead, one `skill-runner` call with the `github-issue` skill (Bug → *Root Cause / Resolution / Verification*; Feature and Test-authoring → *Implementation / Acceptance Criteria / Verification*); it posts the comment and reports its URL.
+- **Acceptance boxes.** After the user's go-ahead, tick the verified items of the issue's acceptance section (`## Критерии приёмки`) with one call of the `Set-AcceptanceChecks.ps1` script (`github-issue` skill, *Acceptance boxes*), passing their positions. Leave unverified items unticked and name them from the script's output. Skip this when the body has no checklist.
+- **Pull request.** After the user's go-ahead, one `skill-runner` call with the `open-pr` skill, the head branch and the posted comment; it opens the PR into `main` (title `#<n> <exact title>`, body with `Closes #<n>`) and reports the URL. Pass the URL on to the user.
 - **CI.** Check once with `gh pr checks <pr>`. If checks are still running, say so — the desktop app can watch CI; do not poll in a loop. If a check fails, report the failing job and first error, and fix it on the same branch after the user agrees.
 - The user merges the PR (merge commit). Do not merge unless asked.
 

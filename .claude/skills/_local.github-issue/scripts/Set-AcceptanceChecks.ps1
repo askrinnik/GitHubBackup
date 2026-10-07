@@ -3,9 +3,10 @@
 	Ticks verified acceptance criteria in the body of a GitHub issue.
 
 .DESCRIPTION
-	Reads the issue body, finds the "## Критерии приёмки" section and turns "- [ ]" into "- [x]" for the
-	checkbox items given by their position in that section (1-based, in document order, nested items
-	included). Nothing else in the body changes: before writing, the script compares the old and the new
+	Reads the issue body, finds the acceptance section — the first "## Критерии приёмки",
+	"## Acceptance criteria" or "## Acceptance" heading, optionally followed by a note in parentheses — and
+	turns "- [ ]" into "- [x]" for the checkbox items given by their position in that section (1-based, in
+	document order, nested items included). Nothing else in the body changes: before writing, the script compares the old and the new
 	body line by line and refuses to write if any other line differs. Items that are already ticked stay
 	ticked; the script never unticks anything.
 
@@ -27,10 +28,10 @@
 	Show the result without editing the issue.
 
 .EXAMPLE
-	pwsh -NoProfile -File .claude/skills/_local.post-issue-comment/scripts/Set-AcceptanceChecks.ps1 -Issue 12 -Items 1,2,4
+	pwsh -NoProfile -File .claude/skills/_local.github-issue/scripts/Set-AcceptanceChecks.ps1 -Issue 12 -Items 1,2,4
 
 .EXAMPLE
-	pwsh -NoProfile -File .claude/skills/_local.post-issue-comment/scripts/Set-AcceptanceChecks.ps1 -Issue 12 -Items 1,2 -DryRun
+	pwsh -NoProfile -File .claude/skills/_local.github-issue/scripts/Set-AcceptanceChecks.ps1 -Issue 12 -Items 1,2 -DryRun
 #>
 [CmdletBinding()]
 param(
@@ -59,14 +60,14 @@ $body = [string]$data.body
 $newline = if ($body.Contains("`r`n")) { "`r`n" } else { "`n" }
 $lines = $body -split '\r?\n'
 
-$sectionPattern = '^##\s+Критерии\s+при[её]мки\s*$'
+$sectionPattern = '^##\s+(Критерии\s+при[её]мки|Acceptance(\s+criteria)?)(\s*\(.*\))?\s*$'
 $checkboxPattern = '^(\s*[-*+]\s+\[)([ xX])(\]\s.*)$'
 
 $start = -1
 for ($i = 0; $i -lt $lines.Count; $i++) {
 	if ($lines[$i] -match $sectionPattern) { $start = $i; break }
 }
-if ($start -lt 0) { throw "Issue #$Issue has no '## Критерии приёмки' section." }
+if ($start -lt 0) { throw "Issue #$Issue has no '## Критерии приёмки', '## Acceptance criteria' or '## Acceptance' section." }
 
 $end = $lines.Count
 for ($i = $start + 1; $i -lt $lines.Count; $i++) {

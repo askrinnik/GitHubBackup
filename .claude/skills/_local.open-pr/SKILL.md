@@ -1,10 +1,10 @@
 ---
-name: pull-request
+name: open-pr
 description: 'Open a GitHub pull request following this repository''s conventions — target branch, title, the Closes keyword and what the description should contain. Use whenever creating or updating a PR, on its own or as the PR step of /implement-issue. Covers pull requests only — commit mechanics live in the git-commit skill.'
 argument-hint: 'Optional: the issue number the PR resolves'
 ---
 
-# pull-request
+# open-pr
 
 How to open a pull request in this repository. **Pull-request mechanics only.**
 

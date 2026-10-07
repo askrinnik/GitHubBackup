@@ -59,11 +59,11 @@ Terminal hygiene: run build and test as separate commands, never chained with a 
 
 - All GitHub work goes through the `gh` CLI (repository `askrinnik/GitHubBackup`). Use `--json` with `--jq` to fetch only the fields you need.
 - `main` is the base branch. Never commit directly to it. Work for issue `<n>` happens on branch `<n>-<slug>`, created immediately before the first commit.
-- Commit messages and PR text follow the `git-commit`, `pull-request` and `post-issue-comment` skills. A PR targets `main`, its description contains `Closes #<n>`, and the user merges it with a merge commit.
+- Commit messages and PR text follow the `git-commit`, `open-pr` and `github-issue` skills. A PR targets `main`, its description contains `Closes #<n>`, and the user merges it with a merge commit.
 - Never commit, push, open or merge a PR, comment on, create or edit an issue without the user's explicit go-ahead for that action. The one standing exception: starting `/implement-issues` authorises its commits (one per issue); push, PR and comments still wait for a go-ahead unless the command carries `--ship`.
 - Never create, switch, rename or delete a branch, and never stash, on your own initiative — not to prepare work, not to tidy up after a mistake. Do it only when the user's current message asks for it. The one built-in exception is a task branch created together with a commit the user has authorised; `.ai/prompts/implement-issue.md` (step 0) and `.ai/prompts/implement-issues.md` say when. Work stays on the branch you were started on; if that is a problem, say so and ask.
 - Issue order is expressed twice: GitHub "blocked by" relations (machine-readable) and the `## Зависимости` section of the issue body (human-readable). When creating an issue, set both.
-- Entry points: `/implement-issue <n>` takes one issue end to end; `/implement-issues <n> <n> …` takes several small issues in order on one branch, one commit each, and ships one PR; `/next-issue` recommends what to take next.
+- Entry points: `/implement-issue <n>` takes one issue (bug, feature or test-authoring lane, chosen by its labels) end to end; `/implement-issues <n> <n> …` takes several small issues in order on one branch, one commit each, and ships one PR; `/next-issue` recommends what to take next.
 
 ## Code conventions (summary)
 
@@ -99,8 +99,8 @@ Every C# type and member gets a `///` XML doc comment; implementations and overr
 - **issue-planner** — read-only research; returns a review-ready plan for one issue.
 - **issue-developer** — implements an approved plan with tests; never commits, pushes or posts.
 - **build-runner** — runs the build, tests and format check on a cheap model and returns the tools' summary lines verbatim; never edits or fixes anything.
-- **skill-runner** — carries out one approved commit, issue comment or pull request end to end by following the matching skill (`git-commit`, `post-issue-comment`, `pull-request`) on a cheap model; never pushes and never acts beyond that one action. The caller gets the user's go-ahead first.
+- **skill-runner** — carries out one approved commit, issue comment or pull request end to end by following the matching skill (`git-commit`, `github-issue`, `open-pr`) on a cheap model; never pushes and never acts beyond that one action. The caller gets the user's go-ahead first.
 - **architect** — designs changes that keep the layer boundaries; surfaces trade-offs.
 - **security-reviewer** — reviews changes for the risks of this application (token leakage, argument injection into git, path escape, unsafe archives).
 
-Code review uses the built-in `/code-review` and `/security-review`, which read these rules.
+Code review uses the built-in `/code-review` and `/security-review`, which read these rules. The generic checklists — `security-owasp`, `code-review-checklist`, `update-docs`, `dotnet-best-practices`, `csharp-xunit` — are on-demand skills; invoke them when that pass is actually needed.
