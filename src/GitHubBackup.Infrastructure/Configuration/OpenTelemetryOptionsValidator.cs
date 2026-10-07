@@ -11,8 +11,6 @@ internal sealed class OpenTelemetryOptionsValidator : IValidateOptions<OpenTelem
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, OpenTelemetryOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
         if (!options.Enabled || Uri.TryCreate(options.OtlpEndpoint, UriKind.Absolute, out _))
         {
             return ValidateOptionsResult.Success;

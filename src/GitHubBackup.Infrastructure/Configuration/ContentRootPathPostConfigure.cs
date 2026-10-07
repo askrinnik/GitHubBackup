@@ -17,20 +17,12 @@ internal sealed class ContentRootPathPostConfigure(IHostEnvironment environment)
     : IPostConfigureOptions<BackupOptions>, IPostConfigureOptions<HistoryOptions>
 {
     /// <inheritdoc />
-    public void PostConfigure(string? name, BackupOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
+    public void PostConfigure(string? name, BackupOptions options) =>
         options.ConfigPath = Resolve(options.ConfigPath);
-    }
 
     /// <inheritdoc />
-    public void PostConfigure(string? name, HistoryOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
+    public void PostConfigure(string? name, HistoryOptions options) =>
         options.DatabasePath = Resolve(options.DatabasePath);
-    }
 
     /// <summary>
     /// Returns <paramref name="path"/> as a full path, resolved against the content root when it is relative.

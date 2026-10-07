@@ -8,12 +8,8 @@ namespace GitHubBackup.Infrastructure.Configuration;
 internal sealed class HistoryOptionsValidator : IValidateOptions<HistoryOptions>
 {
     /// <inheritdoc />
-    public ValidateOptionsResult Validate(string? name, HistoryOptions options)
-    {
-        ArgumentNullException.ThrowIfNull(options);
-
-        return string.IsNullOrWhiteSpace(options.DatabasePath)
+    public ValidateOptionsResult Validate(string? name, HistoryOptions options) =>
+        string.IsNullOrWhiteSpace(options.DatabasePath)
             ? ValidateOptionsResult.Fail($"{HistoryOptions.SectionName}:{nameof(HistoryOptions.DatabasePath)} must not be empty.")
             : ValidateOptionsResult.Success;
-    }
 }

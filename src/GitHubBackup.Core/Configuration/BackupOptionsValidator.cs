@@ -10,8 +10,6 @@ internal sealed class BackupOptionsValidator : IValidateOptions<BackupOptions>
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, BackupOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
         List<string> failures = [];
 
         if (string.IsNullOrWhiteSpace(options.ConfigPath))

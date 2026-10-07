@@ -10,8 +10,6 @@ internal sealed class GitHubOptionsValidator : IValidateOptions<GitHubOptions>
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, GitHubOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
         var isHttpUri = Uri.TryCreate(options.ApiBaseUrl, UriKind.Absolute, out var uri)
             && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
 

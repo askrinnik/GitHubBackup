@@ -14,8 +14,6 @@ internal sealed class ToolsOptionsValidator : IValidateOptions<ToolsOptions>
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, ToolsOptions options)
     {
-        ArgumentNullException.ThrowIfNull(options);
-
         List<string> failures = [];
         AddFailureIfRelative(failures, options.GitPath, nameof(ToolsOptions.GitPath));
         AddFailureIfRelative(failures, options.SevenZipPath, nameof(ToolsOptions.SevenZipPath));
