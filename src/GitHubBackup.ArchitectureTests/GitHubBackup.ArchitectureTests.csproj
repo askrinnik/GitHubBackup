@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <PackageReference Include="NetArchTest.Rules" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Core\GitHubBackup.Core.csproj" />
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
     <ProjectReference Include="..\GitHubBackup.Cli\GitHubBackup.Cli.csproj" />
