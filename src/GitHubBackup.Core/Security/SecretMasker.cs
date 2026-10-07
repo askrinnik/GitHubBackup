@@ -64,9 +64,15 @@ public sealed partial class SecretMasker : ISecretMasker
     /// Matches a GitHub token by its documented prefix: classic and OAuth tokens (<c>ghp_</c>, <c>gho_</c>,
     /// <c>ghu_</c>, <c>ghs_</c>, <c>ghr_</c>) and fine-grained tokens (<c>github_pat_</c>).
     /// </summary>
+    /// <remarks>
+    /// A token must not follow a word character, so identifiers that merely contain a prefix are left alone. The
+    /// exception is a token that directly follows a JSON escape (<c>\n</c>, <c>\t</c>, <c>\uXXXX</c>) or a percent
+    /// escape (<c>%3A</c>): the escape ends in a word character but is not part of the token's word. A preceding
+    /// <c>\\n</c> is treated as an escape as well, which masks too much rather than too little.
+    /// </remarks>
     /// <returns>The regular expression.</returns>
     [GeneratedRegex(
-        "(?<![A-Za-z0-9_])(?:gh[pousr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{22,})",
+        """(?:(?<![A-Za-z0-9_])|(?<=\\[nrtbf]|\\u[0-9A-Fa-f]{4}|%[0-9A-Fa-f]{2}))(?:gh[pousr]_[A-Za-z0-9_]{36,}|github_pat_[A-Za-z0-9_]{22,})""",
         RegexOptions.CultureInvariant)]
     private static partial Regex GitHubToken();
 }

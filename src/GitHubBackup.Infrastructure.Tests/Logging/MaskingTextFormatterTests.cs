@@ -16,6 +16,9 @@ public sealed class MaskingTextFormatterTests
     /// <summary>A registered secret that has no recognisable format.</summary>
     private const string _secret = "s3cret-value-without-format";
 
+    /// <summary>A token in the classic GitHub format that the masker recognises by its prefix.</summary>
+    private const string _gitHubToken = "ghp_TestTokenValue0123456789abcdefABCDEF";
+
     private readonly SecretMasker _masker = new();
 
     /// <summary>
@@ -64,6 +67,37 @@ public sealed class MaskingTextFormatterTests
         document.RootElement.GetProperty("Token").GetString().ShouldBe(SecretMasker.Replacement);
         document.RootElement.GetProperty("Header").GetString().ShouldBe("Authorization: Basic ***");
         document.RootElement.GetProperty("@x").GetString().ShouldNotBeNull().ShouldContain("Failed with ***");
+    }
+
+    [Fact]
+    public void Format_GitHubTokenAfterNewLineInProperty_MasksJsonOutputAndKeepsItValid()
+    {
+        var logEvent = LogEvents.Create(
+            "Output",
+            null,
+            ("Output", "line one\n" + _gitHubToken));
+
+        var output = Format(new CompactJsonFormatter(), logEvent);
+
+        output.ShouldNotContain(_gitHubToken);
+        using var document = JsonDocument.Parse(output);
+        document.RootElement.GetProperty("Output").GetString().ShouldBe("line one\n***");
+    }
+
+    [Fact]
+    public void Format_GitHubTokenAfterTabInProperty_MasksTextOutput()
+    {
+        var logEvent = LogEvents.Create(
+            "Output",
+            null,
+            ("Output", "a\t" + _gitHubToken));
+
+        var output = Format(
+            new MessageTemplateTextFormatter("{Message:lj} {Properties:j}", CultureInfo.InvariantCulture),
+            logEvent);
+
+        output.ShouldNotContain(_gitHubToken);
+        output.ShouldContain("""a\t***""");
     }
 
     [Fact]

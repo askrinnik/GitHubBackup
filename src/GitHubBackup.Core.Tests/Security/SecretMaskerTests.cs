@@ -53,10 +53,47 @@ public sealed class SecretMaskerTests
     [Theory]
     [InlineData(_classicToken)]
     [InlineData("gho_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghu_TestTokenValue0123456789abcdefABCDEF")]
     [InlineData("ghs_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghr_TestTokenValue0123456789abcdefABCDEF")]
     [InlineData("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
     public void Mask_UnregisteredGitHubToken_ReplacesIt(string token) =>
         _masker.Mask($"token={token};").ShouldBe("token=***;");
+
+    [Theory]
+    [InlineData("""\n""")]
+    [InlineData("""\r""")]
+    [InlineData("""\t""")]
+    [InlineData("""\b""")]
+    [InlineData("""\f""")]
+    [InlineData("""\u001B""")]
+    public void Mask_GitHubTokenAfterJsonEscape_ReplacesToken(string escape) =>
+        _masker.Mask($"line{escape}{_classicToken}").ShouldBe($"line{escape}***");
+
+    [Theory]
+    [InlineData("%3A")]
+    [InlineData("%3a")]
+    [InlineData("%2F")]
+    public void Mask_GitHubTokenAfterUrlEncodedCharacter_ReplacesToken(string encoded) =>
+        _masker.Mask($"url{encoded}{_classicToken}").ShouldBe($"url{encoded}***");
+
+    [Theory]
+    [InlineData("ghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("gho_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghu_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghs_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghr_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
+    public void Mask_GitHubTokenFormsAfterJsonEscape_ReplacesToken(string token) =>
+        _masker.Mask($$"""a\n{{token}}""").ShouldBe("""a\n***""");
+
+    [Theory]
+    [InlineData("myghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("contentghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("xgithub_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
+    [InlineData("A3Aghp_TestTokenValue0123456789abcdefABCDEF")]
+    public void Mask_GitHubTokenPrefixInsideWord_ReturnsTextUnchanged(string text) =>
+        _masker.Mask(text).ShouldBe(text);
 
     [Theory]
     [InlineData("Authorization required")]
