@@ -60,7 +60,33 @@ public sealed class CliApplicationTests : IDisposable
         var exitCode = await RunAsync("""{ "Backup": { "ShortHashLength": "ten" } }""");
 
         exitCode.ShouldBe(ExitCode.Critical);
-        ErrorLines().ShouldHaveSingleItem().ShouldContain("Backup:ShortHashLength");
+        ErrorLines().ShouldBe(["Configuration error: Backup:ShortHashLength cannot be converted to System.Int32."]);
+        _standardError.ToString().ShouldNotContain("ten");
+    }
+
+    [Fact]
+    public async Task RunAsync_TokenInTypedKey_NeverWritesToken()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, $"--Backup:ShortHashLength={Token}");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(["Configuration error: Backup:ShortHashLength cannot be converted to System.Int32."]);
+        _standardError.ToString().ShouldNotContain(Token);
+    }
+
+    [Fact]
+    public async Task RunAsync_TypeErrorsInSeveralSections_WritesOneLinePerKeyWithoutValues()
+    {
+        var exitCode = await RunAsync(
+            """{ "Backup": { "ShortHashLength": "ten" }, "OpenTelemetry": { "Enabled": "perhaps" } }""");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().Order(StringComparer.Ordinal).ShouldBe(
+        [
+            "Configuration error: Backup:ShortHashLength cannot be converted to System.Int32.",
+            "Configuration error: OpenTelemetry:Enabled cannot be converted to System.Boolean.",
+        ]);
+        _standardError.ToString().ShouldNotContain("perhaps");
     }
 
     [Fact]

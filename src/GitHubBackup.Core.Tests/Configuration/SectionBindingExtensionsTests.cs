@@ -28,6 +28,54 @@ public sealed class SectionBindingExtensionsTests
         exception.Failures.ShouldHaveSingleItem().ShouldContain("Backup:ShortHashLength");
     }
 
+    [Theory]
+    [InlineData("Backup:ShortHashLength", "abc", "Backup:ShortHashLength cannot be converted to System.Int32.")]
+    [InlineData("Backup:VerifyArchive", "maybe", "Backup:VerifyArchive cannot be converted to System.Boolean.")]
+    public void BindSection_ValueNotConvertible_NamesKeyAndTypeWithoutValue(string key, string value, string expected)
+    {
+        var exception = Should.Throw<OptionsValidationException>(() => Resolve(new() { [key] = value }));
+
+        var failure = exception.Failures.ShouldHaveSingleItem();
+        failure.ShouldBe(expected);
+        failure.ShouldNotContain(value);
+    }
+
+    [Fact]
+    public void BindSection_TokenAsValueOfTypedKey_DoesNotRevealToken()
+    {
+        const string token = "ghp_TestTokenValue0123456789abcdefABCDEF";
+
+        var exception = Should.Throw<OptionsValidationException>(() => Resolve(new() { ["Backup:ShortHashLength"] = token }));
+
+        exception.Failures.ShouldHaveSingleItem().ShouldBe("Backup:ShortHashLength cannot be converted to System.Int32.");
+    }
+
+    [Fact]
+    public void BindSection_ValueImitatingBinderMessage_DoesNotReplaceKey()
+    {
+        var exception = Should.Throw<OptionsValidationException>(() => Resolve(new()
+        {
+            ["Backup:ShortHashLength"] = "c' at 'Backup:ConfigPath' to type 'System.Foo",
+            ["Backup:ConfigPath"] = "c",
+        }));
+
+        exception.Failures.ShouldHaveSingleItem().ShouldBe("Backup:ShortHashLength cannot be converted to System.Int32.");
+    }
+
+    [Fact]
+    public void DescribeBindingFailure_MessageMatchesNoLeaf_NamesSectionAndOptionsTypeOnly()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Backup:ShortHashLength"] = "ghp_secret" })
+            .Build();
+
+        var message = SectionBindingExtensions.DescribeBindingFailure<BackupOptions>(
+            configuration.GetSection(BackupOptions.SectionName),
+            new InvalidOperationException("unexpected text with ghp_secret"));
+
+        message.ShouldBe("The Backup section cannot be bound to BackupOptions.");
+    }
+
     /// <summary>
     /// Binds <see cref="BackupOptions"/> to the <c>Backup</c> section of <paramref name="values"/> and resolves them.
     /// </summary>
