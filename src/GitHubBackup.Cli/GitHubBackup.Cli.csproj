@@ -2,10 +2,16 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- Shared with the WPF host so both executables read the same secrets; must equal GitHubBackupHostBuilder.UserSecretsId. -->
+    <UserSecretsId>GitHubBackup</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

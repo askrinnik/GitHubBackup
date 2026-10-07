@@ -130,7 +130,7 @@ Issue references are correct in commit messages, PR descriptions, issue comments
 - Target-typed `new()` for fields, properties and arguments when the type is apparent from the target; keep the explicit type in `throw` and when the target is a base type or interface.
 - New extension members use the C# 14 `extension(TReceiver receiver) { … }` block form.
 - Prefer a named type over an anonymous object or `dynamic` whenever one models the shape.
-- `is null` / `is not null` instead of `== null`; trust nullable annotations and validate only at entry points (`ArgumentNullException.ThrowIfNull`, `ArgumentException.ThrowIfNullOrEmpty`).
+- `is null` / `is not null` instead of `== null`; trust nullable annotations and do not write `ArgumentNullException.ThrowIfNull` or `ArgumentException.ThrowIfNullOrEmpty` guards for parameters that are not nullable; the compiler reports a `null` argument as an error (`TreatWarningsAsErrors`). Validate the content of non-null input (empty string, range) where the contract requires it.
 - `sealed` for classes not designed for inheritance; `internal` for types not used outside their project (expose to tests with `InternalsVisibleTo`).
 
 ## When generating code
