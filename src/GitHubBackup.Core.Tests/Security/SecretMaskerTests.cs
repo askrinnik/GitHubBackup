@@ -53,10 +53,47 @@ public sealed class SecretMaskerTests
     [Theory]
     [InlineData(_classicToken)]
     [InlineData("gho_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghu_TestTokenValue0123456789abcdefABCDEF")]
     [InlineData("ghs_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghr_TestTokenValue0123456789abcdefABCDEF")]
     [InlineData("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
     public void Mask_UnregisteredGitHubToken_ReplacesIt(string token) =>
         _masker.Mask($"token={token};").ShouldBe("token=***;");
+
+    [Theory]
+    [InlineData("""\n""")]
+    [InlineData("""\r""")]
+    [InlineData("""\t""")]
+    [InlineData("""\b""")]
+    [InlineData("""\f""")]
+    [InlineData("""\u001B""")]
+    public void Mask_GitHubTokenAfterJsonEscape_ReplacesToken(string escape) =>
+        _masker.Mask($"line{escape}{_classicToken}").ShouldBe($"line{escape}***");
+
+    [Theory]
+    [InlineData("%3A")]
+    [InlineData("%3a")]
+    [InlineData("%2F")]
+    public void Mask_GitHubTokenAfterUrlEncodedCharacter_ReplacesToken(string encoded) =>
+        _masker.Mask($"url{encoded}{_classicToken}").ShouldBe($"url{encoded}***");
+
+    [Theory]
+    [InlineData("ghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("gho_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghu_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghs_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("ghr_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("github_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
+    public void Mask_GitHubTokenFormsAfterJsonEscape_ReplacesToken(string token) =>
+        _masker.Mask($$"""a\n{{token}}""").ShouldBe("""a\n***""");
+
+    [Theory]
+    [InlineData("myghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("contentghp_TestTokenValue0123456789abcdefABCDEF")]
+    [InlineData("xgithub_pat_11ABCDEFG0123456789_abcdefghijklmnopqrstuvwxyz")]
+    [InlineData("A3Aghp_TestTokenValue0123456789abcdefABCDEF")]
+    public void Mask_GitHubTokenPrefixInsideWord_ReturnsTextUnchanged(string text) =>
+        _masker.Mask(text).ShouldBe(text);
 
     [Theory]
     [InlineData("Authorization required")]
@@ -80,4 +117,51 @@ public sealed class SecretMaskerTests
     [InlineData("")]
     [InlineData("  ")]
     public void Register_EmptySecret_Throws(string secret) => Should.Throw<ArgumentException>(() => _masker.Register(secret));
+
+    [Theory]
+    [InlineData("""a"b""", """a\"b""")]
+    [InlineData("""a\b""", """a\\b""")]
+    [InlineData("a\nb", """a\nb""")]
+    [InlineData("a\tb", """a\tb""")]
+    [InlineData("a\u0001b", """a\u0001b""")]
+    [InlineData("a\u0008b", """a\u0008b""")]
+    public void Mask_JsonEscapedFormOfRegisteredSecret_ReplacesIt(string secret, string escaped)
+    {
+        _masker.Register(secret);
+
+        _masker.Mask($$"""{"Token":"{{escaped}}"}""").ShouldBe("""{"Token":"***"}""");
+    }
+
+    [Theory]
+    [InlineData("""a"b""")]
+    [InlineData("""a\b""")]
+    [InlineData("a\nb")]
+    [InlineData("a\u0001b")]
+    public void Mask_RawFormOfRegisteredSecretWithSpecialCharacters_ReplacesIt(string secret)
+    {
+        _masker.Register(secret);
+
+        _masker.Mask($"x {secret} y").ShouldBe("x *** y");
+    }
+
+    [Fact]
+    public void Mask_RegisteredSecretEndingWithBackslashInsideJsonString_KeepsJsonValid()
+    {
+        _masker.Register("""s3cret\""");
+
+        var masked = _masker.Mask("""{"Token":"s3cret\\"}""");
+
+        masked.ShouldBe("""{"Token":"***"}""");
+        using var document = JsonDocument.Parse(masked);
+        document.RootElement.GetProperty("Token").GetString().ShouldBe(SecretMasker.Replacement);
+    }
+
+    [Fact]
+    public void Mask_SecretWithSpecialCharactersRegisteredTwice_ReplacesIt()
+    {
+        _masker.Register("""a"b\c""");
+        _masker.Register("""a"b\c""");
+
+        _masker.Mask("""a"b\c and a\"b\\c""").ShouldBe("*** and ***");
+    }
 }

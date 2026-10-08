@@ -10,7 +10,8 @@ namespace GitHubBackup.Core.Security;
 public interface ISecretMasker
 {
     /// <summary>
-    /// Adds <paramref name="secret"/> to the values that <see cref="Mask"/> replaces.
+    /// Adds <paramref name="secret"/> to the values that <see cref="Mask"/> replaces, together with its JSON-escaped
+    /// form.
     /// </summary>
     /// <param name="secret">The secret value, for example a token; registering it again has no effect.</param>
     /// <exception cref="ArgumentException"><paramref name="secret"/> is empty or white space.</exception>

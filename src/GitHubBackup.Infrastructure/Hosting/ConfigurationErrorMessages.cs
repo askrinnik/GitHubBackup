@@ -6,8 +6,9 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// Turns the exceptions a host throws for invalid configuration into one message per error.
 /// </summary>
 /// <remarks>
-/// The messages come from the validators and the configuration providers, which name the key or the file but not
-/// the value; the token is never bound to an options object, so it cannot appear in them.
+/// Binding errors name the key and the target type (built by <c>BindSection</c> without the value), validator
+/// errors name the key, and file errors name the file and the position. No message quotes a configuration value, and
+/// the token is never bound to an options object.
 /// </remarks>
 public static class ConfigurationErrorMessages
 {
