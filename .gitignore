@@ -517,3 +517,6 @@ CLAUDE.local.md
 
 # CI test results
 TestResults/
+
+# Session profiler report (rebuilt from the records)
+.ai/benchmarks/sessions/report.html

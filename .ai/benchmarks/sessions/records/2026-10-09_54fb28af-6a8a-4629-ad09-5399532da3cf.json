@@ -1,0 +1,132 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "54fb28af-6a8a-4629-ad09-5399532da3cf",
+  "workItem": null,
+  "lane": null,
+  "branch": "main",
+  "commit": "b346d499",
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-10-09 11:11",
+  "started": "2026-10-09 11:03",
+  "ended": "2026-10-09 11:11",
+  "duration": {
+    "wall": 497,
+    "active": 133,
+    "waiting": 364,
+    "waits": 7
+  },
+  "version": "2.1.293",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 27,
+  "humanTurns": 5,
+  "subagents": 0,
+  "subagentCalls": 0,
+  "tokens": {
+    "input": 58,
+    "cacheRead": 2198872,
+    "cacheWrite": 69351,
+    "output": 11125
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 362259,
+    "main": 362259,
+    "subagents": 0
+  },
+  "cacheReadShare": 60.7,
+  "unitsPerCall": {
+    "first40": null,
+    "first70": null,
+    "whole": 13417
+  },
+  "context": {
+    "first": 62703,
+    "max": 104979,
+    "last": 104979,
+    "first40": null,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 57530,
+  "diff": {
+    "files": null,
+    "lines": null
+  },
+  "byActivity": [
+    {
+      "activity": "explore (read/search)",
+      "calls": 8,
+      "cost": 132058
+    },
+    {
+      "activity": "implement",
+      "calls": 4,
+      "cost": 55960
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 4,
+      "cost": 52653
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 4,
+      "cost": 43621
+    },
+    {
+      "activity": "plan",
+      "calls": 3,
+      "cost": 31557
+    },
+    {
+      "activity": "other tool",
+      "calls": 2,
+      "cost": 27354
+    },
+    {
+      "activity": "ship",
+      "calls": 2,
+      "cost": 19056
+    }
+  ],
+  "subagentsByType": [],
+  "topCarriers": [
+    {
+      "tools": "Read",
+      "cost": 9858
+    },
+    {
+      "tools": "Read + Glob",
+      "cost": 8055
+    },
+    {
+      "tools": "Glob + Grep",
+      "cost": 5484
+    }
+  ],
+  "rulesLoaded": [],
+  "rulesTokens": 0,
+  "limit": {
+    "startPct": 64,
+    "startAt": "2026-10-09 11:10",
+    "endPct": 64,
+    "usedPct": null,
+    "limitCost": null,
+    "unitsPerPct": null,
+    "reason": "no whole percent of the weekly limit was used"
+  }
+}
