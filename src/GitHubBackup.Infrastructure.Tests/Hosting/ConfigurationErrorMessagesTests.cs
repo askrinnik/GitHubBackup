@@ -1,3 +1,4 @@
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Infrastructure.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -50,6 +51,18 @@ public sealed class ConfigurationErrorMessagesTests
 
         found.ShouldBeTrue();
         messages.ShouldHaveSingleItem().ShouldBe("The file is missing.");
+    }
+
+    [Fact]
+    public void TryGet_BackupConfigException_ReturnsEachError()
+    {
+        var exception = new BackupConfigException(
+            @"C:\app\backup-config.json", ["backupRoot must be set.", "accounts[1].url must be an account URL."]);
+
+        var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
+
+        found.ShouldBeTrue();
+        messages.ShouldBe(["backupRoot must be set.", "accounts[1].url must be an account URL."]);
     }
 
     [Fact]

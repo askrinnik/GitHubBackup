@@ -4,4 +4,9 @@
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="System.IO.Abstractions.TestingHelpers" />
+    <PackageReference Include="Verify.XunitV3" />
+  </ItemGroup>
+
 </Project>

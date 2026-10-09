@@ -1,0 +1,49 @@
+﻿{
+  "schemaVersion": 1,
+  "backupRoot": "D:\\Backups\\GitHub",
+  "sourcesRoot": "E:\\Клоны",
+  "exclude": [
+    "someone/*",
+    "*-archive"
+  ],
+  "accounts": [
+    {
+      "url": "https://github.com/askrinnik",
+      "path": null,
+      "exclude": [
+        "test-*"
+      ],
+      "repositories": [
+        {
+          "name": "my-repo",
+          "id": 123456789,
+          "branch": null,
+          "path": null,
+          "status": "Active"
+        },
+        {
+          "name": "old-tool",
+          "id": 223456789,
+          "branch": "legacy",
+          "path": "F:\\Архив\\old-tool",
+          "status": "Unavailable"
+        }
+      ]
+    },
+    {
+      "url": "https://github.com/AMTOSS",
+      "path": "D:\\Work\\AMTOSS",
+      "exclude": [],
+      "repositories": []
+    }
+  ],
+  "repositories": [
+    {
+      "url": "https://github.com/someone-else/library",
+      "id": 323456789,
+      "branch": "develop",
+      "path": null,
+      "status": "Active"
+    }
+  ]
+}

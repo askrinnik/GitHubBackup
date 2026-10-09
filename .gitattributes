@@ -20,3 +20,7 @@
 *.zip  binary
 *.7z   binary
 *.db   binary
+
+# Verify snapshots are compared byte for byte and keep LF on every platform
+*.verified.json text eol=lf
+*.verified.txt  text eol=lf

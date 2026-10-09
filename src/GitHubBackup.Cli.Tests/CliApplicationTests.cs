@@ -225,6 +225,51 @@ public sealed class CliApplicationTests : IDisposable
             .ShouldBe(Path.Combine(_contentRoot.FolderPath, "data", "history.db"));
     }
 
+    [Theory]
+    [InlineData("--config", @"D:\configs\mine.json")]
+    [InlineData(@"--config=D:\configs\mine.json")]
+    public void BuildHost_ConfigOption_OverridesConfigPath(params string[] args)
+    {
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+
+        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\configs\mine.json");
+    }
+
+    [Theory]
+    [InlineData("--config", @"configs\mine.json")]
+    [InlineData(@"--config=configs\mine.json")]
+    public void BuildHost_RelativeConfigOption_ResolvesAgainstCurrentDirectory(params string[] args)
+    {
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+
+        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath
+            .ShouldBe(Path.Combine(Environment.CurrentDirectory, "configs", "mine.json"));
+    }
+
+    [Theory]
+    [InlineData(@"--Backup:ConfigPath=D:\other.json", "--config", @"D:\mine.json")]
+    [InlineData("--config", @"D:\mine.json", @"--Backup:ConfigPath=D:\other.json")]
+    public void BuildHost_ConfigOptionAndConfigPathKey_ConfigOptionWins(params string[] args)
+    {
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+
+        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\mine.json");
+    }
+
+    [Theory]
+    [InlineData("--config")]
+    [InlineData("--config=")]
+    [InlineData("--config", " ")]
+    [InlineData("--config", "--silent")]
+    [InlineData("--config", @"D:\mine.json", "--config")]
+    public async Task RunAsync_ConfigOptionWithoutValue_ReturnsCriticalWithOneLine(params string[] args)
+    {
+        var exitCode = await RunAsync(ValidAppSettings, args);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(["Configuration error: The --config option requires the path of the backup configuration file."]);
+    }
+
     [Fact]
     public void BuildHost_ProductionEnvironment_UsesSettingsEnvironment()
     {
