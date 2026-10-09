@@ -1,0 +1,15 @@
+{
+  "baseBranch": "main",
+  "workItemPattern": ["^(\\d+)-", "^#(\\d+)"],
+  "workItemCommandPattern": "/implement-issues?",
+  "lanePlanGlob": "docs/plans/*-{id}-*.md",
+  "excludeSessionManifests": [".ai/benchmarks/harness/runs"],
+  "activityRules": [
+    { "pattern": "^Agent:skill-runner|^Skill:(_local\\.)?(git-commit|open-pr|github-issue)", "category": "ship" },
+    { "pattern": "^Bash:(?!.*git (commit|push)).*(UITests|Category=(UI|Smoke))", "category": "e2e" },
+    { "pattern": "^Agent:build-runner", "category": "build/test" },
+    { "pattern": "^Agent:issue-developer", "category": "implement" },
+    { "pattern": "^Write:.*docs.plans|^Agent:(issue-planner|architect)", "category": "plan" },
+    { "pattern": "^Agent:security-reviewer|^Skill:(code-review|security-review)", "category": "review" }
+  ]
+}
