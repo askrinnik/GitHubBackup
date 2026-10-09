@@ -1,0 +1,151 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "47963571-e5a8-45e0-a38c-8a609637ae87",
+  "workItem": null,
+  "lane": null,
+  "branch": "main",
+  "commit": "64966cd7",
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-10-09 11:29",
+  "started": "2026-10-09 11:12",
+  "ended": "2026-10-09 11:29",
+  "duration": {
+    "wall": 1021,
+    "active": 318,
+    "waiting": 703,
+    "waits": 10
+  },
+  "version": "2.1.293",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 51,
+  "humanTurns": 9,
+  "subagents": 0,
+  "subagentCalls": 0,
+  "tokens": {
+    "input": 106,
+    "cacheRead": 6286221,
+    "cacheWrite": 119687,
+    "output": 23343
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 895052,
+    "main": 895052,
+    "subagents": 0
+  },
+  "cacheReadShare": 70.2,
+  "unitsPerCall": {
+    "first40": 17439,
+    "first70": null,
+    "whole": 17550
+  },
+  "context": {
+    "first": 63163,
+    "max": 161373,
+    "last": 161373,
+    "first40": 144067,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 318470,
+  "diff": {
+    "files": null,
+    "lines": null
+  },
+  "byActivity": [
+    {
+      "activity": "implement",
+      "calls": 9,
+      "cost": 199001
+    },
+    {
+      "activity": "explore (read/search)",
+      "calls": 10,
+      "cost": 189666
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 8,
+      "cost": 138626
+    },
+    {
+      "activity": "browser verify",
+      "calls": 9,
+      "cost": 131442
+    },
+    {
+      "activity": "other tool",
+      "calls": 4,
+      "cost": 67330
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 4,
+      "cost": 65435
+    },
+    {
+      "activity": "ship",
+      "calls": 4,
+      "cost": 61875
+    },
+    {
+      "activity": "plan",
+      "calls": 2,
+      "cost": 26994
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 14683
+    }
+  ],
+  "subagentsByType": [],
+  "topCarriers": [
+    {
+      "tools": "Read",
+      "cost": 99199
+    },
+    {
+      "tools": "Read",
+      "cost": 44339
+    },
+    {
+      "tools": "Read",
+      "cost": 15434
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "docs",
+      "tokens": 451
+    },
+    {
+      "rule": "update-docs-on-code-change",
+      "tokens": 451
+    }
+  ],
+  "rulesTokens": 902,
+  "limit": {
+    "startPct": 64,
+    "startAt": "2026-10-09 11:12",
+    "endPct": 65,
+    "usedPct": 1,
+    "limitCost": 831646,
+    "unitsPerPct": 831646,
+    "reason": null
+  }
+}

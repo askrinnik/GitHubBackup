@@ -13,13 +13,14 @@ For every issue run the workflow in [.ai/prompts/implement-issue.md](implement-i
 
 | `implement-issue` | In a batch |
 |---|---|
-| Step 0, per issue | Once, before the first issue |
+| Step 0, per issue, including the start reading of the plan usage | Once, before the first issue |
 | Branch created at the commit in step 12 | Created at the first issue's commit, then reused (see *Branch*) |
 | Steps 5–7, plan review stop and compact milestone | Save the plan and continue; stop only with `--review-plans` |
 | Step 9, `build-runner` with scope `full` and security review per issue | `build-runner` with scope `projects` (the touched test projects) per issue; scope `full` and the security review once at the end |
 | Step 10, verification per issue | Per issue as written; FlaUI UI tests once at the end |
 | Step 11, result confirmation per issue | One confirmation for the whole batch |
 | Steps 12–13, commit, push, comment, PR per issue | A commit per issue; one comment per issue, one push and one PR at the end. The task tick in a multi-issue plan goes into each issue's commit |
+| Step 12, session profile after the commit, amended into it | Once, after the batch confirmation and before the push; the record goes in as a separate commit (see *Ship*) |
 | Step 14 | Once, at the end |
 
 ## 0. Preflight (once)
@@ -29,6 +30,7 @@ For every issue run the workflow in [.ai/prompts/implement-issue.md](implement-i
 3. **Dependencies.** A blocker that is open and **earlier in the list** counts as met; any other open blocker stops the batch and is named. If the list order contradicts a dependency, say so and stop.
 4. **Size.** Batches are for small issues: at most 5, each of complexity S or M. A plan that comes back `L` stops the batch at that issue: report it, leave the finished commits, and suggest running that issue alone with `/implement-issue`.
 5. Assign the issues to the user (`gh issue edit <n> --add-assignee @me`).
+6. Read the plan usage once, silently, as in `implement-issue` step 0: the start reading of the session profile.
 
 ## Branch
 
@@ -65,14 +67,15 @@ Ask whether the result is acceptable. If not, iterate on the affected issue and 
 
 ## Ship
 
-Without `--ship` each step below needs the user's go-ahead; with it, run them in order.
+Without `--ship` each step below needs the user's go-ahead; with it, run them in order. The question whether to save the session profile (step 2) is asked even with `--ship`.
 
 1. **Re-sync the base:** `git fetch origin`; if `origin/main` moved, `git pull --ff-only` onto the branch (rebase never) and re-run the final verification.
-2. **Push** the branch (`git push -u origin <branch>`).
-3. **One pull request** into `main` — one `skill-runner` call with the `open-pr` skill: title `#<a> #<b> #<c> <shared summary>`, a description that starts with one `Closes #<n>` line per issue, then what changed, the debatable decisions and how it was verified. Do not repeat the per-issue acceptance tables.
-4. **Issue comments:** one comment per issue for its lane, each linking the PR — one `skill-runner` call per issue with the `github-issue` skill, which posts it. Post them after the PR is open so the link is real. Tick the verified `- [ ]` boxes in each issue body yourself, with one `Set-AcceptanceChecks.ps1` call per issue (`github-issue` skill, *Acceptance boxes*).
-5. **CI:** check once with `gh pr checks <pr>`; never poll. Merging stays with the user.
-6. Run the `next-issue` skill with `-AssumeClosed` for every issue of the batch and end with the same short message as `implement-issue` step 14 (merge the PR, start a new session, the next `/implement-issue` or `/implement-issues`).
+2. **Profile the session** once, as in `implement-issue` step 12 (*Profile the session*), with `-WorkItem <first issue>` — the same work item the branch name gives — and without `-NoCommit`. A batch never amends, so on the user's yes the record goes in as a separate commit: one `skill-runner` call with the `git-commit` skill (Case 1 under the last issue of the batch, `#<last> <exact title>` with the action `- Save the session profile record`), staging only the record.
+3. **Push** the branch (`git push -u origin <branch>`).
+4. **One pull request** into `main` — one `skill-runner` call with the `open-pr` skill: title `#<a> #<b> #<c> <shared summary>`, a description that starts with one `Closes #<n>` line per issue, then what changed, the debatable decisions and how it was verified. Do not repeat the per-issue acceptance tables.
+5. **Issue comments:** one comment per issue for its lane, each linking the PR — one `skill-runner` call per issue with the `github-issue` skill, which posts it. Post them after the PR is open so the link is real. Tick the verified `- [ ]` boxes in each issue body yourself, with one `Set-AcceptanceChecks.ps1` call per issue (`github-issue` skill, *Acceptance boxes*).
+6. **CI:** check once with `gh pr checks <pr>`; never poll. Merging stays with the user.
+7. Run the `next-issue` skill with `-AssumeClosed` for every issue of the batch and end with the same short message as `implement-issue` step 14 (merge the PR, start a new session, the next `/implement-issue` or `/implement-issues`).
 
 ## Stops
 

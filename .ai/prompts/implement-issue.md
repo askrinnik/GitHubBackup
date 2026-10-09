@@ -1,4 +1,4 @@
-Take a GitHub issue of `askrinnik/GitHubBackup` end to end: read it, check its dependencies and the PRD, plan, implement with tests, verify, record the outcome on the issue, open the pull request, and recommend the next issue. There are two checkpoints with the user — the plan review and the result confirmation — and every outward action (commit, push, comment, PR) needs the user's go-ahead.
+Take a GitHub issue of `askrinnik/GitHubBackup` end to end: read it, check its dependencies and the PRD, plan, implement with tests, verify, profile the session, record the outcome on the issue, open the pull request, and recommend the next issue. There are two checkpoints with the user — the plan review and the result confirmation — and every outward action (commit, push, comment, PR) needs the user's go-ahead.
 
 The issue's labels select the **lane** at step 2. Steps marked **Bug lane**, **Feature lane** or **Test-authoring lane** apply only to that lane; unmarked steps apply to all of them.
 
@@ -53,6 +53,7 @@ The previous issue usually leaves you on its own branch, and its pull request ma
   - If the fast-forward pull fails (diverged `main`), stop and report; never force.
 - **Stay on the current branch only when the user explicitly says so** for this issue (for example "continue on the current branch", "don't switch", or a follow-up change to the same issue). Then skip the switch, still pull the current branch if it tracks a remote, and note that the base may be stale.
 - Do all work in the working tree on `main`; do **not** create the issue branch now. It is created immediately before the first commit (step 12), from the latest `main`.
+- **Read the plan usage once, silently.** When the host exposes plan usage (the `get_usage` tool of the Claude desktop app; load its schema first if the host defers it), call it in this main session without asking and without reporting the result. Its result stays in the session transcript, where the session profile in step 12 finds it as the start reading of the weekly limit; nothing is written to a file. Where the tool is not available, skip this silently.
 
 ## 1. Read the issue
 
@@ -154,6 +155,13 @@ Run the gate independently of `issue-developer`, even if it reported success:
 - **Re-sync the base.** `git fetch origin`; if `origin/main` moved since step 0, pull it (`git pull --ff-only`; the uncommitted changes travel with you) and re-run step 9 (a `build-runner` call with scope `full`) so nothing regressed against the newer base. Otherwise say it is unchanged.
 - **Tick the plan** checklist in `docs/plans/…` to match the work. Also `Grep` `docs/plans/` for the issue's link (`issues/<n>)`): a hit is a task line `- [ ] **<id>** ([#<n>](…))` in a multi-issue plan `docs/plans/<topic>-plan.md`; change it to `- [x]` once the user has confirmed the result in step 11. Both go into the same commit as the work.
 - **Commit** after the user's go-ahead: one `skill-runner` call with the `git-commit` skill, the exact files to stage (including the plan file) and the branch — `<n>-<slug>`, which it creates from the up-to-date `main`, or the existing branch you stayed on at the user's request (step 0). It reports the short SHA and the first line.
+- **Profile the session** (Claude Code only), right after the commit and before the push:
+  - The skill is `harness-kit:profile-session` from the `harness-kit` plugin. When it is not available in this session, say so in one line and skip this bullet.
+  - Invoke it through the Skill tool in this main session — never in a subagent, which has its own transcript and would profile that instead. The skill calls `get_usage` again first, so the transcript holds the end reading of the weekly limit as well. The push, the issue comment and the pull request come after it and are not part of the profile.
+  - Show the result in a few lines: model calls, cost units and units per call, the largest activities, idle rebuilds and compactions, and the share of the weekly limit when there is one.
+  - **Ask whether to save the profile and add it to the commit,** naming in the question how it will be added (see below). If the user declines, nothing is written. On yes, run the skill with `save -WorkItem <n> -NoCommit`; it writes one record, `.ai/benchmarks/sessions/records/<yyyy-MM-dd>_<session id>.json`, and rebuilds the local, untracked report `.ai/benchmarks/sessions/report.html`. Then add the record:
+    - **The commit is not pushed yet** (no upstream branch, or `git branch -r --contains HEAD` is empty) — the usual case: `git add` the record, write the current message (`git log -1 --format=%B`) plus one line `- Save the session profile record` to a scratch file, and `git commit --amend -F <file>`. `-NoCommit` leaves the record without a commit id because the amend changes that id.
+    - **The commit is already pushed** (a session that stayed on its branch after the pull request): commit the record as a new commit — one `skill-runner` call with the `git-commit` skill after the user's go-ahead. Never amend a pushed commit.
 - **Push** (`git push -u origin <branch>`) after the user's go-ahead.
 
 ## 13. Issue comment, acceptance boxes, pull request
