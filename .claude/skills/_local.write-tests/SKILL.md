@@ -1,6 +1,6 @@
 ---
 name: write-tests
-description: Add focused tests for a behaviour or a bug fix in the correct GitHubBackup test layer (unit, integration with local git repositories, contract with WireMock, snapshot with Verify, CLI end-to-end, ViewModel, FlaUI, architecture). Use when asked to write, add or extend tests, or to cover a fix with a regression test.
+description: Add focused tests for a behaviour or a bug fix in the correct GitHubBackup test layer (unit, integration with local git repositories, contract with WireMock, large-output comparison with an expected value in the test, CLI end-to-end, ViewModel, FlaUI, architecture). Use when asked to write, add or extend tests, or to cover a fix with a regression test.
 ---
 
 # Write Tests
@@ -24,7 +24,7 @@ Write the regression test **first**, run it, and confirm it fails for the reason
 
 ## Checklist
 
-- Assertions with Shouldly; doubles with NSubstitute; snapshots with Verify (commit `.verified.*` only).
+- Assertions with Shouldly; doubles with NSubstitute; large outputs compared with an expected raw string literal written in the test (no snapshot files).
 - No `// Arrange / Act / Assert` comments.
 - Test names `Method_Scenario_ExpectedResult`.
 - No test depends on another test, on order, on the clock or on the network.

@@ -1,5 +1,8 @@
+using System.IO.Abstractions;
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -18,7 +21,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, and binds <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>,
+        /// token, the <see cref="IFileSystem"/> and the <see cref="IBackupConfigStore"/>, and binds <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>,
         /// <see cref="HistoryOptions"/> and <see cref="OpenTelemetryOptions"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
@@ -31,6 +34,8 @@ public static class InfrastructureServiceCollectionExtensions
         public IServiceCollection AddGitHubBackupInfrastructure(IConfiguration configuration)
         {
             services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
+            services.TryAddSingleton<IFileSystem, FileSystem>();
+            services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<GitHubOptions>, GitHubOptionsValidator>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ToolsOptions>, ToolsOptionsValidator>());

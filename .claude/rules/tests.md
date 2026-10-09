@@ -26,7 +26,7 @@ Smoke tests against real GitHub carry a separate trait/category and do not run b
 - **xUnit v3.** `[Fact]`, `[Theory]` with `[InlineData]`/`[MemberData]`/`TheoryData<…>`. Pass `TestContext.Current.CancellationToken` to async calls under test. Shared expensive setup through `IClassFixture<T>` / collection fixtures; per-test setup in the constructor, cleanup in `IAsyncDisposable`/`IDisposable`.
 - **Shouldly** for assertions (`result.ShouldBe(…)`, `Should.ThrowAsync<T>(…)`). No `Assert.*` mixed in, no FluentAssertions.
 - **NSubstitute** for test doubles of interfaces. Substitute only what the subject depends on; prefer a small hand-written fake when it makes the test clearer than a chain of `Returns`.
-- **Verify** for snapshots of large outputs (summary table, dry-run output, saved `backup-config.json`, `.backup-state.json`). Commit the `.verified.*` files; never commit `.received.*`.
+- **Large outputs** (summary table, dry-run output, saved `backup-config.json`, `.backup-state.json`) are compared with an expected value written in the test itself (a raw string literal) using Shouldly. No snapshot library and no committed reference files.
 - **WireMock.Net** for GitHub API contract tests: pagination, 401/403/404, exhausted rate limit, a rename (same id, different name).
 - **FlaUI** for UI tests; **NetArchTest** for architecture tests.
 

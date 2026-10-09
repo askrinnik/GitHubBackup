@@ -3,8 +3,8 @@
 | Поле | Значение |
 |---|---|
 | Продукт | GitHubBackup |
-| Версия документа | 0.6 (черновик) |
-| Дата | 2026-10-07 |
+| Версия документа | 0.7 (черновик) |
+| Дата | 2026-10-09 |
 | Автор | oskrynnik |
 | Статус | На согласовании |
 
@@ -574,7 +574,7 @@ src\
 | Телеметрия | `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Exporter.OpenTelemetryProtocol` |
 | История | `Microsoft.EntityFrameworkCore.Sqlite` |
 | Credential Manager | NuGet-обёртка над `CredRead`/`CredWrite` (конкретный пакет выбирается при реализации) |
-| Тесты | xUnit v3, NSubstitute, Shouldly, Verify, WireMock.Net, FlaUI, NetArchTest |
+| Тесты | xUnit v3, NSubstitute, Shouldly, WireMock.Net, FlaUI, NetArchTest |
 
 ### 8.4. Совместная работа CLI и UI
 
@@ -615,7 +615,7 @@ src\
 | Интеграционные (git) | `GitHubBackup.Infrastructure.IntegrationTests` | На локальных bare-репозиториях во временной папке, без сети: clone, fetch, force-push, удаление ветки, теги, сабмодули, откат на ветку по умолчанию, пустой репозиторий |
 | Интеграционные (7-Zip) | то же | Архив создаётся, содержит `.git`, распаковывается в работоспособный репозиторий (`git fsck`, `git status`) |
 | Контрактные (GitHub API) | `GitHubBackup.Infrastructure.Tests` | WireMock.Net: постраничная выдача, 401, 403, 404, исчерпанный лимит, переименование (тот же ID, другое имя) |
-| Snapshot | разные | Verify: сводка, вывод dry-run, сохранённый `backup-config.json`, файл состояния |
+| Эталонный вывод | разные | Сравнение с эталоном, записанным в самом тесте (Shouldly): сводка, вывод dry-run, сохранённый `backup-config.json`, файл состояния |
 | Архитектурные | `GitHubBackup.ArchitectureTests` | `Core` не зависит от `Infrastructure`, `Cli`, `App` и внешних библиотек ввода-вывода |
 | CLI end-to-end | `GitHubBackup.Cli.Tests` | Запуск exe с локальными репозиториями (адрес git подменяется на file-URL), коды возврата, тихий режим, dry-run ничего не меняет |
 | UI end-to-end | `GitHubBackup.App.UITests` | FlaUI: запуск, диалог обнаружения, редактор настроек |
@@ -668,3 +668,4 @@ src\
 | 0.4 | 2026-10-03 | NFR-7: заголовки issues, коммиты, pull request и комментарии к ним — на английском |
 | 0.5 | 2026-10-07 | §7.2: источники конфигурации и их приоритет, обязательность `appsettings.json`, правила проверки значений при старте и код возврата `2` при ошибке конфигурации |
 | 0.6 | 2026-10-07 | §7.2: проверка уровней `Serilog:MinimumLevel:Default` и необязательного `Override`; FR-10.6: секреты в логе заменяются на `***` |
+| 0.7 | 2026-10-09 | §8.3, §11: библиотека Verify исключена; вывод (сводка, dry-run, сохранённый `backup-config.json`, файл состояния) сравнивается с эталоном в самом тесте обычными проверками Shouldly |

@@ -24,7 +24,7 @@ paths:
 
 ## Output
 
-- Questions, tables and the summary use `Spectre.Console` through an injected `IAnsiConsole`, so tests can use `TestConsole` and snapshot the output with Verify.
+- Questions, tables and the summary use `Spectre.Console` through an injected `IAnsiConsole`, so tests can use `TestConsole` and assert the output against an expected string written in the test.
 - The console shows results; diagnostics go to the log. Do not print stack traces to the console — print a one-line error and the log path.
 - Secrets are never echoed: `set-token` reads the token with hidden input and never accepts it as an argument (FR-9.1).
 - Messages are English (NFR-7) and stable enough to snapshot: no timestamps or absolute temp paths in snapshot-tested output unless scrubbed.

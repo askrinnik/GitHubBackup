@@ -1,3 +1,4 @@
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Configuration;
@@ -16,7 +17,8 @@ public static class CoreServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the core services, including the <see cref="IRunContext"/> of the host, and binds
+        /// Adds the core services, including the <see cref="IRunContext"/> of the host and the
+        /// <see cref="IBackupConfigValidator"/>, and binds
         /// <see cref="BackupOptions"/>, validated when the host starts.
         /// </summary>
         /// <param name="configuration">The application configuration.</param>
@@ -24,6 +26,7 @@ public static class CoreServiceCollectionExtensions
         public IServiceCollection AddGitHubBackupCore(IConfiguration configuration)
         {
             services.TryAddSingleton<IRunContext, RunContext>();
+            services.TryAddSingleton<IBackupConfigValidator, BackupConfigValidator>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());
             services.AddOptions<BackupOptions>()

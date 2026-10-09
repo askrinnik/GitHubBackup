@@ -1,4 +1,5 @@
 using GitHubBackup.Core;
+using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,7 +13,8 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// <remarks>
 /// The host starts without the framework defaults so that only the documented sources are read, in this order of
 /// increasing priority: <see cref="AppSettingsFileName"/>, user secrets (<see cref="Environments.Development"/> only),
-/// environment variables with <see cref="EnvironmentVariablePrefix"/>, and <c>--Section:Key=value</c> arguments.
+/// environment variables with <see cref="EnvironmentVariablePrefix"/>, <c>--Section:Key=value</c> arguments, and
+/// <see cref="ConfigOption"/>, which sets <see cref="BackupOptions.ConfigPath"/>.
 /// Unprefixed variables and <c>appsettings.{Environment}.json</c> are not read.
 /// </remarks>
 public static class GitHubBackupHostBuilder
@@ -27,6 +29,15 @@ public static class GitHubBackupHostBuilder
     public const string UserSecretsId = "GitHubBackup";
 
     /// <summary>
+    /// The option that names <c>backup-config.json</c>, as <c>--config &lt;path&gt;</c> or <c>--config=&lt;path&gt;</c>;
+    /// a relative path is resolved against the current directory, where the user typed it.
+    /// </summary>
+    public const string ConfigOption = "--config";
+
+    /// <summary>The configuration key that <see cref="ConfigOption"/> overrides.</summary>
+    private const string _configPathKey = BackupOptions.SectionName + ":" + nameof(BackupOptions.ConfigPath);
+
+    /// <summary>
     /// Creates a host builder with the configuration sources, the service provider checks, the services of
     /// <c>Core</c> and <c>Infrastructure</c> and the file logging registered; the caller adds its own services and
     /// builds the host.
@@ -34,9 +45,13 @@ public static class GitHubBackupHostBuilder
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
     /// <exception cref="FileNotFoundException"><see cref="AppSettingsFileName"/> does not exist.</exception>
-    /// <exception cref="InvalidDataException"><see cref="AppSettingsFileName"/> is not valid JSON.</exception>
+    /// <exception cref="InvalidDataException">
+    /// <see cref="AppSettingsFileName"/> is not valid JSON, or <see cref="ConfigOption"/> has no value.
+    /// </exception>
     public static HostApplicationBuilder Create(GitHubBackupHostSettings settings)
     {
+        var configPath = FindConfigPath(settings.Args);
+
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
             DisableDefaults = true,
@@ -59,6 +74,10 @@ public static class GitHubBackupHostBuilder
 
         configuration.AddEnvironmentVariables(EnvironmentVariablePrefix);
         configuration.AddCommandLine([.. settings.Args.Where(IsConfigurationArgument)]);
+        if (configPath is not null)
+        {
+            configuration.AddInMemoryCollection([new(_configPathKey, configPath)]);
+        }
 
         builder.ConfigureContainer(new DefaultServiceProviderFactory(new ServiceProviderOptions
         {
@@ -72,6 +91,42 @@ public static class GitHubBackupHostBuilder
             .AddGitHubBackupLogging(configuration);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Returns the full path given by the last <see cref="ConfigOption"/> in <paramref name="args"/>.
+    /// </summary>
+    /// <param name="args">The command-line arguments.</param>
+    /// <returns>The full path, or <see langword="null"/> when the option is absent.</returns>
+    /// <exception cref="InvalidDataException">The option has no value.</exception>
+    private static string? FindConfigPath(IReadOnlyList<string> args)
+    {
+        string? value = null;
+        for (var index = 0; index < args.Count; index++)
+        {
+            var argument = args[index];
+            if (argument == ConfigOption)
+            {
+                // An option in the value position means the path was left out, not that the path starts with "--".
+                var hasValue = index + 1 < args.Count && !args[index + 1].StartsWith("--", StringComparison.Ordinal);
+                value = hasValue ? args[++index] : string.Empty;
+            }
+            else if (argument.StartsWith(ConfigOption + "=", StringComparison.Ordinal))
+            {
+                value = argument[(ConfigOption.Length + 1)..];
+            }
+            else
+            {
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new InvalidDataException($"The {ConfigOption} option requires the path of the backup configuration file.");
+            }
+        }
+
+        return value is null ? null : Path.GetFullPath(value);
     }
 
     /// <summary>

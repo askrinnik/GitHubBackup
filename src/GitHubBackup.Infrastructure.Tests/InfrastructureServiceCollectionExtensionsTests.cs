@@ -1,6 +1,9 @@
+using System.IO.Abstractions;
 using GitHubBackup.Core;
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +45,15 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupInfrastructure_FileServices_AreResolved()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IFileSystem>().ShouldBeOfType<FileSystem>();
+        provider.GetRequiredService<IBackupConfigStore>().ShouldBeOfType<JsonBackupConfigStore>();
+    }
+
+    [Fact]
     public void AddGitHubBackupInfrastructure_TokenConfigured_SecretMaskerMasksToken()
     {
         using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = "configured-token-value" });
@@ -79,7 +91,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
     /// <summary>
     /// Builds a service provider with the core and infrastructure services registered over <paramref name="values"/>
-    /// and a host environment whose content root is <c>C:\app\</c>.
+    /// together with logging and a host environment whose content root is <c>C:\app\</c>.
     /// </summary>
     /// <param name="values">The configuration keys and values.</param>
     /// <returns>The service provider; the caller disposes it.</returns>
@@ -91,6 +103,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         return new ServiceCollection()
             .AddSingleton(environment)
+            .AddLogging()
             .AddGitHubBackupCore(configuration)
             .AddGitHubBackupInfrastructure(configuration)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });

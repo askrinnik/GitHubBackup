@@ -1,3 +1,4 @@
+using GitHubBackup.Core.BackupConfiguration;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure.Hosting;
@@ -7,7 +8,8 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// Binding errors name the key and the target type (built by <c>BindSection</c> without the value), validator
-/// errors name the key, and file errors name the file and the position. No message quotes a configuration value, and
+/// errors name the key, file errors name the file and the position, and <see cref="BackupConfigException"/> errors
+/// name their location in <c>backup-config.json</c>. No message quotes a configuration value, and
 /// the token is never bound to an options object.
 /// </remarks>
 public static class ConfigurationErrorMessages
@@ -25,6 +27,7 @@ public static class ConfigurationErrorMessages
             OptionsValidationException validation => [.. validation.Failures],
             AggregateException aggregate when aggregate.InnerExceptions.All(inner => inner is OptionsValidationException) =>
                 [.. aggregate.InnerExceptions.Cast<OptionsValidationException>().SelectMany(inner => inner.Failures)],
+            BackupConfigException backupConfig => [.. backupConfig.Errors],
             FileNotFoundException or InvalidDataException => [JoinMessages(exception)],
             _ => [],
         };

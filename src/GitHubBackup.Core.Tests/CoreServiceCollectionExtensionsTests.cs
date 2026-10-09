@@ -1,3 +1,4 @@
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Configuration;
@@ -39,6 +40,14 @@ public sealed class CoreServiceCollectionExtensionsTests
 
         provider.GetRequiredService<IRunContext>().ShouldBeSameAs(runContext);
         otherProvider.GetRequiredService<IRunContext>().RunId.ShouldNotBe(runContext.RunId);
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_BackupConfigValidator_IsResolved()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IBackupConfigValidator>().ShouldBeOfType<BackupConfigValidator>();
     }
 
     [Fact]
