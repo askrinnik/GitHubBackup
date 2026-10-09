@@ -11,16 +11,6 @@ trim_trailing_whitespace = true
 [*.{csproj,props,targets,slnx,xml,xaml,json}]
 indent_size = 2
 
-# Verify snapshots: Verify writes them as UTF-8 with BOM and LF, and compares them byte for byte
-[*.{received,verified}.{json,txt}]
-charset = utf-8-bom
-end_of_line = lf
-indent_size = unset
-indent_style = unset
-insert_final_newline = false
-tab_width = unset
-trim_trailing_whitespace = false
-
 [*.md]
 trim_trailing_whitespace = false
 

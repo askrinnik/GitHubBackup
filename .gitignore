@@ -522,6 +522,3 @@ TestResults/
 
 # Session profiler report (rebuilt from the records)
 .ai/benchmarks/sessions/report.html
-
-# Verify snapshots that do not match the verified file
-*.received.*

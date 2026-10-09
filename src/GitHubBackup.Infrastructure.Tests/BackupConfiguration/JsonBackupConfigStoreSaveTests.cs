@@ -16,13 +16,64 @@ public sealed class JsonBackupConfigStoreSaveTests
     private const string _originalContent = "original content";
 
     [Fact]
-    public async Task SaveAsync_FullConfig_MatchesSnapshot()
+    public async Task SaveAsync_FullConfig_WritesExpectedJson()
     {
         var fileSystem = CreateFileSystem();
+        var expected = """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups\\GitHub",
+              "sourcesRoot": "E:\\Клоны",
+              "exclude": [
+                "someone/*",
+                "*-archive"
+              ],
+              "accounts": [
+                {
+                  "url": "https://github.com/askrinnik",
+                  "path": null,
+                  "exclude": [
+                    "test-*"
+                  ],
+                  "repositories": [
+                    {
+                      "name": "my-repo",
+                      "id": 123456789,
+                      "branch": null,
+                      "path": null,
+                      "status": "Active"
+                    },
+                    {
+                      "name": "old-tool",
+                      "id": 223456789,
+                      "branch": "legacy",
+                      "path": "F:\\Архив\\old-tool",
+                      "status": "Unavailable"
+                    }
+                  ]
+                },
+                {
+                  "url": "https://github.com/AMTOSS",
+                  "path": "D:\\Work\\AMTOSS",
+                  "exclude": [],
+                  "repositories": []
+                }
+              ],
+              "repositories": [
+                {
+                  "url": "https://github.com/someone-else/library",
+                  "id": 323456789,
+                  "branch": "develop",
+                  "path": null,
+                  "status": "Active"
+                }
+              ]
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n";
 
         await CreateStore(fileSystem).SaveAsync(CreateFullConfig(), TestContext.Current.CancellationToken);
 
-        await Verify(fileSystem.File.ReadAllText(ConfigPath), extension: "json");
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(expected);
     }
 
     [Fact]

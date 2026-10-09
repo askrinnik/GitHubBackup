@@ -74,7 +74,7 @@ docs/
 | Правило | Пути | Содержание |
 |---|---|---|
 | `csharp.md` | `**/*.cs` | Слои, DI и options, TimeProvider и IFileSystem, async и отмена, ошибки, логирование, гигиена комментариев, стиль C# 14 |
-| `tests.md` | тестовые проекты | Слои тестов, xUnit v3, Shouldly, NSubstitute, Verify, WireMock, FlaUI, детерминированность |
+| `tests.md` | тестовые проекты | Слои тестов, xUnit v3, Shouldly, NSubstitute, WireMock, FlaUI, детерминированность |
 | `wpf-mvvm.md` | `GitHubBackup.App/**`, `*.xaml` | MVVM на CommunityToolkit.Mvvm, команды с отменой, виртуализация, AutomationId |
 | `cli.md` | `GitHubBackup.Cli/**` | System.CommandLine, Spectre.Console, коды возврата, `--silent`, `--dry-run` |
 | `external-processes.md` | `GitHubBackup.Infrastructure/**` | Запуск git и 7-Zip, передача токена через окружение, коды возврата, логирование вывода, отмена |
@@ -120,7 +120,7 @@ docs/
 
 | Сервер | Назначение |
 |---|---|
-| `context7` | Документация сторонних библиотек (Octokit, Serilog, Spectre.Console, Verify, WireMock…) |
+| `context7` | Документация сторонних библиотек (Octokit, Serilog, Spectre.Console, WireMock…) |
 | `microsoft-learn` | Официальная документация Microsoft (.NET, WPF, System.CommandLine, EF Core, MSBuild) |
 | `nuget` | Версии, уязвимости и сведения о пакетах NuGet; запускается через `dnx` из .NET 10 SDK |
 

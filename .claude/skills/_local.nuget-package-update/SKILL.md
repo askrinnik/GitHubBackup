@@ -47,7 +47,7 @@ Move each family together in one step; never split it across runs. Families are 
 - **Logging:** `Serilog.*`.
 - **Telemetry:** `OpenTelemetry.*`.
 - **Abstractions:** `System.IO.Abstractions` with `System.IO.Abstractions.TestingHelpers` (always the same version).
-- **Test infrastructure:** `xunit.v3*`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`, `Microsoft.Testing.*`, `NSubstitute*`, `Shouldly`, `Verify.*`, `WireMock.Net*`, `FlaUI.*`, `NetArchTest.Rules`, `Microsoft.Extensions.TimeProvider.Testing`.
+- **Test infrastructure:** `xunit.v3*`, `xunit.runner.visualstudio`, `Microsoft.NET.Test.Sdk`, `Microsoft.Testing.*`, `NSubstitute*`, `Shouldly`, `WireMock.Net*`, `FlaUI.*`, `NetArchTest.Rules`, `Microsoft.Extensions.TimeProvider.Testing`.
 - **Analyzers, last:** analyzer-only packages (`*.Analyzers`, `Meziantou.Analyzer`, `Roslynator.*` if present).
 - **Individually:** everything else (`Octokit`, `System.CommandLine`, `Spectre.Console`, `CommunityToolkit.Mvvm`, the Credential Manager wrapper…).
 

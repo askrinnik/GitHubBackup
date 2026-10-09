@@ -27,9 +27,6 @@
     <PackageVersion Include="NSubstitute" Version="6.2.0" />
     <PackageVersion Include="Shouldly" Version="4.3.0" />
     <PackageVersion Include="System.IO.Abstractions.TestingHelpers" Version="22.3.0" />
-    <!-- Verify 33 and later fail the build unless a sponsorship or licence exemption property is declared;
-         moving past 32.x waits for the owner's licensing decision. 32.0.1 runs on xUnit v3 4.x. -->
-    <PackageVersion Include="Verify.XunitV3" Version="32.0.1" Pinned="true" />
     <PackageVersion Include="xunit.v3.mtp-v2" Version="4.0.1" />
   </ItemGroup>
 </Project>

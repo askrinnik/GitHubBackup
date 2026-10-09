@@ -44,10 +44,10 @@
 - `BackupOptions.ConfigPath` (по умолчанию `backup-config.json`) и `BackupOptionsValidator` (не пустой путь).
 - `ContentRootPathPostConfigure` делает путь абсолютным от папки exe.
 - Опции `--config` нет. `System.CommandLine` не подключён; `GitHubBackupHostBuilder.IsConfigurationArgument` пропускает только `--Section:Key=value`.
-- `System.IO.Abstractions`, `TestingHelpers`, `Verify` в `Directory.Packages.props` отсутствуют.
+- `System.IO.Abstractions` и `TestingHelpers` в `Directory.Packages.props` отсутствуют.
 - В production-коде нет ни `IFileSystem`, ни `System.Text.Json`.
 
-**`src/Directory.Packages.props`** — `System.IO.Abstractions`, `System.IO.Abstractions.TestingHelpers`, `Verify.XunitV3` (последние стабильные, проверка `dotnet list package --vulnerable`).
+**`src/Directory.Packages.props`** — `System.IO.Abstractions`, `System.IO.Abstractions.TestingHelpers` (последние стабильные, проверка `dotnet list package --vulnerable`).
 
 **GitHubBackup.Core**, namespace `GitHubBackup.Core.BackupConfiguration`, если не сказано иное:
 - `BackupConfig` (`sealed class`, `get; set;`) — `SchemaVersion`, `BackupRoot`, `SourcesRoot?`, `Exclude`, `Accounts`, `Repositories`; списки по умолчанию `[]`.
@@ -73,9 +73,9 @@
 - `Hosting/ConfigurationErrorMessages` — ветка `BackupConfigException => [.. Errors]`.
 - `Hosting/GitHubBackupHostBuilder` — `--config <path>` и `--config=<path>`; относительный путь — от текущего каталога; `AddInMemoryCollection` с `Backup:ConfigPath` после `AddCommandLine`; без значения — `InvalidDataException`.
 
-**Корень репозитория**: `.gitattributes` (`*.verified.json`, `*.verified.txt`: `text eol=lf`), `.gitignore` (`*.received.*`).
+**Корень репозитория**: без изменений (`.gitattributes`, `.gitignore`, `src/.editorconfig` не содержат правил для снимков).
 
-**Тестовые проекты**: `Core.Tests`, `Infrastructure.Tests` (+ `TestingHelpers`, `Verify.XunitV3`), `Infrastructure.IntegrationTests`, `Cli.Tests`.
+**Тестовые проекты**: `Core.Tests`, `Infrastructure.Tests` (+ `TestingHelpers`), `Infrastructure.IntegrationTests`, `Cli.Tests`.
 
 ## 5. Подход
 
@@ -105,7 +105,7 @@
 6. **Хост: `--config`** в общем `GitHubBackupHostBuilder`, до валидации опций.
 7. **DI** через расширения слоёв. Загрузка при старте (§9, шаг 1) не подключается.
 
-**Риск:** совместимость `Verify.XunitV3` с `xunit.v3.mtp-v2`; xUnit не понижать.
+**Риск:** сохранённый файл сравнивается строкой побайтно (CRLF, финальный перевод строки); эталон лежит в тесте.
 
 ## 6. Тесты
 
@@ -117,7 +117,7 @@
 
 **`GitHubBackup.Infrastructure.Tests`**
 - `BackupConfiguration/JsonBackupConfigStoreTests` (`MockFileSystem`) — образец, BOM, отсутствующий список, регистр `status`, нет файла, пустой файл, битый JSON, `null`, неизвестный `status`, неверный тип, `null` в списке, неизвестное свойство, ошибки валидации, предупреждение.
-- `BackupConfiguration/JsonBackupConfigStoreSaveTests` — Verify снимок, round-trip образца, CRLF, первая запись без `.bak`, вторая и третья запись `.bak`, невалидная модель, сбои записи temp и `Replace` (`FaultInjectingFileSystem`), отмена.
+- `BackupConfiguration/JsonBackupConfigStoreSaveTests` — сравнение сохранённого файла с эталоном в тесте (Shouldly), round-trip образца, CRLF, первая запись без `.bak`, вторая и третья запись `.bak`, невалидная модель, сбои записи temp и `Replace` (`FaultInjectingFileSystem`), отмена.
 - `ConfigurationErrorMessagesTests`, `InfrastructureServiceCollectionExtensionsTests` — дополнения.
 
 **`GitHubBackup.Infrastructure.IntegrationTests`** — `BackupConfiguration/JsonBackupConfigStoreFileTests`: настоящий `File.Replace` во временной папке.
@@ -129,7 +129,7 @@
 | Критерий | Чем проверяется |
 |---|---|
 | 1 | `BackupConfigValidatorTests`, `GitHubUrlTests`, `ArchiveFolderTests` |
-| 2 | `JsonBackupConfigStoreSaveTests.SaveAsync_FullConfig_MatchesSnapshot` и `.verified.json` |
+| 2 | `JsonBackupConfigStoreSaveTests.SaveAsync_FullConfig_WritesExpectedJson` (эталонный JSON в тесте) |
 | 3 | `SaveAsync_*Fails*_KeepsOriginalFile`, `SaveAsync_Cancelled_*`, интеграционный тест |
 | 4 | сборка, тесты, `dotnet format`, зелёный CI в PR |
 | 5, 6 | тесты `.bak` и round-trip |
@@ -176,13 +176,14 @@
 8. `--config` реализуется сейчас в `GitHubBackupHostBuilder`; перенос в `System.CommandLine` — в CLI-фазе.
 9. `SaveAsync` отказывается сохранять невалидную модель.
 10. Разрешение папок архивов и клонов — issue [#9](https://github.com/askrinnik/GitHubBackup/issues/9); здесь `ArchiveFolder` минимальный, #9 опирается на него.
+11. 2026-10-09: Verify исключён из проекта (PRD 0.7); сохранённый файл проверяется сравнением с эталоном в тесте через Shouldly.
 
-PRD не меняется.
+PRD: версия 0.7 исключает Verify (§8.3, §11); других изменений нет.
 
 ## 11. Задачи
 
-- [x] `Directory.Packages.props`: `System.IO.Abstractions`, `System.IO.Abstractions.TestingHelpers`, `Verify.XunitV3`; проверка `--vulnerable`
-- [x] `.gitattributes` (`*.verified.*`) и `.gitignore` (`*.received.*`)
+- [x] `Directory.Packages.props`: `System.IO.Abstractions`, `System.IO.Abstractions.TestingHelpers`; проверка `--vulnerable`
+- [x] Правила для снимков в `.gitattributes`, `.gitignore`, `.editorconfig` не нужны (Verify исключён)
 - [x] Core: `RepositoryStatus`, `BackupConfig`, `AccountConfig`, `AccountRepositoryConfig`, `RepositoryConfig`
 - [x] Core: `GitHub/GitHubUrl` и `GitHubUrlTests`
 - [x] Core: `ArchiveFolder` и `ArchiveFolderTests`
@@ -190,7 +191,7 @@ PRD не меняется.
 - [x] Core: `IBackupConfigStore`, `BackupConfigLoadResult`, `BackupConfigException`; регистрация и тест
 - [x] Infrastructure: `BackupConfigJsonContext`, `BackupConfigLog`
 - [x] Infrastructure: `JsonBackupConfigStore.LoadAsync` и `JsonBackupConfigStoreTests`
-- [x] Infrastructure: `JsonBackupConfigStore.SaveAsync` и `JsonBackupConfigStoreSaveTests` с `FaultInjectingFileSystem` и Verify
+- [x] Infrastructure: `JsonBackupConfigStore.SaveAsync` и `JsonBackupConfigStoreSaveTests` с `FaultInjectingFileSystem` и эталонным JSON в тесте
 - [x] Infrastructure: регистрация `IFileSystem` и `IBackupConfigStore`, тест
 - [x] Infrastructure: `ConfigurationErrorMessages` распознаёт `BackupConfigException`, тест
 - [x] Infrastructure: `--config` в `GitHubBackupHostBuilder` и тесты в `CliApplicationTests`

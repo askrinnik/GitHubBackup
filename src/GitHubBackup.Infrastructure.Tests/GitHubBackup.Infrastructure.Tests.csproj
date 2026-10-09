@@ -6,7 +6,6 @@
 
   <ItemGroup>
     <PackageReference Include="System.IO.Abstractions.TestingHelpers" />
-    <PackageReference Include="Verify.XunitV3" />
   </ItemGroup>
 
 </Project>
