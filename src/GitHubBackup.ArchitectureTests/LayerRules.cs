@@ -62,6 +62,20 @@ public static class LayerRules
         [_infrastructure, .. _hostNamespaces, .. _ioLibraryAssemblies, _configuration, .. _wpfAssemblies];
 
     /// <summary>
+    /// Gets the <c>System.IO</c> types that touch the disk directly; <c>Core</c> and <c>Infrastructure</c> use
+    /// <see cref="System.IO.Abstractions.IFileSystem"/> instead, so tests can replace the disk. <see cref="Path"/>
+    /// only computes strings and is allowed.
+    /// </summary>
+    public static IReadOnlyList<string> DirectFileSystemTypes { get; } =
+    [
+        typeof(File).FullName!,
+        typeof(Directory).FullName!,
+        typeof(FileInfo).FullName!,
+        typeof(DirectoryInfo).FullName!,
+        typeof(FileStream).FullName!,
+    ];
+
+    /// <summary>
     /// Gets the namespaces whose types <c>Infrastructure</c> must not use: the hosts.
     /// </summary>
     public static IReadOnlyList<string> InfrastructureForbiddenNamespaces { get; } = _hostNamespaces;

@@ -24,6 +24,33 @@ public sealed class RuleDetectionTests
     }
 
     [Fact]
+    public void Types_FixtureCallingFileExists_ViolatesFileSystemRule()
+    {
+        var result = Types.InAssembly(typeof(DirectFileAccessFixture).Assembly)
+            .That()
+            .HaveName(nameof(DirectFileAccessFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.DirectFileSystemTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeFalse();
+        result.FailingTypeNames.ShouldContain(typeof(DirectFileAccessFixture).FullName!);
+    }
+
+    [Fact]
+    public void Types_FixtureUsingPathAndFileFlags_SatisfiesFileSystemRule()
+    {
+        var result = Types.InAssembly(typeof(AllowedFileTypesFixture).Assembly)
+            .That()
+            .HaveName(nameof(AllowedFileTypesFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.DirectFileSystemTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
     public void Find_FixtureAssembly_ReportsHostAssembly()
     {
         var found = ForbiddenReferenceFinder.Find(typeof(HostDependentFixture).Assembly, LayerRules.CoreForbiddenAssemblies);
