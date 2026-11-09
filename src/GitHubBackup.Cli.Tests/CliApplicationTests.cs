@@ -271,6 +271,15 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ConfigOptionNotAPath_ReturnsCriticalWithOneLine()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "--config", "D:\\mine\0.json");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(["Configuration error: The --config option is not a valid path."]);
+    }
+
+    [Fact]
     public void BuildHost_ProductionEnvironment_UsesSettingsEnvironment()
     {
         using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings));

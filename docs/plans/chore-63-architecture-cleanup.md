@@ -76,7 +76,7 @@
 - [x] Коммит 1: привязка конфигурации в Infrastructure
 - [x] Коммит 2: формат путей Core описан
 - [x] Коммит 3: архитектурный тест на прямой доступ к файлам
-- [ ] Коммит 4: `ConfigurationErrorMessages` сужен
+- [x] Коммит 4: `ConfigurationErrorMessages` сужен
 - [ ] Коммит 5: `GitHubBackup.TestUtilities`, PRD §8.1, `CLAUDE.md`
 - [ ] Security review, проверка критериев
 

@@ -8,9 +8,11 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// Binding errors name the key and the target type (built by <c>BindSection</c> without the value), validator
-/// errors name the key, file errors name the file and the position, and <see cref="BackupConfigException"/> errors
-/// name their location in <c>backup-config.json</c>. No message quotes a configuration value, and
-/// the token is never bound to an options object.
+/// errors name the key, <see cref="ConfigurationFileException"/> errors name <c>appsettings.json</c> or the user
+/// secrets file and the position, or the <c>--config</c> option, and <see cref="BackupConfigException"/> errors name their location in
+/// <c>backup-config.json</c>. No message quotes a configuration value, and the token is never bound to an options
+/// object. Any other exception, including a <see cref="FileNotFoundException"/> or an
+/// <see cref="InvalidDataException"/> from other code, is not a configuration error.
 /// </remarks>
 public static class ConfigurationErrorMessages
 {
@@ -28,27 +30,10 @@ public static class ConfigurationErrorMessages
             AggregateException aggregate when aggregate.InnerExceptions.All(inner => inner is OptionsValidationException) =>
                 [.. aggregate.InnerExceptions.Cast<OptionsValidationException>().SelectMany(inner => inner.Failures)],
             BackupConfigException backupConfig => [.. backupConfig.Errors],
-            FileNotFoundException or InvalidDataException => [JoinMessages(exception)],
+            ConfigurationFileException file => [file.Message],
             _ => [],
         };
 
         return messages.Count > 0;
-    }
-
-    /// <summary>
-    /// Joins the message of <paramref name="exception"/> with those of its inner exceptions, so that a JSON syntax
-    /// error reports both the file and the line.
-    /// </summary>
-    /// <param name="exception">The outermost exception.</param>
-    /// <returns>The messages separated by spaces.</returns>
-    private static string JoinMessages(Exception exception)
-    {
-        List<string> parts = [];
-        for (var current = exception; current is not null; current = current.InnerException)
-        {
-            parts.Add(current.Message);
-        }
-
-        return string.Join(' ', parts);
     }
 }

@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Infrastructure.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -70,6 +71,17 @@ public sealed class UserSecretsSourceTests : IDisposable
         ShortHashLength(Environments.Development, "--Backup:ShortHashLength=20").ShouldBe(20);
     }
 
+    [Fact]
+    public void BuildHost_DevelopmentWithBrokenSecretsFile_ThrowsConfigurationError()
+    {
+        WriteUserSecretsText("""{ "Backup:ShortHashLength": """);
+
+        var exception = Should.Throw<ConfigurationFileException>(() => ShortHashLength(Environments.Development));
+
+        ConfigurationErrorMessages.TryGet(exception, out var messages).ShouldBeTrue();
+        messages.ShouldHaveSingleItem().ShouldContain("secrets.json");
+    }
+
     /// <summary>
     /// Restores the variables the tests change and deletes the temporary folders.
     /// </summary>
@@ -86,13 +98,19 @@ public sealed class UserSecretsSourceTests : IDisposable
     /// temporary <c>APPDATA</c>.
     /// </summary>
     /// <param name="shortHashLength">The value to store.</param>
-    private void WriteUserSecrets(int shortHashLength)
+    private void WriteUserSecrets(int shortHashLength) =>
+        WriteUserSecretsText($$"""{ "Backup:ShortHashLength": "{{shortHashLength}}" }""");
+
+    /// <summary>
+    /// Writes <paramref name="json"/> as <c>secrets.json</c> into the user-secrets store under the temporary
+    /// <c>APPDATA</c>.
+    /// </summary>
+    /// <param name="json">The text of the file.</param>
+    private void WriteUserSecretsText(string json)
     {
         var folder = Path.Combine(_appData.FolderPath, "Microsoft", "UserSecrets", UserSecretsId);
         Directory.CreateDirectory(folder);
-        File.WriteAllText(
-            Path.Combine(folder, "secrets.json"),
-            $$"""{ "Backup:ShortHashLength": "{{shortHashLength}}" }""");
+        File.WriteAllText(Path.Combine(folder, "secrets.json"), json);
     }
 
     /// <summary>

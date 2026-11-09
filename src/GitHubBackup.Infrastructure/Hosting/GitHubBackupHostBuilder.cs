@@ -44,9 +44,9 @@ public static class GitHubBackupHostBuilder
     /// </summary>
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
-    /// <exception cref="FileNotFoundException"><see cref="AppSettingsFileName"/> does not exist.</exception>
-    /// <exception cref="InvalidDataException">
-    /// <see cref="AppSettingsFileName"/> is not valid JSON, or <see cref="ConfigOption"/> has no value.
+    /// <exception cref="ConfigurationFileException">
+    /// <see cref="AppSettingsFileName"/> does not exist or is not valid JSON, the user secrets file is not valid JSON,
+    /// or <see cref="ConfigOption"/> has no value or is not a valid path.
     /// </exception>
     public static HostApplicationBuilder Create(GitHubBackupHostSettings settings)
     {
@@ -61,15 +61,22 @@ public static class GitHubBackupHostBuilder
         });
 
         var configuration = builder.Configuration;
-        configuration.AddJsonFile(
-            settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider,
-            AppSettingsFileName,
-            optional: false,
-            reloadOnChange: false);
-
-        if (builder.Environment.IsDevelopment())
+        try
         {
-            configuration.AddUserSecrets(UserSecretsId, reloadOnChange: false);
+            configuration.AddJsonFile(
+                settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider,
+                AppSettingsFileName,
+                optional: false,
+                reloadOnChange: false);
+
+            if (builder.Environment.IsDevelopment())
+            {
+                configuration.AddUserSecrets(UserSecretsId, reloadOnChange: false);
+            }
+        }
+        catch (Exception exception) when (exception is FileNotFoundException or InvalidDataException)
+        {
+            throw new ConfigurationFileException(exception);
         }
 
         configuration.AddEnvironmentVariables(EnvironmentVariablePrefix);
@@ -98,7 +105,7 @@ public static class GitHubBackupHostBuilder
     /// </summary>
     /// <param name="args">The command-line arguments.</param>
     /// <returns>The full path, or <see langword="null"/> when the option is absent.</returns>
-    /// <exception cref="InvalidDataException">The option has no value.</exception>
+    /// <exception cref="ConfigurationFileException">The option has no value or is not a valid path.</exception>
     private static string? FindConfigPath(IReadOnlyList<string> args)
     {
         string? value = null;
@@ -122,11 +129,23 @@ public static class GitHubBackupHostBuilder
 
             if (string.IsNullOrWhiteSpace(value))
             {
-                throw new InvalidDataException($"The {ConfigOption} option requires the path of the backup configuration file.");
+                throw new ConfigurationFileException($"The {ConfigOption} option requires the path of the backup configuration file.");
             }
         }
 
-        return value is null ? null : Path.GetFullPath(value);
+        if (value is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFullPath(value);
+        }
+        catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            throw new ConfigurationFileException($"The {ConfigOption} option is not a valid path.", exception);
+        }
     }
 
     /// <summary>
