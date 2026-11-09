@@ -71,14 +71,19 @@
 - После каждого коммита: полная пересборка и тесты решения (`build-runner`, scope `full`), формат.
 - В конце — security review (изменения в Infrastructure и в пути старта).
 
+## Решения
+
+- План утверждён без правок.
+- По итогам security review повреждённый файл user secrets тоже даёт `ConfigurationFileException`: раньше он считался ошибкой конфигурации, и поведение сохранено.
+
 ## 5. Чек-лист
 
 - [x] Коммит 1: привязка конфигурации в Infrastructure
 - [x] Коммит 2: формат путей Core описан
 - [x] Коммит 3: архитектурный тест на прямой доступ к файлам
 - [x] Коммит 4: `ConfigurationErrorMessages` сужен
-- [ ] Коммит 5: `GitHubBackup.TestUtilities`, PRD §8.1, `CLAUDE.md`
-- [ ] Security review, проверка критериев
+- [x] Коммит 5: `GitHubBackup.TestUtilities`, PRD §8.1, `CLAUDE.md`
+- [x] Security review, проверка критериев
 
 ## Вне рамок
 

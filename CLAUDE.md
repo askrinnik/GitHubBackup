@@ -27,14 +27,16 @@ src/
   GitHubBackup.Infrastructure (+ .Tests, .IntegrationTests)   git, 7-Zip, Octokit, EF Core SQLite, Credential Manager, files, processes
   GitHubBackup.Cli (+ .Tests)                  console host
   GitHubBackup.App (+ .Tests, .UITests)        WPF host (MVVM)
-  GitHubBackup.ArchitectureTests               layer dependency rules
+  GitHubBackup.ArchitectureTests               layer dependency rules and direct file system access
+  GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot)
 .ai/
   prompts/               workflow bodies shared by commands
   benchmarks/harness/    harness benchmark: fixtures, history, reports
 ```
 
 - Dependencies point inward only: `Cli`, `App` → `Infrastructure` → `Core`. `Core` references none of the others and no I/O library; `GitHubBackup.ArchitectureTests` enforces it.
-- Every production project has its test project next to it (`<Project>.Tests`).
+- Every production project has its test project next to it (`<Project>.Tests`). `GitHubBackup.TestUtilities` is a helper library referenced only by test projects; it is not a product and has no test project of its own.
+- `Core` and `Infrastructure` reach the disk only through `IFileSystem`; `GitHubBackup.ArchitectureTests` forbids `File`, `Directory`, `FileInfo`, `DirectoryInfo` and `FileStream` there.
 - `GitHubBackup.Core` and `GitHubBackup.Core.Tests` target `net10.0`; every other project targets `net10.0-windows`. Shared settings live in `src/Directory.Build.props`, package versions only in `src/Directory.Packages.props`.
 - `global.json` (repository root) pins the SDK band (`10.0.100`, `rollForward: latestFeature`) and selects Microsoft.Testing.Platform as the `dotnet test` runner.
 

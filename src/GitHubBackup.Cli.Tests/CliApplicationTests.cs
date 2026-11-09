@@ -5,6 +5,7 @@ using GitHubBackup.Core.Logging;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
+using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;

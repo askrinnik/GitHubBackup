@@ -10,4 +10,5 @@
   <Project Path="GitHubBackup.Infrastructure.IntegrationTests/GitHubBackup.Infrastructure.IntegrationTests.csproj" />
   <Project Path="GitHubBackup.Infrastructure.Tests/GitHubBackup.Infrastructure.Tests.csproj" />
   <Project Path="GitHubBackup.Infrastructure/GitHubBackup.Infrastructure.csproj" />
+  <Project Path="GitHubBackup.TestUtilities/GitHubBackup.TestUtilities.csproj" />
 </Solution>

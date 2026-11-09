@@ -1,5 +1,6 @@
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
+using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;

@@ -2,6 +2,7 @@ using System.Text.Json;
 using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Infrastructure.Logging;
+using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;

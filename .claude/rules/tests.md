@@ -4,6 +4,7 @@ paths:
   - "src/**/*.IntegrationTests/**"
   - "src/**/*.UITests/**"
   - "src/GitHubBackup.ArchitectureTests/**"
+  - "src/GitHubBackup.TestUtilities/**"
 ---
 
 # Tests
@@ -18,6 +19,7 @@ paths:
 | `GitHubBackup.App.Tests` | ViewModels | No WPF window, no dispatcher dependency |
 | `GitHubBackup.App.UITests` | The running WPF app through FlaUI | Separate workflow, run manually |
 | `GitHubBackup.ArchitectureTests` | Layer dependencies (NetArchTest) | One rule per test |
+| `GitHubBackup.TestUtilities` | Nothing: helpers shared by test projects, such as `TemporaryContentRoot` | No tests and no test framework reference; reuse a helper here instead of copying it into a test project |
 
 Smoke tests against real GitHub carry a separate trait/category and do not run by default (PRD §11). Choose the nearest existing test class before creating a new one; a new production type gets a test class named `<Type>Tests` in the mirrored folder of the paired project.
 
