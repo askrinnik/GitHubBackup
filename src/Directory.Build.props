@@ -1,6 +1,10 @@
 <Project>
   <PropertyGroup>
-    <!-- Core stays OS-independent; every project that references Infrastructure inherits its Windows target. -->
+    <!--
+      Core targets net10.0 because it calls no operating-system API; every project that references Infrastructure
+      inherits its Windows target. Paths in the domain are still Windows paths (drive letter or UNC prefix, ""
+      separator, case-insensitive comparison), because the application runs only on Windows.
+    -->
     <IsOsIndependentProject Condition="'$(MSBuildProjectName)' == 'GitHubBackup.Core' or '$(MSBuildProjectName)' == 'GitHubBackup.Core.Tests'">true</IsOsIndependentProject>
     <TargetFramework Condition="'$(IsOsIndependentProject)' == 'true'">net10.0</TargetFramework>
     <TargetFramework Condition="'$(IsOsIndependentProject)' != 'true'">net10.0-windows</TargetFramework>

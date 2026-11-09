@@ -3,6 +3,11 @@ namespace GitHubBackup.Core.BackupConfiguration;
 /// <summary>
 /// Resolves the folder that receives the archives of one repository.
 /// </summary>
+/// <remarks>
+/// Every path is a Windows path: it starts with a drive letter or a UNC prefix, uses <c>\</c> as the separator, and
+/// is compared without regard to case. The containment check relies on <see cref="Path"/> behaving as it does on
+/// Windows, the only operating system the application runs on.
+/// </remarks>
 internal static class ArchiveFolder
 {
     /// <summary>
