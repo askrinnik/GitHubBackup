@@ -86,7 +86,7 @@ public static class GitHubBackupHostBuilder
         }));
 
         builder.Services
-            .AddGitHubBackupCore(configuration)
+            .AddGitHubBackupCore()
             .AddGitHubBackupInfrastructure(configuration)
             .AddGitHubBackupLogging(configuration);
 

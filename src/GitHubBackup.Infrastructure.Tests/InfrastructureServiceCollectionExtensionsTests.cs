@@ -23,12 +23,14 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     {
         using var provider = BuildProvider(new()
         {
+            ["Backup:ShortHashLength"] = "12",
             ["GitHub:ApiBaseUrl"] = "https://github.example.com/api/v3",
             ["Tools:GitPath"] = @"C:\Git\cmd\git.exe",
             ["History:DatabasePath"] = @"D:\history.db",
             ["OpenTelemetry:Enabled"] = "true",
         });
 
+        provider.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(12);
         provider.GetRequiredService<IOptions<GitHubOptions>>().Value.ApiBaseUrl.ShouldBe("https://github.example.com/api/v3");
         provider.GetRequiredService<IOptions<ToolsOptions>>().Value.GitPath.ShouldBe(@"C:\Git\cmd\git.exe");
         provider.GetRequiredService<IOptions<HistoryOptions>>().Value.DatabasePath.ShouldBe(@"D:\history.db");
@@ -104,7 +106,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
         return new ServiceCollection()
             .AddSingleton(environment)
             .AddLogging()
-            .AddGitHubBackupCore(configuration)
+            .AddGitHubBackupCore()
             .AddGitHubBackupInfrastructure(configuration)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }

@@ -40,6 +40,8 @@ public sealed class RuleDetectionTests
     [InlineData("Serilog")]
     [InlineData("Serilog.Sinks.File")]
     [InlineData("PresentationFramework")]
+    [InlineData("Microsoft.Extensions.Configuration.Abstractions")]
+    [InlineData("Microsoft.Extensions.Configuration.Binder")]
     public void Find_ForbiddenReference_IsReported(string referenceName)
     {
         var found = ForbiddenReferenceFinder.Find([new AssemblyName(referenceName)], LayerRules.CoreForbiddenAssemblies);

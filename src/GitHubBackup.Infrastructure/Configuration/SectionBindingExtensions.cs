@@ -1,7 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
-namespace GitHubBackup.Core.Configuration;
+namespace GitHubBackup.Infrastructure.Configuration;
 
 /// <summary>
 /// Binds option classes to configuration sections so that binding errors surface as validation failures.
