@@ -51,6 +51,33 @@ public sealed class RuleDetectionTests
     }
 
     [Fact]
+    public void Types_FixtureStartingProcess_ViolatesProcessRule()
+    {
+        var result = Types.InAssembly(typeof(ProcessStartingFixture).Assembly)
+            .That()
+            .HaveName(nameof(ProcessStartingFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.ProcessTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeFalse();
+        result.FailingTypeNames.ShouldContain(typeof(ProcessStartingFixture).FullName!);
+    }
+
+    [Fact]
+    public void Types_FixtureUsingStopwatchAndWindowStyle_SatisfiesProcessRule()
+    {
+        var result = Types.InAssembly(typeof(AllowedDiagnosticsTypesFixture).Assembly)
+            .That()
+            .HaveName(nameof(AllowedDiagnosticsTypesFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.ProcessTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
     public void Find_FixtureAssembly_ReportsHostAssembly()
     {
         var found = ForbiddenReferenceFinder.Find(typeof(HostDependentFixture).Assembly, LayerRules.CoreForbiddenAssemblies);

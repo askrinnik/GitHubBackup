@@ -16,8 +16,9 @@ public static class CoreServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the core services, including the <see cref="IRunContext"/> of the host and the
-        /// <see cref="IBackupConfigValidator"/>, and registers <see cref="BackupOptions"/> with
+        /// Adds the core services, including the <see cref="IRunContext"/> of the host, the
+        /// <see cref="IBackupConfigValidator"/> and <see cref="TimeProvider.System"/> as the
+        /// <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
         /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
@@ -29,6 +30,7 @@ public static class CoreServiceCollectionExtensions
         {
             services.TryAddSingleton<IRunContext, RunContext>();
             services.TryAddSingleton<IBackupConfigValidator, BackupConfigValidator>();
+            services.TryAddSingleton(TimeProvider.System);
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());
             services.AddOptions<BackupOptions>().ValidateOnStart();

@@ -53,6 +53,14 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_TimeProvider_IsSystemClock()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<TimeProvider>().ShouldBeSameAs(TimeProvider.System);
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_CalledTwice_RegistersValidatorOnce()
     {
         var services = new ServiceCollection();

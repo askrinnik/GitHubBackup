@@ -1,9 +1,11 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
+using GitHubBackup.Infrastructure.Processes;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -22,7 +24,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="IFileSystem"/>, the <see cref="IBackupConfigStore"/> and the
+        /// token, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IBackupConfigStore"/> and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
@@ -31,7 +33,8 @@ public static class InfrastructureServiceCollectionExtensions
         /// Relative paths in <see cref="BackupOptions"/> and <see cref="HistoryOptions"/> are resolved against
         /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>, so the host must register
         /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment"/>.
-        /// The validator of <see cref="BackupOptions"/> is registered by <c>AddGitHubBackupCore</c>.
+        /// The validator of <see cref="BackupOptions"/> and the <see cref="TimeProvider"/> that
+        /// <see cref="IProcessRunner"/> needs are registered by <c>AddGitHubBackupCore</c>.
         /// </remarks>
         /// <param name="configuration">The application configuration.</param>
         /// <returns>The same service collection, for chaining.</returns>
@@ -39,6 +42,7 @@ public static class InfrastructureServiceCollectionExtensions
         {
             services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
             services.TryAddSingleton<IFileSystem, FileSystem>();
+            services.TryAddSingleton<IProcessRunner, ProcessRunner>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
             services.TryAddSingleton<IRepositoryPathResolver>(provider => new RepositoryPathResolver(
                 Path.Combine(
