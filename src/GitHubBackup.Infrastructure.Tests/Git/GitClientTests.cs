@@ -23,8 +23,8 @@ public sealed class GitClientTests
 
     private static readonly string[][] _syncSteps =
     [
-        ["checkout", "-B", "main", "origin/main"],
-        ["reset", "--hard", "origin/main"],
+        ["checkout", "-B", "main", "origin/main", "--"],
+        ["reset", "--hard", "origin/main", "--"],
         ["clean", "-ffdx"],
         ["submodule", "sync", "--recursive"],
         ["submodule", "update", "--init", "--recursive", "--force"],
@@ -115,6 +115,21 @@ public sealed class GitClientTests
     [Theory]
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
+    public async Task Operation_AnyStep_ClearsCredentialHelpers(Operation operation)
+    {
+        await RunAsync(operation, Request(_token));
+
+        foreach (var request in _requests)
+        {
+            var variables = Variables(request);
+            variables["GIT_CONFIG_KEY_1"].ShouldBe("credential.helper");
+            variables["GIT_CONFIG_VALUE_1"].ShouldBeEmpty();
+        }
+    }
+
+    [Theory]
+    [InlineData(Operation.Clone)]
+    [InlineData(Operation.Update)]
     public async Task Operation_TokenSet_PassesBasicExtraHeaderAsSecretOnEveryStep(Operation operation)
     {
         var expectedHeader = "Authorization: Basic "
@@ -125,12 +140,12 @@ public sealed class GitClientTests
         foreach (var request in _requests)
         {
             var variables = Variables(request);
-            variables["GIT_CONFIG_COUNT"].ShouldBe("2");
-            variables["GIT_CONFIG_KEY_1"].ShouldBe("http.https://github.com/.extraHeader");
-            var header = request.EnvironmentVariables.Single(variable => variable.Name == "GIT_CONFIG_VALUE_1");
+            variables["GIT_CONFIG_COUNT"].ShouldBe("3");
+            variables["GIT_CONFIG_KEY_2"].ShouldBe("http.https://github.com/.extraHeader");
+            var header = request.EnvironmentVariables.Single(variable => variable.Name == "GIT_CONFIG_VALUE_2");
             header.Value.ShouldBe(expectedHeader);
             header.IsSecret.ShouldBeTrue();
-            request.EnvironmentVariables.Where(variable => variable.Name != "GIT_CONFIG_VALUE_1")
+            request.EnvironmentVariables.Where(variable => variable.Name != "GIT_CONFIG_VALUE_2")
                 .ShouldAllBe(variable => !variable.IsSecret);
         }
     }
@@ -158,13 +173,13 @@ public sealed class GitClientTests
 
         foreach (var request in _requests)
         {
-            Variables(request)["GIT_CONFIG_COUNT"].ShouldBe("1");
+            Variables(request)["GIT_CONFIG_COUNT"].ShouldBe("2");
             request.EnvironmentVariables.ShouldAllBe(variable => !variable.Value.Contains("extraHeader") && !variable.IsSecret);
         }
     }
 
     [Fact]
-    public async Task UpdateAsync_AdditionalConfiguration_PlacesItBetweenLongPathsAndHeader()
+    public async Task UpdateAsync_AdditionalConfiguration_PlacesItBetweenFixedEntriesAndHeader()
     {
         var client = new GitClient(CreateRunner(), _fileSystem, _masker, _logger)
         {
@@ -174,11 +189,12 @@ public sealed class GitClientTests
         await client.UpdateAsync(Request(_token), TestContext.Current.CancellationToken);
 
         var variables = Variables(_requests[0]);
-        variables["GIT_CONFIG_COUNT"].ShouldBe("3");
+        variables["GIT_CONFIG_COUNT"].ShouldBe("4");
         variables["GIT_CONFIG_KEY_0"].ShouldBe("core.longpaths");
-        variables["GIT_CONFIG_KEY_1"].ShouldBe("protocol.file.allow");
-        variables["GIT_CONFIG_VALUE_1"].ShouldBe("always");
-        variables["GIT_CONFIG_KEY_2"].ShouldBe("http.https://github.com/.extraHeader");
+        variables["GIT_CONFIG_KEY_1"].ShouldBe("credential.helper");
+        variables["GIT_CONFIG_KEY_2"].ShouldBe("protocol.file.allow");
+        variables["GIT_CONFIG_VALUE_2"].ShouldBe("always");
+        variables["GIT_CONFIG_KEY_3"].ShouldBe("http.https://github.com/.extraHeader");
     }
 
     [Theory]
@@ -204,8 +220,8 @@ public sealed class GitClientTests
             () => CreateClient().UpdateAsync(Request(_token), TestContext.Current.CancellationToken));
 
         exception.ExitCode.ShouldBe(128);
-        exception.Command.ShouldBe("git reset --hard origin/main");
-        exception.Message.ShouldContain("git reset --hard origin/main");
+        exception.Command.ShouldBe("git reset --hard origin/main --");
+        exception.Message.ShouldContain("git reset --hard origin/main --");
         exception.Message.ShouldContain(_clonePath);
         exception.Message.ShouldContain("128");
         exception.Message.ShouldContain("fatal: could not read with ***");

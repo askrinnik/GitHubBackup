@@ -26,7 +26,8 @@ internal static class GitEnvironment
     /// </summary>
     /// <param name="token">The GitHub token, or <see langword="null"/> or white space for anonymous access.</param>
     /// <param name="additionalConfiguration">
-    /// Configuration entries set after <c>core.longpaths</c> and before the authorization header.
+    /// Configuration entries set after <c>core.longpaths</c> and the empty <c>credential.helper</c>, and before the
+    /// authorization header.
     /// </param>
     /// <returns>
     /// <c>GIT_TERMINAL_PROMPT</c>, <c>GCM_INTERACTIVE</c>, <c>GIT_CONFIG_COUNT</c> and a key and value per entry;
@@ -35,7 +36,13 @@ internal static class GitEnvironment
     public static IReadOnlyList<ProcessEnvironmentVariable> Create(
         string? token, IReadOnlyList<KeyValuePair<string, string>> additionalConfiguration)
     {
-        List<(string Key, string Value, bool IsSecret)> entries = [("core.longpaths", "true", false)];
+        // An empty credential.helper clears the helpers from the user's configuration, so a rejected or missing token
+        // fails the command instead of letting a helper supply or store other credentials.
+        List<(string Key, string Value, bool IsSecret)> entries =
+        [
+            ("core.longpaths", "true", false),
+            ("credential.helper", string.Empty, false),
+        ];
         entries.AddRange(additionalConfiguration.Select(entry => (entry.Key, entry.Value, false)));
         if (!string.IsNullOrWhiteSpace(token))
         {

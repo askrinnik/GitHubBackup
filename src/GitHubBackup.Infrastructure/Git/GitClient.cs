@@ -129,8 +129,8 @@ internal sealed class GitClient(
         var remoteBranch = "origin/" + request.Branch;
         string[][] steps =
         [
-            ["checkout", "-B", request.Branch, remoteBranch],
-            ["reset", "--hard", remoteBranch],
+            ["checkout", "-B", request.Branch, remoteBranch, "--"],
+            ["reset", "--hard", remoteBranch, "--"],
             ["clean", "-ffdx"],
             ["submodule", "sync", "--recursive"],
             ["submodule", "update", "--init", "--recursive", "--force"],
