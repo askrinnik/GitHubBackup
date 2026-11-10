@@ -17,11 +17,15 @@ public sealed class LocalGitSandbox : IDisposable
         RootPath = TemporaryFolder.Create();
         var globalConfigPath = Path.Combine(RootPath, ".gitconfig");
         File.WriteAllText(globalConfigPath, string.Empty);
-        _runner = new GitCommandRunner(gitPath ?? GitCommandRunner.LocateGit(), globalConfigPath);
+        GitPath = gitPath ?? GitCommandRunner.LocateGit();
+        _runner = new GitCommandRunner(GitPath, globalConfigPath);
     }
 
     /// <summary>Gets the absolute path of the root folder.</summary>
     public string RootPath { get; }
+
+    /// <summary>Gets the absolute path of the <c>git.exe</c> the sandbox runs, for code under test that needs it.</summary>
+    public string GitPath { get; }
 
     /// <summary>
     /// Creates a bare repository whose <c>main</c> branch holds one initial commit.
