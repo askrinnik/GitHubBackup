@@ -64,8 +64,70 @@ public sealed class GitRefParserTests
     }
 
     [Fact]
-    public void ParseLocalRefs_LinesWithoutTab_SkipsThem() =>
-        GitRefParser.ParseLocalRefs(["garbage", $"{_commit}\t", $"\trefs/tags/v1"]).ShouldBe(RefSnapshot.Empty);
+    public void ParseLocalRefs_BlankLines_SkipsThem() =>
+        GitRefParser.ParseLocalRefs(["", "  "]).ShouldBe(RefSnapshot.Empty);
+
+    [Theory]
+    [InlineData("garbage")]
+    [InlineData($"{_commit}\t")]
+    [InlineData("\trefs/tags/v1")]
+    public void ParseLocalRefs_LineWithoutTabOrParts_ThrowsFormatException(string line) =>
+        Should.Throw<FormatException>(() => GitRefParser.ParseLocalRefs([line]));
+
+    [Theory]
+    [InlineData("garbage")]
+    [InlineData($"{_commit}\t")]
+    public void ParseRemoteRefs_LineWithoutTabOrParts_ThrowsFormatException(string line) =>
+        Should.Throw<FormatException>(() => GitRefParser.ParseRemoteRefs([line]));
+
+    [Fact]
+    public void ParseRemoteRefs_DuplicateRef_ThrowsFormatException() =>
+        Should.Throw<FormatException>(
+            () => GitRefParser.ParseRemoteRefs([$"{_commit}\trefs/heads/main", $"{_otherCommit}\trefs/heads/main"]));
+
+    [Theory]
+    [InlineData("refs/heads/")]
+    [InlineData("refs/tags/")]
+    public void ParseRemoteRefs_EmptyName_ThrowsFormatException(string name) =>
+        Should.Throw<FormatException>(() => GitRefParser.ParseRemoteRefs([$"{_commit}\t{name}"]));
+
+    [Theory]
+    [InlineData("refs/remotes/origin/")]
+    [InlineData("refs/tags/")]
+    public void ParseLocalRefs_EmptyName_ThrowsFormatException(string name) =>
+        Should.Throw<FormatException>(() => GitRefParser.ParseLocalRefs([$"{_commit}\t{name}"]));
+
+    [Fact]
+    public void ParseRemoteRefs_LongMalformedLine_QuotesTruncatedLine()
+    {
+        var line = new string('x', 1000);
+
+        var exception = Should.Throw<FormatException>(() => GitRefParser.ParseRemoteRefs([line]));
+
+        exception.Message.ShouldContain(new string('x', 200) + "...");
+        exception.Message.ShouldNotContain(new string('x', 201));
+    }
+
+    [Fact]
+    public void ParseLocalRefs_MalformedLineWithControlAndFormatCharacters_QuotesThemAsQuestionMarks()
+    {
+        var exception = Should.Throw<FormatException>(() => GitRefParser.ParseLocalRefs(["a[31mb‮c"]));
+
+        exception.Message.ShouldContain("a?[31mb?c");
+        exception.Message.ShouldNotContain("");
+        exception.Message.ShouldNotContain("‮");
+    }
+
+    [Fact]
+    public void ParseRemoteRefs_DuplicateRefWithControlCharacter_QuotesSanitizedName() =>
+        Should.Throw<FormatException>(
+                () => GitRefParser.ParseRemoteRefs([$"{_commit}	refs/heads/ab", $"{_otherCommit}	refs/heads/ab"]))
+            .Message.ShouldNotContain("");
+
+    [Fact]
+    public void ParseLocalRefs_DuplicateRef_ThrowsFormatException() =>
+        Should.Throw<FormatException>(
+            () => GitRefParser.ParseLocalRefs([$"{_commit}\trefs/tags/v1", $"{_otherCommit}\trefs/tags/v1"]));
 
     [Fact]
     public void ParseDefaultBranch_SymrefAndId_ReturnsBranch() =>
@@ -83,6 +145,16 @@ public sealed class GitRefParserTests
     [InlineData("ref: refs/heads/main\trefs/remotes/origin/HEAD", $"{_commit}\trefs/remotes/origin/HEAD")]
     public void ParseDefaultBranch_HeadNamesNoBranch_ReturnsNull(params string[] lines) =>
         GitRefParser.ParseDefaultBranch(lines).ShouldBeNull();
+
+    [Theory]
+    [InlineData("ref: refs/heads/-b")]
+    [InlineData("ref: refs/heads/--upload-pack=evil")]
+    [InlineData("ref: refs/heads/ma\tin")]
+    [InlineData("ref: refs/heads/ma\nin")]
+    [InlineData("ref: refs/heads/ma\u001bin")]
+    [InlineData("ref: refs/heads/ma\u007fin")]
+    public void ParseDefaultBranch_InvalidServerBranchName_ReturnsNull(string symref) =>
+        GitRefParser.ParseDefaultBranch([$"{symref}\tHEAD", $"{_commit}\tHEAD"]).ShouldBeNull();
 
     /// <summary>
     /// Creates a snapshot of the given name and object id pairs.

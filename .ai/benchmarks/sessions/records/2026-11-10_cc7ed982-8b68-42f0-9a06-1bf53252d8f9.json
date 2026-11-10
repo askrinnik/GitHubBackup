@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "cc7ed982-8b68-42f0-9a06-1bf53252d8f9",
+  "workItem": "14",
+  "lane": "Feature",
+  "branch": "14-git-client-ref-snapshot-default-branch-empty-repository",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-10 17:11",
+  "started": "2026-11-10 16:25",
+  "ended": "2026-11-10 17:11",
+  "duration": {
+    "wall": 2769,
+    "active": 2679,
+    "waiting": 90,
+    "waits": 1
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 41,
+  "humanTurns": 2,
+  "subagents": 10,
+  "subagentCalls": 141,
+  "tokens": {
+    "input": 406,
+    "cacheRead": 13176952,
+    "cacheWrite": 620189,
+    "output": 157906
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 2882867,
+    "main": 784254,
+    "subagents": 2098613
+  },
+  "cacheReadShare": 45.7,
+  "unitsPerCall": {
+    "first40": 19076,
+    "first70": null,
+    "whole": 19128
+  },
+  "context": {
+    "first": 80358,
+    "max": 166118,
+    "last": 166118,
+    "first40": 164119,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 197874,
+  "diff": {
+    "files": 15,
+    "lines": 1861
+  },
+  "byActivity": [
+    {
+      "activity": "reply (no tools)",
+      "calls": 12,
+      "cost": 200004
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 6,
+      "cost": 111419
+    },
+    {
+      "activity": "ship",
+      "calls": 4,
+      "cost": 105488
+    },
+    {
+      "activity": "explore (read/search)",
+      "calls": 7,
+      "cost": 99749
+    },
+    {
+      "activity": "build/test",
+      "calls": 3,
+      "cost": 69172
+    },
+    {
+      "activity": "implement",
+      "calls": 3,
+      "cost": 62382
+    },
+    {
+      "activity": "other tool",
+      "calls": 3,
+      "cost": 62057
+    },
+    {
+      "activity": "plan",
+      "calls": 2,
+      "cost": 56426
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 17558
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-developer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 39,
+      "cost": 858612
+    },
+    {
+      "type": "issue-developer",
+      "model": "claude-sonnet-5-5",
+      "agents": 1,
+      "calls": 37,
+      "cost": 543294
+    },
+    {
+      "type": "issue-planner",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 10,
+      "cost": 218340
+    },
+    {
+      "type": "security-reviewer",
+      "model": "claude-opus-5-5",
+      "agents": 2,
+      "calls": 12,
+      "cost": 199209
+    },
+    {
+      "type": "build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 3,
+      "calls": 27,
+      "cost": 169512
+    },
+    {
+      "type": "skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 2,
+      "calls": 16,
+      "cost": 109647
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "Read",
+      "cost": 29290
+    },
+    {
+      "tools": "(reply)",
+      "cost": 27921
+    },
+    {
+      "tools": "(reply)",
+      "cost": 15308
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 451
+    },
+    {
+      "rule": "external-processes",
+      "tokens": 939
+    },
+    {
+      "rule": "tests",
+      "tokens": 1188
+    }
+  ],
+  "rulesTokens": 5375,
+  "limit": {
+    "startPct": 25,
+    "startAt": "2026-11-10 16:25",
+    "endPct": 28,
+    "usedPct": 3,
+    "limitCost": 2809172,
+    "unitsPerPct": 936391,
+    "reason": null
+  }
+}

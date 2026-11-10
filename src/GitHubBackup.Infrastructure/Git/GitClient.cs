@@ -60,7 +60,7 @@ internal sealed class GitClient(
             ?? throw new ArgumentException($"The clone path '{request.ClonePath}' has no parent folder.", nameof(request));
         cancellationToken.ThrowIfCancellationRequested();
 
-        var environment = CreateEnvironment(request.Token);
+        var environment = CreateEnvironment(request.Token, request.ClonePath);
         if (logger.IsEnabled(LogLevel.Information))
         {
             var maskedUrl = secretMasker.Mask(remoteUrl);
@@ -86,7 +86,7 @@ internal sealed class GitClient(
 
         cancellationToken.ThrowIfCancellationRequested();
 
-        var environment = CreateEnvironment(request.Token);
+        var environment = CreateEnvironment(request.Token, request.ClonePath);
         GitClientLog.Updating(logger, request.ClonePath, request.Branch ?? _defaultBranchLabel);
 
         await RunGitAsync(
@@ -102,8 +102,9 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         var output = await RunGitAsync(
-            request, request.ClonePath, CreateEnvironment(request.Token), _remoteRefsArguments, cancellationToken);
-        return GitRefParser.ParseRemoteRefs(output);
+            request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
+            cancellationToken);
+        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteRefs);
     }
 
     /// <inheritdoc />
@@ -112,7 +113,7 @@ internal sealed class GitClient(
         ValidateClonePath(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return ReadLocalRefsAsync(request, CreateEnvironment(token: null), cancellationToken);
+        return ReadLocalRefsAsync(request, CreateEnvironment(token: null, request.ClonePath), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -121,7 +122,7 @@ internal sealed class GitClient(
         ValidateClonePath(request);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token), cancellationToken);
+        return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token, request.ClonePath), cancellationToken);
     }
 
     /// <summary>
@@ -163,8 +164,12 @@ internal sealed class GitClient(
     /// Registers the token with the masker and builds the environment shared by every step of one operation.
     /// </summary>
     /// <param name="token">The GitHub token, or <see langword="null"/> for anonymous access.</param>
+    /// <param name="clonePath">
+    /// The clone folder; its parent, taken from the normalized path so that a trailing separator or <c>.</c> cannot
+    /// turn the folder itself into the ceiling, becomes the ceiling of git's repository discovery.
+    /// </param>
     /// <returns>The environment variables of the git processes.</returns>
-    private IReadOnlyList<ProcessEnvironmentVariable> CreateEnvironment(string? token)
+    private IReadOnlyList<ProcessEnvironmentVariable> CreateEnvironment(string? token, string clonePath)
     {
         if (!string.IsNullOrWhiteSpace(token))
         {
@@ -172,7 +177,41 @@ internal sealed class GitClient(
             secretMasker.Register(GitEnvironment.EncodeCredentials(token));
         }
 
-        return GitEnvironment.Create(token, AdditionalConfiguration);
+        return GitEnvironment.Create(
+            token,
+            AdditionalConfiguration,
+            Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(clonePath))));
+    }
+
+    /// <summary>
+    /// Parses the output of a git command and reports output that does not parse as a failed command.
+    /// </summary>
+    /// <typeparam name="T">The parsed type.</typeparam>
+    /// <param name="request">The request that names the clone folder.</param>
+    /// <param name="arguments">The git arguments that produced the output.</param>
+    /// <param name="output">The lines the command wrote to standard output.</param>
+    /// <param name="parse">Parses the lines; throws <see cref="FormatException"/> for malformed output.</param>
+    /// <returns>The parsed value.</returns>
+    /// <exception cref="GitCommandException">The output is malformed.</exception>
+    private T ParseOutput<T>(
+        GitRepositoryRequest request,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<string> output,
+        Func<IReadOnlyList<string>, T> parse)
+    {
+        try
+        {
+            return parse(output);
+        }
+        catch (FormatException exception)
+        {
+            var command = secretMasker.Mask(ProcessCommandLine.Format("git", arguments));
+            var detail = secretMasker.Mask(exception.Message);
+            throw new GitCommandException(
+                $"'{command}' returned output that cannot be read for '{request.ClonePath}': {detail}",
+                command,
+                0);
+        }
     }
 
     /// <summary>
@@ -244,7 +283,7 @@ internal sealed class GitClient(
         CancellationToken cancellationToken)
     {
         var output = await RunGitAsync(request, request.ClonePath, environment, _localRefsArguments, cancellationToken);
-        return GitRefParser.ParseLocalRefs(output);
+        return ParseOutput(request, _localRefsArguments, output, GitRefParser.ParseLocalRefs);
     }
 
     /// <summary>

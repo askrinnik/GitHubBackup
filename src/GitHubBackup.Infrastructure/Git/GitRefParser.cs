@@ -1,3 +1,6 @@
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 using GitHubBackup.Core.Git;
 
 namespace GitHubBackup.Infrastructure.Git;
@@ -12,6 +15,9 @@ namespace GitHubBackup.Infrastructure.Git;
 /// </remarks>
 internal static class GitRefParser
 {
+    /// <summary>The number of characters of server output quoted in an error message.</summary>
+    private const int _maxQuotedLength = 200;
+
     /// <summary>The full prefix of a branch on the server.</summary>
     private const string _serverBranchPrefix = "refs/heads/";
 
@@ -55,7 +61,7 @@ internal static class GitRefParser
             }
         }
 
-        return new(refs);
+        return CreateSnapshot(refs);
     }
 
     /// <summary>
@@ -87,7 +93,7 @@ internal static class GitRefParser
             }
         }
 
-        return new(refs);
+        return CreateSnapshot(refs);
     }
 
     /// <summary>
@@ -95,8 +101,9 @@ internal static class GitRefParser
     /// </summary>
     /// <param name="lines">The lines of standard output.</param>
     /// <returns>
-    /// The branch <c>HEAD</c> points at, or <see langword="null"/> when <c>HEAD</c> names no branch or does not resolve
-    /// to a commit, as on a server without any branch.
+    /// The branch <c>HEAD</c> points at, or <see langword="null"/> when <c>HEAD</c> names no branch, does not resolve
+    /// to a commit, as on a server without any branch, or names a branch that is empty, starts with <c>-</c> or
+    /// contains a control character.
     /// </returns>
     public static string? ParseDefaultBranch(IEnumerable<string> lines)
     {
@@ -126,23 +133,91 @@ internal static class GitRefParser
         }
 
         // A server may advertise the target of an unborn HEAD; without the id line HEAD names no existing branch.
-        return resolves ? branch : null;
+        // The name comes from the server, so one that git could read as an option or that carries control characters
+        // is treated as no default branch.
+        return resolves && IsUsableBranchName(branch) ? branch : null;
     }
 
     /// <summary>
-    /// Splits each line at its first tab into the object id and the ref name, skipping lines without both.
+    /// Checks that a server-supplied branch name is not empty, does not start with <c>-</c> and has no control
+    /// character or Unicode format character.
+    /// </summary>
+    /// <param name="branch">The name to check, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when the name can be used.</returns>
+    private static bool IsUsableBranchName([NotNullWhen(true)] string? branch) =>
+        !string.IsNullOrEmpty(branch) && branch[0] != '-' && !branch.Any(IsControlOrFormat);
+
+    /// <summary>
+    /// Builds a snapshot and reports a rejected ref as a format error.
+    /// </summary>
+    /// <param name="refs">The object id per ref name.</param>
+    /// <returns>The snapshot.</returns>
+    /// <exception cref="FormatException">A ref name is empty or occurs twice.</exception>
+    private static RefSnapshot CreateSnapshot(List<KeyValuePair<string, string>> refs)
+    {
+        try
+        {
+            return new(refs);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new FormatException(Quote(exception.Message), exception);
+        }
+    }
+
+    /// <summary>
+    /// Splits each non-blank line at its first tab into the object id and the ref name.
     /// </summary>
     /// <param name="lines">The lines of standard output.</param>
     /// <returns>The object id and ref name per line.</returns>
+    /// <exception cref="FormatException">A non-blank line lacks the tab, the object id or the ref name.</exception>
     private static IEnumerable<(string ObjectId, string Name)> SplitLines(IEnumerable<string> lines)
     {
         foreach (var line in lines)
         {
-            var separator = line.IndexOf('\t', StringComparison.Ordinal);
-            if (separator > 0 && separator < line.Length - 1)
+            if (string.IsNullOrWhiteSpace(line))
             {
-                yield return (line[..separator], line[(separator + 1)..]);
+                continue;
             }
+
+            var separator = line.IndexOf('\t', StringComparison.Ordinal);
+            if (separator <= 0 || separator == line.Length - 1)
+            {
+                throw new FormatException($"The line '{Quote(line)}' is not '<object id><TAB><ref name>'.");
+            }
+
+            yield return (line[..separator], line[(separator + 1)..]);
         }
+    }
+
+    /// <summary>
+    /// Checks whether a character is a control character or a Unicode format character, such as a bidirectional
+    /// override or a zero-width space, that can disguise or break a name.
+    /// </summary>
+    /// <param name="character">The character to check.</param>
+    /// <returns><see langword="true"/> when the character is not safe in a name.</returns>
+    private static bool IsControlOrFormat(char character) =>
+        char.IsControl(character) || CharUnicodeInfo.GetUnicodeCategory(character) == UnicodeCategory.Format;
+
+    /// <summary>
+    /// Prepares server output for a message: cuts it to <see cref="_maxQuotedLength"/> characters and replaces control
+    /// and format characters with <c>?</c>.
+    /// </summary>
+    /// <param name="text">The text from the server.</param>
+    /// <returns>The text that is safe to quote.</returns>
+    private static string Quote(string text)
+    {
+        var builder = new StringBuilder(Math.Min(text.Length, _maxQuotedLength) + 3);
+        foreach (var character in text.Take(_maxQuotedLength))
+        {
+            builder.Append(IsControlOrFormat(character) ? '?' : character);
+        }
+
+        if (text.Length > _maxQuotedLength)
+        {
+            builder.Append("...");
+        }
+
+        return builder.ToString();
     }
 }

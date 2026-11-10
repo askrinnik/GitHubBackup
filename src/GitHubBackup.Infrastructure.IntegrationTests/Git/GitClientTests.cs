@@ -228,6 +228,33 @@ public sealed class GitClientTests : IDisposable
         exception.ExitCode.ShouldNotBe(0);
     }
 
+    [Theory]
+    [InlineData("update")]
+    [InlineData("local")]
+    [InlineData("remote")]
+    [InlineData("default")]
+    public async Task Operation_ClonePathWithoutGitInsideAnotherRepository_ThrowsGitCommandException(string operation)
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CommitAsync("a.txt", "a", "Initial commit", CancellationToken);
+        var enclosingRepository = Path.GetDirectoryName(Path.GetDirectoryName(_clonePath))!;
+        Directory.CreateDirectory(_clonePath);
+        await GitAsync(enclosingRepository, "init", "-b", "main");
+        await GitAsync(enclosingRepository, "remote", "add", "origin", remote.Url);
+        var client = CreateClient();
+
+        var exception = await Should.ThrowAsync<GitCommandException>(() => operation switch
+        {
+            "update" => client.UpdateAsync(Request(), CancellationToken),
+            "local" => client.GetLocalRefsAsync(Request(), CancellationToken),
+            "remote" => client.GetRemoteRefsAsync(Request(), CancellationToken),
+            _ => client.GetDefaultBranchAsync(Request(), CancellationToken),
+        });
+
+        exception.ExitCode.ShouldNotBe(0);
+        Directory.Exists(Path.Combine(_clonePath, ".git")).ShouldBeFalse();
+    }
+
     [Fact]
     public async Task Snapshots_OneServerState_RemoteAndLocalMatch()
     {

@@ -34,7 +34,7 @@ public interface IGitClient
     /// <exception cref="GitBranchNotFoundException">
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
-    /// <exception cref="GitCommandException">A git command exits with a non-zero code.</exception>
+    /// <exception cref="GitCommandException">A git command exits with a non-zero code or lists refs that cannot be read.</exception>
     /// <exception cref="ProcessStartException">git cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<GitSyncResult> CloneAsync(GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken);
@@ -53,7 +53,7 @@ public interface IGitClient
     /// <exception cref="GitBranchNotFoundException">
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
-    /// <exception cref="GitCommandException">A git command exits with a non-zero code.</exception>
+    /// <exception cref="GitCommandException">A git command exits with a non-zero code or lists refs that cannot be read.</exception>
     /// <exception cref="ProcessStartException">git cannot be started or the clone folder does not exist.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<GitSyncResult> UpdateAsync(GitRepositoryRequest request, CancellationToken cancellationToken);
@@ -65,7 +65,7 @@ public interface IGitClient
     /// <param name="cancellationToken">Cancels the command and kills the running git process.</param>
     /// <returns>The server's branches and tags; other server refs, such as pull requests, are left out.</returns>
     /// <exception cref="ArgumentException">The clone path is not fully qualified.</exception>
-    /// <exception cref="GitCommandException">The git command exits with a non-zero code.</exception>
+    /// <exception cref="GitCommandException">The git command exits with a non-zero code or lists refs that cannot be read.</exception>
     /// <exception cref="ProcessStartException">git cannot be started or the clone folder does not exist.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken);
@@ -77,7 +77,7 @@ public interface IGitClient
     /// <param name="cancellationToken">Cancels the command and kills the running git process.</param>
     /// <returns>The clone's view of the server's branches and tags.</returns>
     /// <exception cref="ArgumentException">The clone path is not fully qualified.</exception>
-    /// <exception cref="GitCommandException">The git command exits with a non-zero code.</exception>
+    /// <exception cref="GitCommandException">The git command exits with a non-zero code or lists refs that cannot be read.</exception>
     /// <exception cref="ProcessStartException">git cannot be started or the clone folder does not exist.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<RefSnapshot> GetLocalRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken);
@@ -89,7 +89,8 @@ public interface IGitClient
     /// <param name="cancellationToken">Cancels the command and kills the running git process.</param>
     /// <returns>
     /// The default branch name, or <see langword="null"/> when the server's <c>HEAD</c> does not resolve to an
-    /// existing branch, as in an empty repository.
+    /// existing branch, as in an empty repository, or names a branch that is empty, starts with <c>-</c> or contains
+    /// a control character; a server-supplied name is never returned in that case.
     /// </returns>
     /// <exception cref="ArgumentException">The clone path is not fully qualified.</exception>
     /// <exception cref="GitCommandException">The git command exits with a non-zero code.</exception>

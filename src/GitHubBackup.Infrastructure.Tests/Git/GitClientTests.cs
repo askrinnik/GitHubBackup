@@ -226,14 +226,102 @@ public sealed class GitClientTests
     [Theory]
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
-    public async Task Operation_DefaultBranchStartsWithDash_ThrowsBeforeCheckout(Operation operation)
+    public async Task Operation_DefaultBranchStartsWithDash_ThrowsBranchNotFoundBeforeCheckout(Operation operation)
     {
         _localRefs = [$"{_mainCommit}\trefs/remotes/origin/--upload-pack=evil"];
         _defaultBranch = ["ref: refs/heads/--upload-pack=evil\tHEAD", $"{_mainCommit}\tHEAD"];
 
-        await Should.ThrowAsync<ArgumentException>(() => SyncAsync(operation, Request() with { Branch = null }));
+        var exception = await Should.ThrowAsync<GitBranchNotFoundException>(
+            () => SyncAsync(operation, Request() with { Branch = null }));
 
+        exception.DefaultBranch.ShouldBeNull();
         _requests.ShouldNotContain(request => request.Arguments[0] == "checkout");
+    }
+
+    [Fact]
+    public async Task GetDefaultBranchAsync_ServerNamesInvalidBranch_ReturnsNull()
+    {
+        _defaultBranch = ["ref: refs/heads/-b\tHEAD", $"{_mainCommit}\tHEAD"];
+
+        var branch = await CreateClient().GetDefaultBranchAsync(Request(), TestContext.Current.CancellationToken);
+
+        branch.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(Operation.RemoteRefs, "ls-remote")]
+    [InlineData(Operation.LocalRefs, "for-each-ref")]
+    public async Task Operation_MalformedRefLine_ThrowsGitCommandExceptionNamingClonePath(
+        Operation operation, string command)
+    {
+        _respond = _ => Output("not a ref line");
+
+        var exception = await Should.ThrowAsync<GitCommandException>(() => RunAsync(operation, Request()));
+
+        exception.Message.ShouldContain(_clonePath);
+        exception.Command.ShouldStartWith("git " + command);
+    }
+
+    [Theory]
+    [InlineData(Operation.RemoteRefs, "refs/heads/")]
+    [InlineData(Operation.RemoteRefs, "refs/tags/")]
+    [InlineData(Operation.LocalRefs, "refs/tags/")]
+    [InlineData(Operation.LocalRefs, "refs/remotes/origin/")]
+    public async Task Operation_EmptyRefName_ThrowsGitCommandException(Operation operation, string name)
+    {
+        _respond = _ => Output($"{_mainCommit}\t{name}");
+
+        var exception = await Should.ThrowAsync<GitCommandException>(() => RunAsync(operation, Request()));
+
+        exception.Message.ShouldContain(_clonePath);
+    }
+
+    [Theory]
+    [InlineData(Operation.RemoteRefs, "refs/heads/main")]
+    [InlineData(Operation.LocalRefs, "refs/tags/v1")]
+    public async Task Operation_DuplicateRef_ThrowsGitCommandException(Operation operation, string name)
+    {
+        _respond = _ => Output($"{_mainCommit}\t{name}", $"{_developCommit}\t{name}");
+
+        var exception = await Should.ThrowAsync<GitCommandException>(() => RunAsync(operation, Request()));
+
+        exception.Message.ShouldContain(_clonePath);
+    }
+
+    [Theory]
+    [InlineData(_clonePath + @"\")]
+    [InlineData(_clonePath + @"\.")]
+    [InlineData(_clonePath + @"\sub\..")]
+    public async Task UpdateAsync_ClonePathNotNormalized_SetsCeilingToRealParent(string clonePath)
+    {
+        await CreateClient().UpdateAsync(Request() with { ClonePath = clonePath }, TestContext.Current.CancellationToken);
+
+        _requests.ShouldNotBeEmpty();
+        _requests.ShouldAllBe(request => Variables(request)["GIT_CEILING_DIRECTORIES"] == _parentPath);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ParentPathContainsSemicolon_SetsNoCeiling()
+    {
+        await CreateClient().UpdateAsync(
+            Request() with { ClonePath = @"C:\backup\a;b\repo" }, TestContext.Current.CancellationToken);
+
+        _requests.ShouldNotBeEmpty();
+        _requests.ShouldAllBe(request => !Variables(request).ContainsKey("GIT_CEILING_DIRECTORIES"));
+    }
+
+    [Theory]
+    [InlineData(Operation.Clone)]
+    [InlineData(Operation.Update)]
+    [InlineData(Operation.RemoteRefs)]
+    [InlineData(Operation.LocalRefs)]
+    [InlineData(Operation.DefaultBranch)]
+    public async Task Operation_AnyStep_SetsCeilingDirectoryToParentOfClone(Operation operation)
+    {
+        await RunAsync(operation, Request(_token) with { Branch = null });
+
+        _requests.ShouldNotBeEmpty();
+        _requests.ShouldAllBe(request => Variables(request)["GIT_CEILING_DIRECTORIES"] == _parentPath);
     }
 
     [Fact]
