@@ -1,0 +1,166 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "ad95a0f0-207b-4bdc-ad09-8aa1a72fe813",
+  "workItem": "46",
+  "lane": "Feature",
+  "branch": "46-claude-code-hooks-for-format-and-build",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-10 11:36",
+  "started": "2026-11-10 08:29",
+  "ended": "2026-11-10 11:36",
+  "duration": {
+    "wall": 11211,
+    "active": 448,
+    "waiting": 10763,
+    "waits": 9
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 55,
+  "humanTurns": 8,
+  "subagents": 2,
+  "subagentCalls": 17,
+  "tokens": {
+    "input": 168,
+    "cacheRead": 6527144,
+    "cacheWrite": 223222,
+    "output": 33858
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 1101200,
+    "main": 991614,
+    "subagents": 109586
+  },
+  "cacheReadShare": 59.3,
+  "unitsPerCall": {
+    "first40": 18131,
+    "first70": null,
+    "whole": 18029
+  },
+  "context": {
+    "first": 70419,
+    "max": 150101,
+    "last": 150101,
+    "first40": 133191,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 1,
+    "cost": 93154
+  },
+  "carryCost": 253964,
+  "diff": {
+    "files": 10,
+    "lines": 427
+  },
+  "byActivity": [
+    {
+      "activity": "bash (other)",
+      "calls": 12,
+      "cost": 180476
+    },
+    {
+      "activity": "ship",
+      "calls": 5,
+      "cost": 171587
+    },
+    {
+      "activity": "explore (read/search)",
+      "calls": 11,
+      "cost": 147244
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 9,
+      "cost": 146121
+    },
+    {
+      "activity": "other tool",
+      "calls": 7,
+      "cost": 114366
+    },
+    {
+      "activity": "implement",
+      "calls": 5,
+      "cost": 103549
+    },
+    {
+      "activity": "plan",
+      "calls": 3,
+      "cost": 59266
+    },
+    {
+      "activity": "skill load",
+      "calls": 2,
+      "cost": 53185
+    },
+    {
+      "activity": "build/test",
+      "calls": 1,
+      "cost": 15820
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 8,
+      "cost": 56027
+    },
+    {
+      "type": "build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 9,
+      "cost": 53560
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "(reply)",
+      "cost": 48845
+    },
+    {
+      "tools": "Read + Glob",
+      "cost": 24309
+    },
+    {
+      "tools": "mcp__ccd_turn__update_plan + AskUserQuestion",
+      "cost": 16367
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "docs",
+      "tokens": 451
+    },
+    {
+      "rule": "update-docs-on-code-change",
+      "tokens": 451
+    }
+  ],
+  "rulesTokens": 902,
+  "limit": {
+    "startPct": 11,
+    "startAt": "2026-11-10 08:34",
+    "endPct": 12,
+    "usedPct": 1,
+    "limitCost": 919213,
+    "unitsPerPct": 919213,
+    "reason": null
+  }
+}

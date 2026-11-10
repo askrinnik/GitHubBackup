@@ -1,0 +1,20 @@
+{
+  "run": "2026-11-10-12-48_format-hook-for-edited-c-files",
+  "note": "Format hook for edited C# files",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-10 12:48",
+  "commit": "dceca651",
+  "dirty": "yes",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "2887f4df-25d3-488d-8333-d178b9e97456",
+      "hash": "5b64bc8a",
+      "judged": false
+    }
+  ]
+}

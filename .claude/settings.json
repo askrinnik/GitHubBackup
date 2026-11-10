@@ -16,6 +16,17 @@
             "statusMessage": "Checking the commit message against the git-commit skill"
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/Format-EditedFileHook.ps1\"",
+            "timeout": 30,
+            "statusMessage": "Formatting the edited C# file"
+          }
+        ]
       }
     ]
   },

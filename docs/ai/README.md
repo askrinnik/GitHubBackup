@@ -142,6 +142,7 @@ docs/
 | Событие | Скрипт | Что делает |
 |---|---|---|
 | `PostToolUse`, инструменты `Bash` и `PowerShell` | `Test-CommitMessageHook.ps1` | После каждой команды `git commit` проверяет сообщение последнего коммита по скиллу `_local.git-commit` и при нарушении возвращает ассистенту список ошибок с требованием исправить коммит через `git commit --amend` до push |
+| `PostToolUse`, инструменты `Edit`, `Write` и `MultiEdit` | `Format-EditedFileHook.ps1` | После правки файла `.cs` в `src/` выравнивает в нём пробелы и отступы по `src/.editorconfig` командой `dotnet format whitespace src --folder --include <файл>` |
 
 Хук проверки коммита:
 - работает и в основной сессии, и в субагентах, в том числе в `skill-runner`;
@@ -158,7 +159,20 @@ docs/
 pwsh -NoProfile -File .claude/hooks/tests/CommitMessageRules.Cases.ps1
 ```
 
-Хуки форматирования и сборки — в отложенной задаче #46.
+Хук форматирования:
+- обрабатывает только существующий файл `.cs` внутри `src/`; XAML, проекты, Markdown и файлы вне `src/` не трогает, потому что режим `--folder` форматирует только код;
+- в режиме `--folder` не загружает MSBuild и тратит около секунды на файл;
+- исправляет только пробелы и отступы; стиль кода и анализаторы проверяют сборка (`TreatWarningsAsErrors`) и `dotnet format --verify-no-changes` в `build-runner` и CI;
+- никогда не блокирует ассистента: ошибку `dotnet format` пишет одной строкой в stderr и завершается с кодом 0;
+- сборку и тесты в конце хода (хук `Stop`) не запускает: сборка солюшна заняла бы десятки секунд на каждый ход и повторила бы шаг `build-runner` в `/implement-issue`.
+
+Правила выбора файла лежат в модуле `FormatHookRules.psm1`, проверочные случаи — в `.claude/hooks/tests/FormatHookRules.Cases.ps1`. Им нужен .NET SDK: случаи запускают хук на временной папке с копией `src/.editorconfig`.
+
+```
+pwsh -NoProfile -File .claude/hooks/tests/FormatHookRules.Cases.ps1
+```
+
+CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает все файлы `.claude/hooks/tests/*.Cases.ps1` на каждом pull request и push в `main`. Новый набор проверочных случаев попадает в CI сам, если его имя оканчивается на `.Cases.ps1` и скрипт при сбое завершается с кодом 1.
 
 ## Бенчмарк харнесса
 
@@ -179,7 +193,6 @@ pwsh -NoProfile -File .claude/hooks/tests/CommitMessageRules.Cases.ps1
 
 | Issue | Когда | Что |
 |---|---|---|
-| [#46](https://github.com/askrinnik/GitHubBackup/issues/46) F0.7 | после #2 | Хуки Claude Code: форматирование и сборка после правок |
 | [#47](https://github.com/askrinnik/GitHubBackup/issues/47) F1.13 | после #10, #13 | Фикстуры для кода: `bench-cs`, `bench-test`, `quality-service-convention`, `quality-security` |
 | [#48](https://github.com/askrinnik/GitHubBackup/issues/48) F3.11 | после #26 | Фикстура `quality-docs-sync` |
 | [#49](https://github.com/askrinnik/GitHubBackup/issues/49) F4.8 | после #36, до #37 | MCP для автоматизации WPF, фикстура `bench-xaml` |
@@ -191,6 +204,7 @@ pwsh -NoProfile -File .claude/hooks/tests/CommitMessageRules.Cases.ps1
 - агенты `issue-planner`, `issue-developer`, `skill-runner`, а `build-runner` — с заменой команд сборки (см. ниже);
 - скиллы `_local.git-commit`, `_local.open-pr`, `_local.github-issue`, `_local.next-issue` — для любого репозитория на GitHub;
 - хук проверки сообщения коммита (`.claude/hooks/`) вместе со скиллом `_local.git-commit`;
+- хук форматирования — для .NET-репозитория, где код и `.editorconfig` лежат в `src/`;
 - гигиена комментариев (`csharp.md`);
 - бенчмарк (`_local.harness-quality-check` и `bench-base`).
 
