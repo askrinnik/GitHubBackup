@@ -172,6 +172,8 @@ pwsh -NoProfile -File .claude/hooks/tests/CommitMessageRules.Cases.ps1
 pwsh -NoProfile -File .claude/hooks/tests/FormatHookRules.Cases.ps1
 ```
 
+CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает все файлы `.claude/hooks/tests/*.Cases.ps1` на каждом pull request и push в `main`. Новый набор проверочных случаев попадает в CI сам, если его имя оканчивается на `.Cases.ps1` и скрипт при сбое завершается с кодом 1.
+
 ## Бенчмарк харнесса
 
 Скилл `_local.harness-quality-check` запускает фиксированные тестовые сессии (`claude -p`) и записывает метрики: контекст в начале, токены от чтения файла, загруженные правила, оценку судьи по эталону. История — `.ai/benchmarks/harness/run-history.csv`, отчёты — `.ai/benchmarks/harness/reports/`. Запускать после изменения `CLAUDE.md`, правил, скиллов, агентов, MCP или настроек.

@@ -31,6 +31,20 @@ jobs:
       - name: Format check
         run: dotnet format src/GitHubBackup.slnx --verify-no-changes --no-restore
 
+      # Test cases of the Claude Code hook scripts; each script exits with 1 when a case fails.
+      - name: Hook test cases
+        shell: pwsh
+        timeout-minutes: 5
+        run: |
+          $suites = @(Get-ChildItem .claude/hooks/tests -Filter *.Cases.ps1)
+          if ($suites.Count -eq 0) { throw 'No hook test cases found in .claude/hooks/tests.' }
+          $failed = @()
+          foreach ($cases in $suites) {
+            pwsh -NoProfile -File $cases.FullName
+            if ($LASTEXITCODE -ne 0) { $failed += $cases.Name }
+          }
+          if ($failed) { throw "Hook test cases failed: $($failed -join ', ')" }
+
       # UI and Smoke suites run in ui-smoke-tests.yml. A project whose tests are all excluded
       # reports exit code 8 (zero tests ran), which is expected here.
       - name: Test

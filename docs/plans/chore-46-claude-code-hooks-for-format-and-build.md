@@ -45,6 +45,7 @@
 - Только `whitespace`: `dotnet format style` грузит проект (около 4,4 с на Core, дольше на App) на каждую правку; стиль и анализаторы ловят сборка с `TreatWarningsAsErrors` и `build-runner`.
 - Без сборки на `Stop`: сборка солюшна стоит десятки секунд на каждый ход и дублирует `build-runner` в `/implement-issue`.
 - `.claude/settings.json` правится с подтверждением пользователя.
+- После приёмки по решению пользователя в задачу добавлен запуск проверочных случаев хуков в CI: PRD 0.10 (§11), шаг `Hook test cases` в `.github/workflows/ci.yml` для всех `.claude/hooks/tests/*.Cases.ps1`, правило `github-actions.md`, `README.md`, `docs/ai/README.md`.
 
 ## 6. Чек-лист
 
@@ -53,6 +54,7 @@
 - [x] Хук подключён в `.claude/settings.json`
 - [x] `docs/ai/README.md`
 - [x] Прогон `bench-base` без регрессии: рост стартового контекста против прогона `41cb2300` вызван изменениями за месяц, а не хуком
+- [x] Проверочные случаи хуков в CI (PRD 0.10)
 
 ## Вне рамок
 

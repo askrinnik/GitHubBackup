@@ -43,18 +43,18 @@ function Invoke-Hook {
 $root = Join-Path ([IO.Path]::GetTempPath()) ("format-hook-cases-" + [Guid]::NewGuid().ToString('N'))
 $source = Join-Path $root 'src'
 $project = Join-Path $source 'Sample'
-New-Item -ItemType Directory -Path $project -Force | Out-Null
-Copy-Item $editorConfig (Join-Path $source '.editorconfig')
-
 $badCode = "namespace Sample;`r`n`r`npublic static class Calculator`r`n{`r`n        public static int Add(int a, int b)`r`n  {`r`n      return a + b;`r`n }`r`n}`r`n"
 $codeFile = Join-Path $project 'Calculator.cs'
 $xamlFile = Join-Path $project 'View.xaml'
 $outsideFile = Join-Path $root 'Outside.cs'
-Set-Content -Path $codeFile -Value $badCode -NoNewline
-Set-Content -Path $xamlFile -Value '<Grid />' -NoNewline
-Set-Content -Path $outsideFile -Value $badCode -NoNewline
 
 try {
+	New-Item -ItemType Directory -Path $project -Force | Out-Null
+	Copy-Item $editorConfig (Join-Path $source '.editorconfig')
+	Set-Content -Path $codeFile -Value $badCode -NoNewline
+	Set-Content -Path $xamlFile -Value '<Grid />' -NoNewline
+	Set-Content -Path $outsideFile -Value $badCode -NoNewline
+
 	# File selection
 	Assert-Case 'C# file under src is formattable' (Test-FormattableFile -Path $codeFile -RepositoryRoot $root)
 	Assert-Case 'forward slashes and other case are formattable' (Test-FormattableFile -Path ($codeFile.Replace('\', '/').ToUpperInvariant().Replace('.CS', '.cs')) -RepositoryRoot $root)
@@ -82,7 +82,7 @@ try {
 	Assert-Case 'hook exits with 0 on unreadable input' ($result.ExitCode -eq 0 -and [string]::IsNullOrWhiteSpace($result.Output))
 }
 finally {
-	Remove-Item -Path $root -Recurse -Force
+	if (Test-Path $root) { Remove-Item -Path $root -Recurse -Force }
 }
 
 if ($failures -gt 0) {
