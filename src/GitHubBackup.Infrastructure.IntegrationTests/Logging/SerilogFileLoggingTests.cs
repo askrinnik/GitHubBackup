@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Infrastructure.Logging;
@@ -49,9 +48,9 @@ public sealed class SerilogFileLoggingTests
             TestLog.Write(logger, LogLevel.Information, "Entry");
         }
 
-        var entry = ReadJsonEntries(contentRoot).ShouldHaveSingleItem();
+        var entry = contentRoot.ReadJsonLogEntries().ShouldHaveSingleItem();
         entry.GetProperty(LogProperties.RunId).GetString().ShouldBe(runId);
-        ReadText(contentRoot).ShouldContain($"] {runId} ");
+        contentRoot.ReadTextLog().ShouldContain($"] {runId} ");
     }
 
     [Fact]
@@ -69,7 +68,7 @@ public sealed class SerilogFileLoggingTests
                 "Authorization: Basic b3BhcXVlLXZhbHVl"),
             $"--GitHub:Token={_configuredToken}");
 
-        foreach (var content in new[] { ReadText(contentRoot), File.ReadAllText(LogFilePath(contentRoot, LogFiles.JsonExtension)) })
+        foreach (var content in new[] { contentRoot.ReadTextLog(), File.ReadAllText(contentRoot.GetLogFilePath(LogFiles.JsonExtension)) })
         {
             content.ShouldNotContain(_configuredToken);
             content.ShouldNotContain(_unregisteredToken);
@@ -78,7 +77,7 @@ public sealed class SerilogFileLoggingTests
             content.ShouldContain("Authorization: Basic ***");
         }
 
-        var entry = ReadJsonEntries(contentRoot).ShouldHaveSingleItem();
+        var entry = contentRoot.ReadJsonLogEntries().ShouldHaveSingleItem();
         entry.GetProperty("Token").GetString().ShouldBe("***");
         entry.GetProperty("@x").GetString().ShouldStartWith(
             "System.InvalidOperationException: Request with Authorization: Bearer *** failed for ***");
@@ -96,10 +95,10 @@ public sealed class SerilogFileLoggingTests
             TestLog.Write(logger, LogLevel.Information, "Entry");
         });
 
-        var entry = ReadJsonEntries(contentRoot).ShouldHaveSingleItem();
+        var entry = contentRoot.ReadJsonLogEntries().ShouldHaveSingleItem();
         entry.GetProperty(LogProperties.Repository).GetString().ShouldBe("octocat/hello-world");
         entry.GetProperty(LogProperties.Operation).GetString().ShouldBe("clone");
-        var text = ReadText(contentRoot);
+        var text = contentRoot.ReadTextLog();
         text.ShouldContain("\"Repository\":\"octocat/hello-world\"");
         text.ShouldContain("\"Operation\":\"clone\"");
     }
@@ -121,7 +120,7 @@ public sealed class SerilogFileLoggingTests
             TestLog.Write(verbose, LogLevel.Debug, "Verbose debug");
         }
 
-        ReadJsonEntries(contentRoot).Select(entry => entry.GetProperty("Text").GetString())
+        contentRoot.ReadJsonLogEntries().Select(entry => entry.GetProperty("Text").GetString())
             .ShouldBe(["Other warning", "Verbose debug"]);
     }
 
@@ -144,7 +143,7 @@ public sealed class SerilogFileLoggingTests
 
         foreach (var extension in new[] { LogFiles.TextExtension, LogFiles.JsonExtension })
         {
-            using var exclusive = new FileStream(LogFilePath(contentRoot, extension), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            using var exclusive = new FileStream(contentRoot.GetLogFilePath(extension), FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             exclusive.Length.ShouldBeGreaterThan(0);
         }
     }
@@ -200,40 +199,4 @@ public sealed class SerilogFileLoggingTests
     /// <returns>The logger.</returns>
     private static ILogger<SerilogFileLoggingTests> CreateLogger(IHost host) =>
         host.Services.GetRequiredService<ILogger<SerilogFileLoggingTests>>();
-
-    /// <summary>
-    /// Returns the path of the only log file with <paramref name="extension"/>.
-    /// </summary>
-    /// <param name="contentRoot">The content root of the host.</param>
-    /// <param name="extension">The extension of the file.</param>
-    /// <returns>The path.</returns>
-    private static string LogFilePath(TemporaryContentRoot contentRoot, string extension) =>
-        Directory.GetFiles(contentRoot.LogsPath, LogFiles.FileNamePrefix + "*" + extension).ShouldHaveSingleItem();
-
-    /// <summary>
-    /// Reads the text log.
-    /// </summary>
-    /// <param name="contentRoot">The content root of the host.</param>
-    /// <returns>The content of the file.</returns>
-    private static string ReadText(TemporaryContentRoot contentRoot) =>
-        File.ReadAllText(LogFilePath(contentRoot, LogFiles.TextExtension));
-
-    /// <summary>
-    /// Reads the entries of the structured log.
-    /// </summary>
-    /// <param name="contentRoot">The content root of the host.</param>
-    /// <returns>One element per entry.</returns>
-    private static JsonElement[] ReadJsonEntries(TemporaryContentRoot contentRoot) =>
-        [.. File.ReadAllLines(LogFilePath(contentRoot, LogFiles.JsonExtension)).Select(ParseEntry)];
-
-    /// <summary>
-    /// Parses one line of the structured log.
-    /// </summary>
-    /// <param name="line">The line.</param>
-    /// <returns>The entry, independent of the parsed document.</returns>
-    private static JsonElement ParseEntry(string line)
-    {
-        using var document = JsonDocument.Parse(line);
-        return document.RootElement.Clone();
-    }
 }

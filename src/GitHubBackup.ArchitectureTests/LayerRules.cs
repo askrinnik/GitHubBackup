@@ -76,6 +76,21 @@ public static class LayerRules
     ];
 
     /// <summary>
+    /// Gets the types that start an operating-system process; only the process runner of <c>Infrastructure</c> uses
+    /// them, so every external tool runs with its arguments as a list, its output logged and secrets masked.
+    /// </summary>
+    public static IReadOnlyList<string> ProcessTypes { get; } =
+    [
+        typeof(System.Diagnostics.Process).FullName!,
+        typeof(System.Diagnostics.ProcessStartInfo).FullName!,
+    ];
+
+    /// <summary>
+    /// Gets the full name of the only <c>Infrastructure</c> type allowed to use <see cref="ProcessTypes"/>.
+    /// </summary>
+    public static string ProcessRunnerTypeName { get; } = _infrastructure + ".Processes.ProcessRunner";
+
+    /// <summary>
     /// Gets the namespaces whose types <c>Infrastructure</c> must not use: the hosts.
     /// </summary>
     public static IReadOnlyList<string> InfrastructureForbiddenNamespaces { get; } = _hostNamespaces;

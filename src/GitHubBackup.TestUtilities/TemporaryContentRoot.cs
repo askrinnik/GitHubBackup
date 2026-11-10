@@ -1,3 +1,4 @@
+using System.Text.Json;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
@@ -44,7 +45,41 @@ public sealed class TemporaryContentRoot : IDisposable
         }).Build();
 
     /// <summary>
+    /// Returns the path of the only log file with <paramref name="extension"/>.
+    /// </summary>
+    /// <param name="extension">The extension of the file, <see cref="LogFiles.TextExtension"/> or
+    /// <see cref="LogFiles.JsonExtension"/>.</param>
+    /// <returns>The path.</returns>
+    /// <exception cref="InvalidOperationException">The log folder holds no such file or more than one.</exception>
+    public string GetLogFilePath(string extension) =>
+        Directory.GetFiles(LogsPath, LogFiles.FileNamePrefix + "*" + extension).Single();
+
+    /// <summary>
+    /// Reads the text log.
+    /// </summary>
+    /// <returns>The content of the file.</returns>
+    public string ReadTextLog() => File.ReadAllText(GetLogFilePath(LogFiles.TextExtension));
+
+    /// <summary>
+    /// Reads the entries of the structured log.
+    /// </summary>
+    /// <returns>One element per entry, independent of the parsed documents.</returns>
+    public JsonElement[] ReadJsonLogEntries() =>
+        [.. File.ReadAllLines(GetLogFilePath(LogFiles.JsonExtension)).Select(ParseEntry)];
+
+    /// <summary>
     /// Deletes the folder and everything in it.
     /// </summary>
     public void Dispose() => Directory.Delete(FolderPath, recursive: true);
+
+    /// <summary>
+    /// Parses one line of the structured log.
+    /// </summary>
+    /// <param name="line">The line.</param>
+    /// <returns>The entry, independent of the parsed document.</returns>
+    private static JsonElement ParseEntry(string line)
+    {
+        using var document = JsonDocument.Parse(line);
+        return document.RootElement.Clone();
+    }
 }
