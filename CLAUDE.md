@@ -28,7 +28,7 @@ src/
   GitHubBackup.Cli (+ .Tests)                  console host
   GitHubBackup.App (+ .Tests, .UITests)        WPF host (MVVM)
   GitHubBackup.ArchitectureTests               layer dependency rules and direct file system access
-  GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot)
+  GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot, LocalGitSandbox)
 .ai/
   prompts/               workflow bodies shared by commands
   benchmarks/harness/    harness benchmark: fixtures, history, reports
