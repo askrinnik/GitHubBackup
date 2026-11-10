@@ -17,8 +17,7 @@ public sealed class TemporaryContentRoot : IDisposable
     /// <param name="appSettings">The JSON text of the settings file, or <see langword="null"/> for an empty folder.</param>
     public TemporaryContentRoot(string? appSettings = null)
     {
-        FolderPath = Path.Combine(Path.GetTempPath(), "GitHubBackup.Tests", Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(FolderPath);
+        FolderPath = TemporaryFolder.Create();
         if (appSettings is not null)
         {
             File.WriteAllText(Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName), appSettings);
@@ -70,7 +69,7 @@ public sealed class TemporaryContentRoot : IDisposable
     /// <summary>
     /// Deletes the folder and everything in it.
     /// </summary>
-    public void Dispose() => Directory.Delete(FolderPath, recursive: true);
+    public void Dispose() => TemporaryFolder.Delete(FolderPath);
 
     /// <summary>
     /// Parses one line of the structured log.
