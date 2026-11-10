@@ -8,7 +8,8 @@ using Microsoft.Extensions.Logging;
 namespace GitHubBackup.Infrastructure.Git;
 
 /// <summary>
-/// Clones and updates repositories by running git through <see cref="IProcessRunner"/>, one process per step.
+/// Clones and updates repositories and reads their refs by running git through <see cref="IProcessRunner"/>, one
+/// process per step.
 /// </summary>
 /// <remarks>
 /// A clone is made with <c>--no-checkout</c> and then brought to the branch by the same steps as an update, so both
@@ -17,13 +18,26 @@ namespace GitHubBackup.Infrastructure.Git;
 /// <param name="processRunner">Runs git.</param>
 /// <param name="fileSystem">Creates the parent folder of a new clone.</param>
 /// <param name="secretMasker">Learns the token in its raw and encoded forms and masks failure messages.</param>
-/// <param name="logger">Logs the start of each operation.</param>
+/// <param name="logger">Logs the start of each operation and the choice of the branch.</param>
 internal sealed class GitClient(
     IProcessRunner processRunner, IFileSystem fileSystem, ISecretMasker secretMasker, ILogger<GitClient> logger)
     : IGitClient
 {
     /// <summary>The number of standard error lines quoted in the message of a <see cref="GitCommandException"/>.</summary>
     private const int _quotedErrorLines = 5;
+
+    /// <summary>The text logged as the branch when the request leaves the choice to the server.</summary>
+    private const string _defaultBranchLabel = "(server default)";
+
+    /// <summary>The arguments that list the remote-tracking branches of <c>origin</c> and the tags of the clone.</summary>
+    private static readonly string[] _localRefsArguments =
+        ["for-each-ref", "--format=%(objectname)%09%(refname)", "refs/remotes/origin", "refs/tags"];
+
+    /// <summary>The arguments that list the branches and tags of the server, without peeled tags and <c>HEAD</c>.</summary>
+    private static readonly string[] _remoteRefsArguments = ["ls-remote", "--refs", "origin"];
+
+    /// <summary>The arguments that show which branch the server's <c>HEAD</c> points at.</summary>
+    private static readonly string[] _defaultBranchArguments = ["ls-remote", "--symref", "origin", "HEAD"];
 
     /// <summary>
     /// Gets the configuration entries passed to every git process besides <c>core.longpaths</c> and the
@@ -32,9 +46,15 @@ internal sealed class GitClient(
     internal IReadOnlyList<KeyValuePair<string, string>> AdditionalConfiguration { get; init; } = [];
 
     /// <inheritdoc />
-    public async Task CloneAsync(GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken)
+    public async Task<GitSyncResult> CloneAsync(
+        GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken)
     {
-        Validate(request);
+        ValidateClonePath(request);
+        if (request.Branch is not null)
+        {
+            ValidateBranch(request.Branch, request);
+        }
+
         ArgumentException.ThrowIfNullOrWhiteSpace(remoteUrl);
         var parent = Path.GetDirectoryName(request.ClonePath)
             ?? throw new ArgumentException($"The clone path '{request.ClonePath}' has no parent folder.", nameof(request));
@@ -44,7 +64,7 @@ internal sealed class GitClient(
         if (logger.IsEnabled(LogLevel.Information))
         {
             var maskedUrl = secretMasker.Mask(remoteUrl);
-            GitClientLog.Cloning(logger, maskedUrl, request.ClonePath, request.Branch);
+            GitClientLog.Cloning(logger, maskedUrl, request.ClonePath, request.Branch ?? _defaultBranchLabel);
         }
 
         fileSystem.Directory.CreateDirectory(parent);
@@ -52,48 +72,90 @@ internal sealed class GitClient(
         await RunGitAsync(
             request, parent, environment, ["clone", "--no-checkout", "--origin", "origin", "--", remoteUrl, request.ClonePath],
             cancellationToken);
-        await SyncWorkingTreeAsync(request, environment, cancellationToken);
+        return await SynchronizeAsync(request, environment, cancellationToken);
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    public async Task<GitSyncResult> UpdateAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
     {
-        Validate(request);
+        ValidateClonePath(request);
+        if (request.Branch is not null)
+        {
+            ValidateBranch(request.Branch, request);
+        }
+
         cancellationToken.ThrowIfCancellationRequested();
 
         var environment = CreateEnvironment(request.Token);
-        GitClientLog.Updating(logger, request.ClonePath, request.Branch);
+        GitClientLog.Updating(logger, request.ClonePath, request.Branch ?? _defaultBranchLabel);
 
         await RunGitAsync(
             request, request.ClonePath, environment, ["fetch", "origin", "--prune", "--prune-tags", "--tags", "--force"],
             cancellationToken);
-        await SyncWorkingTreeAsync(request, environment, cancellationToken);
+        return await SynchronizeAsync(request, environment, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    {
+        ValidateClonePath(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var output = await RunGitAsync(
+            request, request.ClonePath, CreateEnvironment(request.Token), _remoteRefsArguments, cancellationToken);
+        return GitRefParser.ParseRemoteRefs(output);
+    }
+
+    /// <inheritdoc />
+    public Task<RefSnapshot> GetLocalRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    {
+        ValidateClonePath(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return ReadLocalRefsAsync(request, CreateEnvironment(token: null), cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public Task<string?> GetDefaultBranchAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    {
+        ValidateClonePath(request);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token), cancellationToken);
     }
 
     /// <summary>
-    /// Rejects a clone path that is not fully qualified and a branch that is empty or that git could read as an
-    /// option.
+    /// Rejects a clone path that is not fully qualified.
     /// </summary>
     /// <param name="request">The request to check.</param>
-    /// <exception cref="ArgumentException">
-    /// The clone path is not fully qualified, or the branch is empty, white space or starts with <c>-</c>.
-    /// </exception>
-    private static void Validate(GitRepositoryRequest request)
+    /// <exception cref="ArgumentException">The clone path is not fully qualified.</exception>
+    private static void ValidateClonePath(GitRepositoryRequest request)
     {
         if (!Path.IsPathFullyQualified(request.ClonePath))
         {
             throw new ArgumentException(
                 $"The clone path '{request.ClonePath}' must be fully qualified.", nameof(request));
         }
+    }
 
-        if (string.IsNullOrWhiteSpace(request.Branch))
+    /// <summary>
+    /// Rejects a branch that is empty or that git could read as an option, whether the request or the server named it.
+    /// </summary>
+    /// <param name="branch">The branch to check.</param>
+    /// <param name="request">The request the branch belongs to.</param>
+    /// <exception cref="ArgumentException">The branch is empty, white space or starts with <c>-</c>.</exception>
+    private static void ValidateBranch(string branch, GitRepositoryRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(branch))
         {
-            throw new ArgumentException("The branch must not be empty.", nameof(request));
+            throw new ArgumentException(
+                $"The branch for '{request.ClonePath}' must not be empty.", nameof(request));
         }
 
-        if (request.Branch.StartsWith('-'))
+        if (branch.StartsWith('-'))
         {
-            throw new ArgumentException($"The branch '{request.Branch}' must not start with '-'.", nameof(request));
+            throw new ArgumentException(
+                $"The branch '{branch}' for '{request.ClonePath}' must not start with '-'.", nameof(request));
         }
     }
 
@@ -114,22 +176,113 @@ internal sealed class GitClient(
     }
 
     /// <summary>
-    /// Checks out <see cref="GitRepositoryRequest.Branch"/> exactly as <c>origin</c> has it, removes every file git
-    /// does not track, and brings the submodules and the LFS files in line.
+    /// Chooses the branch from the refs just fetched and brings the working tree to it, or leaves the clone without a
+    /// checkout when the server has no branch.
     /// </summary>
     /// <param name="request">The clone to synchronize.</param>
+    /// <param name="environment">The environment of the git processes.</param>
+    /// <param name="cancellationToken">Cancels the remaining steps.</param>
+    /// <returns>The branch checked out and the refs of the clone.</returns>
+    /// <exception cref="GitBranchNotFoundException">No existing branch can be chosen.</exception>
+    private async Task<GitSyncResult> SynchronizeAsync(
+        GitRepositoryRequest request,
+        IReadOnlyList<ProcessEnvironmentVariable> environment,
+        CancellationToken cancellationToken)
+    {
+        // The steps after this read change only the working tree and the local branch, never the remote-tracking
+        // branches or the tags, so this snapshot is also the state after the synchronization.
+        var refs = await ReadLocalRefsAsync(request, environment, cancellationToken);
+        if (!refs.HasBranches)
+        {
+            GitClientLog.EmptyRepository(logger, request.ClonePath);
+            return new(null, false, refs);
+        }
+
+        if (request.Branch is not null && refs.ContainsBranch(request.Branch))
+        {
+            await SyncWorkingTreeAsync(request, request.Branch, environment, cancellationToken);
+            return new(request.Branch, false, refs);
+        }
+
+        var defaultBranch = await ReadDefaultBranchAsync(request, environment, cancellationToken);
+        if (defaultBranch is null || !refs.ContainsBranch(defaultBranch))
+        {
+            var requested = request.Branch is null ? "No branch was requested" : $"Branch '{request.Branch}' does not exist";
+            var serverDefault = defaultBranch is null
+                ? "the server's HEAD names no existing branch"
+                : $"the server's default branch '{defaultBranch}' does not exist";
+            throw new GitBranchNotFoundException(
+                $"{requested} on the server of '{request.ClonePath}', and {serverDefault}.",
+                request.Branch,
+                defaultBranch);
+        }
+
+        ValidateBranch(defaultBranch, request);
+        if (request.Branch is null)
+        {
+            GitClientLog.UsingDefaultBranch(logger, request.ClonePath, defaultBranch);
+        }
+        else
+        {
+            GitClientLog.BranchNotFound(logger, request.Branch, request.ClonePath, defaultBranch);
+        }
+
+        await SyncWorkingTreeAsync(request, defaultBranch, environment, cancellationToken);
+        return new(defaultBranch, request.Branch is not null, refs);
+    }
+
+    /// <summary>
+    /// Reads the snapshot of the clone with <c>git for-each-ref</c>.
+    /// </summary>
+    /// <param name="request">The clone to read.</param>
+    /// <param name="environment">The environment of the git process.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The remote-tracking branches and the tags of the clone.</returns>
+    private async Task<RefSnapshot> ReadLocalRefsAsync(
+        GitRepositoryRequest request,
+        IReadOnlyList<ProcessEnvironmentVariable> environment,
+        CancellationToken cancellationToken)
+    {
+        var output = await RunGitAsync(request, request.ClonePath, environment, _localRefsArguments, cancellationToken);
+        return GitRefParser.ParseLocalRefs(output);
+    }
+
+    /// <summary>
+    /// Asks the server for its default branch with <c>git ls-remote --symref</c>.
+    /// </summary>
+    /// <param name="request">The clone whose <c>origin</c> is asked.</param>
+    /// <param name="environment">The environment of the git process.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The default branch, or <see langword="null"/> when <c>HEAD</c> names no existing branch.</returns>
+    private async Task<string?> ReadDefaultBranchAsync(
+        GitRepositoryRequest request,
+        IReadOnlyList<ProcessEnvironmentVariable> environment,
+        CancellationToken cancellationToken)
+    {
+        var output = await RunGitAsync(
+            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken);
+        return GitRefParser.ParseDefaultBranch(output);
+    }
+
+    /// <summary>
+    /// Checks out <paramref name="branch"/> exactly as <c>origin</c> has it, removes every file git does not track,
+    /// and brings the submodules and the LFS files in line.
+    /// </summary>
+    /// <param name="request">The clone to synchronize.</param>
+    /// <param name="branch">The branch to check out; it exists on <c>origin</c> and does not start with <c>-</c>.</param>
     /// <param name="environment">The environment of the git processes.</param>
     /// <param name="cancellationToken">Cancels the remaining steps.</param>
     /// <returns>A task that completes when the working tree matches the server.</returns>
     private async Task SyncWorkingTreeAsync(
         GitRepositoryRequest request,
+        string branch,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         CancellationToken cancellationToken)
     {
-        var remoteBranch = "origin/" + request.Branch;
+        var remoteBranch = "origin/" + branch;
         string[][] steps =
         [
-            ["checkout", "-B", request.Branch, remoteBranch, "--"],
+            ["checkout", "-B", branch, remoteBranch, "--"],
             ["reset", "--hard", remoteBranch, "--"],
             ["clean", "-ffdx"],
             ["submodule", "sync", "--recursive"],
@@ -151,9 +304,9 @@ internal sealed class GitClient(
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
-    /// <returns>A task that completes when the command has succeeded.</returns>
+    /// <returns>The lines the command wrote to standard output.</returns>
     /// <exception cref="GitCommandException">The command exits with a non-zero code.</exception>
-    private async Task RunGitAsync(
+    private async Task<IReadOnlyList<string>> RunGitAsync(
         GitRepositoryRequest request,
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
@@ -172,7 +325,7 @@ internal sealed class GitClient(
 
         if (result.Succeeded)
         {
-            return;
+            return result.StandardOutput;
         }
 
         var command = secretMasker.Mask(ProcessCommandLine.Format("git", arguments));

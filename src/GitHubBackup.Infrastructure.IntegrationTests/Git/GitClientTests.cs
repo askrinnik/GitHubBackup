@@ -6,6 +6,7 @@ using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities.Git;
+using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 
@@ -175,8 +176,11 @@ public sealed class GitClientTests : IDisposable
         var top = await _sandbox.CreateRemoteAsync("top", CancellationToken);
         await top.AddSubmoduleAsync(submodule, "sub", CancellationToken);
 
-        await CreateClient().CloneAsync(Request(token: _token), top.Url, CancellationToken);
-        await CreateClient().UpdateAsync(Request(token: _token), CancellationToken);
+        await CreateClient().CloneAsync(Request(branch: null, token: _token), top.Url, CancellationToken);
+        await CreateClient().UpdateAsync(Request(branch: "missing", token: _token), CancellationToken);
+        await CreateClient().GetRemoteRefsAsync(Request(token: _token), CancellationToken);
+        await CreateClient().GetDefaultBranchAsync(Request(token: _token), CancellationToken);
+        _runnerLogger.Entries.ShouldContain(entry => entry.Message.Contains("ls-remote"));
 
         var configs = Directory.EnumerateFiles(Path.Combine(_clonePath, ".git", "modules"), "config", SearchOption.AllDirectories)
             .Prepend(Path.Combine(_clonePath, ".git", "config"))
@@ -225,15 +229,213 @@ public sealed class GitClientTests : IDisposable
     }
 
     [Fact]
-    public async Task CloneAsync_BranchMissing_ThrowsGitCommandException()
+    public async Task Snapshots_OneServerState_RemoteAndLocalMatch()
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await remote.CreateBranchAsync("feature/nested", null, CancellationToken);
+        await remote.CreateTagAsync("v1", null, annotated: true, force: false, CancellationToken);
+        await remote.CreateTagAsync("light", null, annotated: false, force: false, CancellationToken);
+        await _sandbox.RunGitAsync(remote.WorkingPath, CancellationToken, "push", "origin", "HEAD:refs/pull/1/head");
+        var client = CreateClient();
 
-        var exception = await Should.ThrowAsync<GitCommandException>(
-            () => CreateClient().CloneAsync(Request("missing"), remote.Url, CancellationToken));
+        var result = await client.CloneAsync(Request(), remote.Url, CancellationToken);
+        var remoteRefs = await client.GetRemoteRefsAsync(Request(), CancellationToken);
+        var localRefs = await client.GetLocalRefsAsync(Request(), CancellationToken);
 
-        exception.Command.ShouldStartWith("git checkout");
+        remoteRefs.ShouldBe(localRefs);
+        result.Refs.ShouldBe(localRefs);
+        remoteRefs.Refs.Keys.ShouldBe(
+            ["heads/develop", "heads/feature/nested", "heads/main", "tags/light", "tags/v1"], ignoreOrder: true);
+        (await remote.GetRemoteRefsAsync(CancellationToken)).ShouldContainKey("refs/pull/1/head");
+    }
+
+    [Fact]
+    public async Task Snapshots_AnnotatedTag_BothMapItToTheTagObject()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateTagAsync("v1", null, annotated: true, force: false, CancellationToken);
+        var tagObject = (await _sandbox.RunGitAsync(remote.BarePath, CancellationToken, "rev-parse", "refs/tags/v1")).Single();
+        var commit = (await _sandbox.RunGitAsync(remote.BarePath, CancellationToken, "rev-parse", "refs/tags/v1^{commit}")).Single();
+        var client = CreateClient();
+
+        await client.CloneAsync(Request(), remote.Url, CancellationToken);
+        var remoteRefs = await client.GetRemoteRefsAsync(Request(), CancellationToken);
+        var localRefs = await client.GetLocalRefsAsync(Request(), CancellationToken);
+
+        tagObject.ShouldNotBe(commit);
+        remoteRefs.Refs["tags/v1"].ShouldBe(tagObject);
+        localRefs.Refs["tags/v1"].ShouldBe(tagObject);
+    }
+
+    [Fact]
+    public async Task Snapshots_ServerRefsChanged_DifferBeforeUpdateAndMatchAfter()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("feature", null, CancellationToken);
+        await remote.CreateTagAsync("moved", null, annotated: false, force: false, CancellationToken);
+        await remote.CreateTagAsync("gone", null, annotated: true, force: false, CancellationToken);
+        var client = CreateClient();
+        await client.CloneAsync(Request(), remote.Url, CancellationToken);
+        await remote.CommitAsync("new.txt", "new", "New commit", CancellationToken);
+        await remote.CreateTagAsync("moved", null, annotated: false, force: true, CancellationToken);
+        await remote.DeleteTagAsync("gone", CancellationToken);
+        await remote.DeleteBranchAsync("feature", CancellationToken);
+        await remote.CreateBranchAsync("added", null, CancellationToken);
+
+        var remoteBefore = await client.GetRemoteRefsAsync(Request(), CancellationToken);
+        var localBefore = await client.GetLocalRefsAsync(Request(), CancellationToken);
+        var result = await client.UpdateAsync(Request(), CancellationToken);
+        var localAfter = await client.GetLocalRefsAsync(Request(), CancellationToken);
+
+        remoteBefore.ShouldNotBe(localBefore);
+        localAfter.ShouldBe(remoteBefore);
+        result.Refs.ShouldBe(localAfter);
+        localAfter.Refs.Keys.ShouldBe(["heads/added", "heads/main", "tags/moved"], ignoreOrder: true);
+    }
+
+    [Fact]
+    public async Task GetDefaultBranchAsync_ServerHeadOnDevelop_ReturnsDevelop()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+        await remote.SetDefaultBranchAsync("develop", CancellationToken);
+
+        var branch = await CreateClient().GetDefaultBranchAsync(Request(), CancellationToken);
+
+        branch.ShouldBe("develop");
+    }
+
+    [Fact]
+    public async Task CloneAsync_BranchNotSet_ChecksOutServerDefault()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await remote.CheckoutAsync("develop", CancellationToken);
+        var developHead = await remote.CommitAsync("dev.txt", "dev", "Develop commit", CancellationToken);
+        await remote.SetDefaultBranchAsync("develop", CancellationToken);
+
+        var result = await CreateClient().CloneAsync(Request(branch: null), remote.Url, CancellationToken);
+
+        result.Branch.ShouldBe("develop");
+        result.BranchFallback.ShouldBeFalse();
+        (await HeadAsync(_clonePath)).ShouldBe(developHead);
+        (await GitAsync(_clonePath, "rev-parse", "--abbrev-ref", "HEAD")).ShouldBe(["develop"]);
+        _clientLogger.Entries.ShouldNotContain(entry => entry.Level == LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_ServerDefaultBranchChanged_ChecksOutNewDefault()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await remote.CheckoutAsync("develop", CancellationToken);
+        var developHead = await remote.CommitAsync("dev.txt", "dev", "Develop commit", CancellationToken);
+        var first = await CreateClient().CloneAsync(Request(branch: null), remote.Url, CancellationToken);
+        await remote.SetDefaultBranchAsync("develop", CancellationToken);
+
+        var result = await CreateClient().UpdateAsync(Request(branch: null), CancellationToken);
+
+        first.Branch.ShouldBe("main");
+        result.Branch.ShouldBe("develop");
+        result.BranchFallback.ShouldBeFalse();
+        (await HeadAsync(_clonePath)).ShouldBe(developHead);
+        File.Exists(Path.Combine(_clonePath, "dev.txt")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task CloneAsync_BranchMissing_FallsBackToDefaultWithWarning()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        var head = (await remote.GetRemoteRefsAsync(CancellationToken))["refs/heads/main"];
+
+        var result = await CreateClient().CloneAsync(Request("missing"), remote.Url, CancellationToken);
+
+        result.Branch.ShouldBe("main");
+        result.BranchFallback.ShouldBeTrue();
+        result.IsEmpty.ShouldBeFalse();
+        (await HeadAsync(_clonePath)).ShouldBe(head);
+        _clientLogger.Entries.ShouldContain(
+            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("missing") && entry.Message.Contains("main"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_BranchDeletedOnServer_FallsBackToDefaultWithWarning()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("feature", null, CancellationToken);
+        await CreateClient().CloneAsync(Request("feature"), remote.Url, CancellationToken);
+        await remote.DeleteBranchAsync("feature", CancellationToken);
+        var head = await remote.CommitAsync("new.txt", "new", "New commit", CancellationToken);
+
+        var result = await CreateClient().UpdateAsync(Request("feature"), CancellationToken);
+
+        result.Branch.ShouldBe("main");
+        result.BranchFallback.ShouldBeTrue();
+        (await HeadAsync(_clonePath)).ShouldBe(head);
+        (await GitAsync(_clonePath, "rev-parse", "--abbrev-ref", "HEAD")).ShouldBe(["main"]);
+        _clientLogger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("feature"));
+    }
+
+    [Fact]
+    public async Task UpdateAsync_BranchAndServerHeadMissing_ThrowsBranchNotFound()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+        await remote.SetDefaultBranchAsync("nowhere", CancellationToken);
+
+        var exception = await Should.ThrowAsync<GitBranchNotFoundException>(
+            () => CreateClient().UpdateAsync(Request("missing"), CancellationToken));
+
+        exception.RequestedBranch.ShouldBe("missing");
+        exception.DefaultBranch.ShouldBeNull();
         exception.Message.ShouldContain(_clonePath);
+    }
+
+    [Fact]
+    public async Task CloneAsync_EmptyRepository_ClonesWithoutCheckoutAndReportsEmpty()
+    {
+        var remote = await _sandbox.CreateEmptyRemoteAsync("repo", CancellationToken);
+
+        var result = await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+
+        result.IsEmpty.ShouldBeTrue();
+        result.Branch.ShouldBeNull();
+        result.BranchFallback.ShouldBeFalse();
+        result.Refs.ShouldBe(RefSnapshot.Empty);
+        Directory.Exists(Path.Combine(_clonePath, ".git")).ShouldBeTrue();
+        _clientLogger.Entries.ShouldContain(entry => entry.Message.Contains("is empty on the server"));
+        (await CreateClient().GetRemoteRefsAsync(Request(), CancellationToken)).ShouldBe(RefSnapshot.Empty);
+        (await CreateClient().GetDefaultBranchAsync(Request(), CancellationToken)).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task UpdateAsync_EmptyRepository_ReportsEmpty()
+    {
+        var remote = await _sandbox.CreateEmptyRemoteAsync("repo", CancellationToken);
+        await CreateClient().CloneAsync(Request(branch: null), remote.Url, CancellationToken);
+
+        var result = await CreateClient().UpdateAsync(Request(branch: null), CancellationToken);
+
+        result.IsEmpty.ShouldBeTrue();
+        result.Refs.ShouldBe(RefSnapshot.Empty);
+        _clientLogger.Entries.Count(entry => entry.Message.Contains("is empty on the server")).ShouldBe(2);
+    }
+
+    [Fact]
+    public async Task UpdateAsync_FirstCommitPushedToEmptyRepository_ChecksItOut()
+    {
+        var remote = await _sandbox.CreateEmptyRemoteAsync("repo", CancellationToken);
+        await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+        var head = await remote.CommitAsync("first.txt", "first", "First commit", CancellationToken);
+
+        var result = await CreateClient().UpdateAsync(Request(), CancellationToken);
+
+        result.IsEmpty.ShouldBeFalse();
+        result.Branch.ShouldBe("main");
+        (await HeadAsync(_clonePath)).ShouldBe(head);
+        File.ReadAllText(Path.Combine(_clonePath, "first.txt")).ShouldBe("first");
     }
 
     /// <inheritdoc />
@@ -256,10 +458,10 @@ public sealed class GitClientTests : IDisposable
     /// <summary>
     /// Returns a request for the clone folder of the test.
     /// </summary>
-    /// <param name="branch">The branch to check out.</param>
+    /// <param name="branch">The branch to check out, or <see langword="null"/> for the server's default branch.</param>
     /// <param name="token">The token, or <see langword="null"/> for anonymous access.</param>
     /// <returns>The request.</returns>
-    private GitRepositoryRequest Request(string branch = "main", string? token = null) => new()
+    private GitRepositoryRequest Request(string? branch = "main", string? token = null) => new()
     {
         GitPath = _sandbox.GitPath,
         ClonePath = _clonePath,

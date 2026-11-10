@@ -17,8 +17,11 @@ public sealed record GitRepositoryRequest
     /// <summary>Gets the fully qualified path of the clone folder.</summary>
     public required string ClonePath { get; init; }
 
-    /// <summary>Gets the branch the clone checks out; it must not be empty or start with <c>-</c>.</summary>
-    public required string Branch { get; init; }
+    /// <summary>
+    /// Gets the branch the clone checks out, or <see langword="null"/> for the server's default branch; a branch must
+    /// not be empty or start with <c>-</c>.
+    /// </summary>
+    public string? Branch { get; init; }
 
     /// <summary>
     /// Gets the GitHub token sent to the server, or <see langword="null"/> to access the repository anonymously.
