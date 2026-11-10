@@ -10,7 +10,7 @@ paths:
 
 ## Workflows of this repository (PRD §11)
 
-- **CI** — on every push and pull request: restore, build, unit, contract, architecture and integration tests on `windows-latest` (git and 7-Zip are present on the runner).
+- **CI** — on every pull request and on push to `main`: restore, build, unit, contract, architecture and integration tests on `windows-latest` (git and 7-Zip are present on the runner).
 - **UI tests and smoke tests** — a separate workflow, `workflow_dispatch` only. Smoke tests use a repository secret and never run on pull requests from forks.
 
 ## Rules

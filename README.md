@@ -56,7 +56,7 @@ src/    решение GitHubBackup.slnx: проекты и парные тес�
 
 | Workflow | Запуск | Что делает |
 |---|---|---|
-| `.github/workflows/ci.yml` | push и pull request | `windows-latest`: restore, build, проверка форматирования, тесты без категорий `UI` и `Smoke`; результаты (`*.trx`) публикуются артефактом `test-results` |
+| `.github/workflows/ci.yml` | pull request и push в `main` | `windows-latest`: restore, build, проверка форматирования, тесты без категорий `UI` и `Smoke`; результаты (`*.trx`) публикуются артефактом `test-results` |
 | `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, тесты выбранной категории (`UI` или `Smoke`); артефакт `test-results-<категория>` |
 
 Предупреждения компилятора и анализаторов считаются ошибками. Версии NuGet-пакетов задаются только в `src/Directory.Packages.props`, общие настройки сборки — в `src/Directory.Build.props`.
