@@ -7,6 +7,7 @@ using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure;
@@ -21,7 +22,8 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="IFileSystem"/> and the <see cref="IBackupConfigStore"/>, and binds <see cref="BackupOptions"/>,
+        /// token, the <see cref="IFileSystem"/>, the <see cref="IBackupConfigStore"/> and the
+        /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
         /// </summary>
@@ -38,6 +40,10 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
             services.TryAddSingleton<IFileSystem, FileSystem>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
+            services.TryAddSingleton<IRepositoryPathResolver>(provider => new RepositoryPathResolver(
+                Path.Combine(
+                    provider.GetRequiredService<IHostEnvironment>().ContentRootPath,
+                    BackupConfig.DefaultSourcesFolderName)));
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<GitHubOptions>, GitHubOptionsValidator>());
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ToolsOptions>, ToolsOptionsValidator>());
