@@ -4,6 +4,21 @@
     "commit": "",
     "pr": ""
   },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/Test-CommitMessageHook.ps1\"",
+            "timeout": 30,
+            "statusMessage": "Checking the commit message against the git-commit skill"
+          }
+        ]
+      }
+    ]
+  },
   "enabledMcpjsonServers": [
     "context7",
     "microsoft-learn",

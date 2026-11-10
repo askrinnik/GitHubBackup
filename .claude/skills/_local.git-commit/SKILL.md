@@ -32,7 +32,7 @@ All commit text is **English** (NFR-7).
 - <second action>
 ```
 
-- **Line 1:** `#`, the issue number, one space, the exact issue title as on GitHub (`gh issue view <n> --json title --jq .title`). It is identical on every commit of the branch. In a batch (`/implement-issues`) the branch holds one commit per issue, each with its own issue's `#<n> <title>`, on a branch named `<first>-<last>-<short-slug>`.
+- **Line 1:** `#`, the issue number, one space, the exact issue title as on GitHub (`gh issue view <n> --json title --jq .title`). It is identical on every commit of the branch, also when the user asks for several commits for one issue: the dash-prefixed actions tell those commits apart, never a custom first line. In a batch (`/implement-issues`) the branch holds one commit per issue, each with its own issue's `#<n> <title>`, on a branch named `<first>-<last>-<short-slug>`.
 - **Line 2:** blank.
 - **From line 3:** one action per line, each starting with `- `, imperative mood ("Add", "Fix", "Update", "Remove"), contiguous — no blank lines between them. A single-action commit has one bullet.
 
@@ -77,5 +77,5 @@ Run this skill **inline** when the user asks for a commit directly. Inside `/imp
 3. Review and stage.
 4. Compose the message and write it to a scratch file outside the repository (the session's scratch directory, or the system temp folder).
 5. `git commit -F <file>` — a successful exit is the confirmation. Do not push.
-6. Check `git log -1 --format=%B` against the format above. On a deviation fix the commit just made with `git commit --amend -F <file>`; never amend an earlier or a pushed commit.
+6. Check `git log -1 --format=%B` against the format above. On a deviation fix the commit just made with `git commit --amend -F <file>`; never amend an earlier or a pushed commit. In this repository the `PostToolUse` hook `.claude/hooks/Test-CommitMessageHook.ps1` runs the same check after every `git commit` and reports violations back; a report from it means the same amend, not a skipped check.
 7. Report the short SHA and the first line.
