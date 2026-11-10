@@ -56,6 +56,14 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupInfrastructure_RepositoryPathResolver_DefaultsSourcesRootToContentRoot()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IRepositoryPathResolver>().GetSourcesRoot(new BackupConfig()).ShouldBe(@"C:\app\sources");
+    }
+
+    [Fact]
     public void AddGitHubBackupInfrastructure_TokenConfigured_SecretMaskerMasksToken()
     {
         using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = "configured-token-value" });

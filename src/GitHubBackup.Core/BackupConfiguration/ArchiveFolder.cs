@@ -3,11 +3,6 @@ namespace GitHubBackup.Core.BackupConfiguration;
 /// <summary>
 /// Resolves the folder that receives the archives of one repository.
 /// </summary>
-/// <remarks>
-/// Every path is a Windows path: it starts with a drive letter or a UNC prefix, uses <c>\</c> as the separator, and
-/// is compared without regard to case. The containment check relies on <see cref="Path"/> behaving as it does on
-/// Windows, the only operating system the application runs on.
-/// </remarks>
 internal static class ArchiveFolder
 {
     /// <summary>
@@ -33,31 +28,7 @@ internal static class ArchiveFolder
         }
 
         return accountPath is not null
-            ? EnsureInside(accountPath, Path.Combine(accountPath, repository))
-            : EnsureInside(backupRoot, Path.Combine(backupRoot, owner, repository));
-    }
-
-    /// <summary>
-    /// Returns <paramref name="folder"/> after checking that it lies strictly inside <paramref name="root"/>.
-    /// </summary>
-    /// <remarks>
-    /// Owner and repository names come from the configuration and the network; a name that is rooted or contains
-    /// <c>..</c> must not move the archives out of the folder the user chose.
-    /// </remarks>
-    /// <param name="root">The absolute root the folder must stay in.</param>
-    /// <param name="folder">The folder built from <paramref name="root"/> and untrusted names.</param>
-    /// <returns><paramref name="folder"/>.</returns>
-    /// <exception cref="ArgumentException"><paramref name="folder"/> is not inside <paramref name="root"/>.</exception>
-    private static string EnsureInside(string root, string folder)
-    {
-        var fullRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            + Path.DirectorySeparatorChar;
-        var fullFolder = Path.GetFullPath(folder);
-        if (!fullFolder.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase) || fullFolder.Length == fullRoot.Length)
-        {
-            throw new ArgumentException($"The archive folder '{folder}' is not inside '{root}'.", nameof(folder));
-        }
-
-        return folder;
+            ? ContainedFolder.Combine(accountPath, repository)
+            : ContainedFolder.Combine(backupRoot, owner, repository);
     }
 }
