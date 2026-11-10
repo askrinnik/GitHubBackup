@@ -4,9 +4,11 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -66,6 +68,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         runner.ShouldBeOfType<ProcessRunner>();
         provider.GetRequiredService<IProcessRunner>().ShouldBeSameAs(runner);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_ToolLocator_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var locator = provider.GetRequiredService<IToolLocator>();
+
+        locator.ShouldBeOfType<ToolLocator>();
+        provider.GetRequiredService<IToolLocator>().ShouldBeSameAs(locator);
     }
 
     [Fact]
