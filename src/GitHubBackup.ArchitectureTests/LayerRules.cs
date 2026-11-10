@@ -32,6 +32,9 @@ public static class LayerRules
         "Serilog",
     ];
 
+    /// <summary>The configuration system: <c>Core</c> receives bound options and never reads configuration itself.</summary>
+    private const string _configuration = "Microsoft.Extensions.Configuration";
+
     private static readonly string[] _wpfAssemblies = ["PresentationFramework", "PresentationCore", "WindowsBase", "System.Xaml"];
 
     /// <summary>
@@ -45,14 +48,32 @@ public static class LayerRules
     public static Assembly Infrastructure { get; } = Assembly.Load(new AssemblyName(_infrastructure));
 
     /// <summary>
-    /// Gets the namespaces whose types <c>Core</c> must not use: the outer layers and the I/O libraries.
+    /// Gets the namespaces whose types <c>Core</c> must not use: the outer layers, the I/O libraries and the
+    /// configuration system.
     /// </summary>
-    public static IReadOnlyList<string> CoreForbiddenNamespaces { get; } = [_infrastructure, .. _hostNamespaces, .. _ioLibraryNamespaces];
+    public static IReadOnlyList<string> CoreForbiddenNamespaces { get; } =
+        [_infrastructure, .. _hostNamespaces, .. _ioLibraryNamespaces, _configuration];
 
     /// <summary>
-    /// Gets the assemblies <c>Core</c> must not reference directly: the outer layers, the I/O libraries and WPF.
+    /// Gets the assemblies <c>Core</c> must not reference directly: the outer layers, the I/O libraries, the
+    /// configuration system and WPF.
     /// </summary>
-    public static IReadOnlyList<string> CoreForbiddenAssemblies { get; } = [_infrastructure, .. _hostNamespaces, .. _ioLibraryAssemblies, .. _wpfAssemblies];
+    public static IReadOnlyList<string> CoreForbiddenAssemblies { get; } =
+        [_infrastructure, .. _hostNamespaces, .. _ioLibraryAssemblies, _configuration, .. _wpfAssemblies];
+
+    /// <summary>
+    /// Gets the <c>System.IO</c> types that touch the disk directly; <c>Core</c> and <c>Infrastructure</c> use
+    /// <see cref="System.IO.Abstractions.IFileSystem"/> instead, so tests can replace the disk. <see cref="Path"/>
+    /// only computes strings and is allowed.
+    /// </summary>
+    public static IReadOnlyList<string> DirectFileSystemTypes { get; } =
+    [
+        typeof(File).FullName!,
+        typeof(Directory).FullName!,
+        typeof(FileInfo).FullName!,
+        typeof(DirectoryInfo).FullName!,
+        typeof(FileStream).FullName!,
+    ];
 
     /// <summary>
     /// Gets the namespaces whose types <c>Infrastructure</c> must not use: the hosts.

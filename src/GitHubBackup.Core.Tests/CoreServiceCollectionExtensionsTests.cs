@@ -1,7 +1,6 @@
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Runs;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
@@ -13,17 +12,20 @@ namespace GitHubBackup.Core.Tests;
 public sealed class CoreServiceCollectionExtensionsTests
 {
     [Fact]
-    public void AddGitHubBackupCore_BackupSection_BindsBackupOptions()
+    public void AddGitHubBackupCore_NoConfiguration_ResolvesDefaultBackupOptions()
     {
-        using var provider = BuildProvider(new() { ["Backup:ShortHashLength"] = "12" });
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
 
-        provider.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(12);
+        provider.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(new BackupOptions().ShortHashLength);
     }
 
     [Fact]
     public void AddGitHubBackupCore_InvalidValue_FailsStartupValidation()
     {
-        using var provider = BuildProvider(new() { ["Backup:ShortHashLength"] = "3" });
+        using var provider = new ServiceCollection()
+            .AddGitHubBackupCore()
+            .Configure<BackupOptions>(options => options.ShortHashLength = 3)
+            .BuildServiceProvider();
 
         var exception = Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<IStartupValidator>().Validate());
 
@@ -33,8 +35,8 @@ public sealed class CoreServiceCollectionExtensionsTests
     [Fact]
     public void AddGitHubBackupCore_RunContext_IsOneInstancePerProvider()
     {
-        using var provider = BuildProvider(new());
-        using var otherProvider = BuildProvider(new());
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+        using var otherProvider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
 
         var runContext = provider.GetRequiredService<IRunContext>();
 
@@ -45,7 +47,7 @@ public sealed class CoreServiceCollectionExtensionsTests
     [Fact]
     public void AddGitHubBackupCore_BackupConfigValidator_IsResolved()
     {
-        using var provider = BuildProvider(new());
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
 
         provider.GetRequiredService<IBackupConfigValidator>().ShouldBeOfType<BackupConfigValidator>();
     }
@@ -53,22 +55,10 @@ public sealed class CoreServiceCollectionExtensionsTests
     [Fact]
     public void AddGitHubBackupCore_CalledTwice_RegistersValidatorOnce()
     {
-        var configuration = new ConfigurationBuilder().Build();
         var services = new ServiceCollection();
 
-        services.AddGitHubBackupCore(configuration).AddGitHubBackupCore(configuration);
+        services.AddGitHubBackupCore().AddGitHubBackupCore();
 
         services.Count(descriptor => descriptor.ServiceType == typeof(IValidateOptions<BackupOptions>)).ShouldBe(1);
-    }
-
-    /// <summary>
-    /// Builds a service provider with the core services registered over <paramref name="values"/>.
-    /// </summary>
-    /// <param name="values">The configuration keys and values.</param>
-    /// <returns>The service provider; the caller disposes it.</returns>
-    private static ServiceProvider BuildProvider(Dictionary<string, string?> values)
-    {
-        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-        return new ServiceCollection().AddGitHubBackupCore(configuration).BuildServiceProvider();
     }
 }

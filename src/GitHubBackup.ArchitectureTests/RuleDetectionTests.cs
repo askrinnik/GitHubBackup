@@ -24,6 +24,33 @@ public sealed class RuleDetectionTests
     }
 
     [Fact]
+    public void Types_FixtureCallingFileExists_ViolatesFileSystemRule()
+    {
+        var result = Types.InAssembly(typeof(DirectFileAccessFixture).Assembly)
+            .That()
+            .HaveName(nameof(DirectFileAccessFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.DirectFileSystemTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeFalse();
+        result.FailingTypeNames.ShouldContain(typeof(DirectFileAccessFixture).FullName!);
+    }
+
+    [Fact]
+    public void Types_FixtureUsingPathAndFileFlags_SatisfiesFileSystemRule()
+    {
+        var result = Types.InAssembly(typeof(AllowedFileTypesFixture).Assembly)
+            .That()
+            .HaveName(nameof(AllowedFileTypesFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.DirectFileSystemTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
     public void Find_FixtureAssembly_ReportsHostAssembly()
     {
         var found = ForbiddenReferenceFinder.Find(typeof(HostDependentFixture).Assembly, LayerRules.CoreForbiddenAssemblies);
@@ -40,6 +67,8 @@ public sealed class RuleDetectionTests
     [InlineData("Serilog")]
     [InlineData("Serilog.Sinks.File")]
     [InlineData("PresentationFramework")]
+    [InlineData("Microsoft.Extensions.Configuration.Abstractions")]
+    [InlineData("Microsoft.Extensions.Configuration.Binder")]
     public void Find_ForbiddenReference_IsReported(string referenceName)
     {
         var found = ForbiddenReferenceFinder.Find([new AssemblyName(referenceName)], LayerRules.CoreForbiddenAssemblies);

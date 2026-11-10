@@ -8,8 +8,15 @@ namespace GitHubBackup.Core.BackupConfiguration;
 /// accounts and repositories, distinct archive folders, and clones kept out of the archive tree.
 /// </summary>
 /// <remarks>
+/// <para>
 /// An entry whose URL, name or path is already reported as invalid is left out of the duplicate and archive folder
 /// checks, so one mistake produces one error.
+/// </para>
+/// <para>
+/// Every path is a Windows path: an absolute path starts with a drive letter or a UNC prefix, the separator is
+/// <c>\</c>, the characters Windows forbids are rejected, and paths are compared without regard to case. The checks
+/// rely on <see cref="Path"/> behaving as it does on Windows, the only operating system the application runs on.
+/// </para>
 /// </remarks>
 public sealed class BackupConfigValidator : IBackupConfigValidator
 {

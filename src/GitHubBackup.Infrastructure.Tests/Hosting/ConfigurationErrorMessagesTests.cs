@@ -34,23 +34,53 @@ public sealed class ConfigurationErrorMessagesTests
     }
 
     [Fact]
-    public void TryGet_InvalidDataExceptionWithInner_JoinsMessages()
+    public void TryGet_ConfigurationFileNotFound_ReturnsMessage()
     {
-        var exception = new InvalidDataException("Failed to load the file.", new FormatException("Line 2."));
+        var exception = new ConfigurationFileException(new FileNotFoundException("The configuration file 'appsettings.json' was not found."));
 
         var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
 
         found.ShouldBeTrue();
-        messages.ShouldHaveSingleItem().ShouldBe("Failed to load the file. Line 2.");
+        messages.ShouldHaveSingleItem().ShouldBe("The configuration file 'appsettings.json' was not found.");
     }
 
     [Fact]
-    public void TryGet_FileNotFoundException_ReturnsMessage()
+    public void TryGet_ConfigurationFileInvalid_JoinsMessages()
     {
-        var found = ConfigurationErrorMessages.TryGet(new FileNotFoundException("The file is missing."), out var messages);
+        var exception = new ConfigurationFileException(
+            new InvalidDataException("Failed to load configuration from file 'appsettings.json'.", new FormatException("Line 2.")));
+
+        var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
 
         found.ShouldBeTrue();
-        messages.ShouldHaveSingleItem().ShouldBe("The file is missing.");
+        messages.ShouldHaveSingleItem().ShouldBe("Failed to load configuration from file 'appsettings.json'. Line 2.");
+    }
+
+    [Fact]
+    public void TryGet_ConfigOptionError_ReturnsMessage()
+    {
+        var found = ConfigurationErrorMessages.TryGet(new ConfigurationFileException("The --config option is not a valid path."), out var messages);
+
+        found.ShouldBeTrue();
+        messages.ShouldHaveSingleItem().ShouldBe("The --config option is not a valid path.");
+    }
+
+    [Fact]
+    public void TryGet_UnrelatedFileNotFoundException_ReturnsFalse()
+    {
+        var found = ConfigurationErrorMessages.TryGet(new FileNotFoundException("Could not load file or assembly 'Some.Library'."), out var messages);
+
+        found.ShouldBeFalse();
+        messages.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void TryGet_UnrelatedInvalidDataException_ReturnsFalse()
+    {
+        var found = ConfigurationErrorMessages.TryGet(new InvalidDataException("The archive is corrupt."), out var messages);
+
+        found.ShouldBeFalse();
+        messages.ShouldBeEmpty();
     }
 
     [Fact]

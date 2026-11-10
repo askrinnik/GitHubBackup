@@ -21,13 +21,15 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="IFileSystem"/> and the <see cref="IBackupConfigStore"/>, and binds <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>,
-        /// <see cref="HistoryOptions"/> and <see cref="OpenTelemetryOptions"/>, validated when the host starts.
+        /// token, the <see cref="IFileSystem"/> and the <see cref="IBackupConfigStore"/>, and binds <see cref="BackupOptions"/>,
+        /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
+        /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
         /// Relative paths in <see cref="BackupOptions"/> and <see cref="HistoryOptions"/> are resolved against
         /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment.ContentRootPath"/>, so the host must register
         /// <see cref="Microsoft.Extensions.Hosting.IHostEnvironment"/>.
+        /// The validator of <see cref="BackupOptions"/> is registered by <c>AddGitHubBackupCore</c>.
         /// </remarks>
         /// <param name="configuration">The application configuration.</param>
         /// <returns>The same service collection, for chaining.</returns>
@@ -48,6 +50,7 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<IPostConfigureOptions<HistoryOptions>, ContentRootPathPostConfigure>());
 
+            services.AddOptions<BackupOptions>().BindSection(configuration, BackupOptions.SectionName);
             services.AddOptions<GitHubOptions>().BindSection(configuration, GitHubOptions.SectionName).ValidateOnStart();
             services.AddOptions<ToolsOptions>().BindSection(configuration, ToolsOptions.SectionName).ValidateOnStart();
             services.AddOptions<HistoryOptions>().BindSection(configuration, HistoryOptions.SectionName).ValidateOnStart();

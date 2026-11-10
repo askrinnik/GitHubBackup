@@ -1,9 +1,10 @@
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
-namespace GitHubBackup.Core.Tests.Configuration;
+namespace GitHubBackup.Infrastructure.Tests.Configuration;
 
 /// <summary>
 /// Tests <see cref="SectionBindingExtensions"/>.
@@ -75,6 +76,18 @@ public sealed class SectionBindingExtensionsTests
         failure.ShouldBe("Backup:ShortHashLength cannot be converted to System.Int32.");
         failure.ShouldNotContain("SECRET");
         failure.ShouldNotContain("LongerKey");
+    }
+
+    [Fact]
+    public void Bind_ValueNotConvertible_ThrowsMessageInTemplateThatDescribeBindingFailureParses()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Backup:ShortHashLength"] = "abc" })
+            .Build();
+
+        var exception = Should.Throw<InvalidOperationException>(() => configuration.GetSection(BackupOptions.SectionName).Bind(new BackupOptions()));
+
+        exception.Message.ShouldBe("Failed to convert configuration value 'abc' at 'Backup:ShortHashLength' to type 'System.Int32'.");
     }
 
     [Fact]

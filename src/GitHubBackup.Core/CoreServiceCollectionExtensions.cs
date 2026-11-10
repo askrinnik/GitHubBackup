@@ -1,7 +1,6 @@
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Runs;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
@@ -18,20 +17,21 @@ public static class CoreServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the core services, including the <see cref="IRunContext"/> of the host and the
-        /// <see cref="IBackupConfigValidator"/>, and binds
-        /// <see cref="BackupOptions"/>, validated when the host starts.
+        /// <see cref="IBackupConfigValidator"/>, and registers <see cref="BackupOptions"/> with
+        /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
-        /// <param name="configuration">The application configuration.</param>
+        /// <remarks>
+        /// The options are not bound to a configuration source here: <c>Core</c> does not read configuration, so the
+        /// host or <c>GitHubBackup.Infrastructure</c> binds the <c>Backup</c> section.
+        /// </remarks>
         /// <returns>The same service collection, for chaining.</returns>
-        public IServiceCollection AddGitHubBackupCore(IConfiguration configuration)
+        public IServiceCollection AddGitHubBackupCore()
         {
             services.TryAddSingleton<IRunContext, RunContext>();
             services.TryAddSingleton<IBackupConfigValidator, BackupConfigValidator>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());
-            services.AddOptions<BackupOptions>()
-                .BindSection(configuration, BackupOptions.SectionName)
-                .ValidateOnStart();
+            services.AddOptions<BackupOptions>().ValidateOnStart();
 
             return services;
         }

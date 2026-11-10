@@ -5,6 +5,7 @@ using GitHubBackup.Core.Logging;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
+using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -268,6 +269,15 @@ public sealed class CliApplicationTests : IDisposable
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().ShouldBe(["Configuration error: The --config option requires the path of the backup configuration file."]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigOptionNotAPath_ReturnsCriticalWithOneLine()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "--config", "D:\\mine\0.json");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(["Configuration error: The --config option is not a valid path."]);
     }
 
     [Fact]
