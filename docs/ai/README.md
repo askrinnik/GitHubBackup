@@ -10,7 +10,8 @@
 CLAUDE.md                          главные инструкции, загружаются в каждую сессию
 .mcp.json                          MCP-серверы проекта
 .claude/
-  settings.json                    разрешения, MCP, отключённая подпись в коммитах
+  settings.json                    разрешения, MCP, хуки, отключённая подпись в коммитах
+  hooks/                           скрипты хуков и их проверочные случаи
   settings.local.json              личные настройки (не в git)
   commands/                        implement-issue, implement-issues, next-issue
   agents/                          issue-planner, issue-developer, build-runner, skill-runner, architect, security-reviewer
@@ -136,6 +137,28 @@ docs/
 - Составные команды (`cd … &&`, конвейеры, циклы) нельзя разрешить навсегда, поэтому `CLAUDE.md` требует простых команд из корня репозитория.
 - Разрешения меняет только пользователь: правку `.claude/settings.json` ассистентом автоматический режим блокирует как самоизменение прав.
 
+## Хуки (`.claude/settings.json`, `.claude/hooks/`)
+
+| Событие | Скрипт | Что делает |
+|---|---|---|
+| `PostToolUse`, инструменты `Bash` и `PowerShell` | `Test-CommitMessageHook.ps1` | После каждой команды `git commit` проверяет сообщение последнего коммита по скиллу `_local.git-commit` и при нарушении возвращает ассистенту список ошибок с требованием исправить коммит через `git commit --amend` до push |
+
+Хук проверки коммита:
+- работает и в основной сессии, и в субагентах, в том числе в `skill-runner`;
+- на ветке `<n>-<slug>` требует первую строку `#<n> <точный заголовок issue>`; заголовок берёт из GitHub через `gh`; на ветке пакета `<first>-<last>-<slug>` сверяет заголовок того issue, номер которого стоит в первой строке;
+- проверяет пустую вторую строку, пункты `- ` без пустых строк между ними, отсутствие трейлеров (`Co-Authored-By`, `Signed-off-by`, «Generated with») и коммит не в `main`;
+- пропускает merge-коммиты, отсоединённый HEAD (например, во время rebase) и неудачную команду `git commit` (последний коммит старше двух минут);
+- если `gh` не прочитал заголовок, пишет предупреждение и проверяет остальные правила;
+- запускается на каждую команду `Bash` и `PowerShell` и для команды без `git commit` завершается примерно за треть секунды.
+
+Правила лежат в модуле `CommitMessageRules.psm1`, проверочные случаи — в `.claude/hooks/tests/CommitMessageRules.Cases.ps1`:
+
+```
+pwsh -NoProfile -File .claude/hooks/tests/CommitMessageRules.Cases.ps1
+```
+
+Хуки форматирования и сборки — в отложенной задаче #46.
+
 ## Бенчмарк харнесса
 
 Скилл `_local.harness-quality-check` запускает фиксированные тестовые сессии (`claude -p`) и записывает метрики: контекст в начале, токены от чтения файла, загруженные правила, оценку судьи по эталону. История — `.ai/benchmarks/harness/run-history.csv`, отчёты — `.ai/benchmarks/harness/reports/`. Запускать после изменения `CLAUDE.md`, правил, скиллов, агентов, MCP или настроек.
@@ -166,6 +189,7 @@ docs/
 - механизм `implement-issue` (шаги, контрольные точки, экономия контекста);
 - агенты `issue-planner`, `issue-developer`, `skill-runner`, а `build-runner` — с заменой команд сборки (см. ниже);
 - скиллы `_local.git-commit`, `_local.open-pr`, `_local.github-issue`, `_local.next-issue` — для любого репозитория на GitHub;
+- хук проверки сообщения коммита (`.claude/hooks/`) вместе со скиллом `_local.git-commit`;
 - гигиена комментариев (`csharp.md`);
 - бенчмарк (`_local.harness-quality-check` и `bench-base`).
 
