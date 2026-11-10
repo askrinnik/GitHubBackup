@@ -72,7 +72,11 @@ Assert-Case 'commit without issue with a plain line is an error' (@(Get-Errors "
 $errors = @(Get-Errors "$valid`nCo-Authored-By: Someone <a@b.c>")
 Assert-Case 'Co-Authored-By trailer is an error' ($errors.Count -ge 1 -and ($errors -join ' ') -like '*trailer*')
 Assert-Case 'Generated with line is an error' ((@(Get-Errors "$valid`n- Generated with a tool") -join ' ') -like '*trailer*')
-Assert-Case 'commit on main is an error' ((@(Get-Errors '- Fix typo' -Branch 'main') -join ' ') -like '*never to main*')
+Assert-Case 'commit without issue on main has no errors' (@(Get-Errors "- Fix typo in README`n- Update .gitignore" -Branch 'main').Count -eq 0)
+Assert-Case 'commit without issue on master has no errors' (@(Get-Errors '- Fix typo' -Branch 'master').Count -eq 0)
+$errors = @(Get-Errors $valid -Branch 'main')
+Assert-Case 'issue header on main is an error' ($errors.Count -ge 1 -and $errors[0] -like '*not tied to an issue*')
+Assert-Case 'plain line on main is an error' (@(Get-Errors 'Fix typo' -Branch 'main')[0] -like 'Line 1 must be an action*')
 
 Write-Host ''
 if ($failures -gt 0) {

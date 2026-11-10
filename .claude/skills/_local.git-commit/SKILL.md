@@ -14,7 +14,7 @@ Only commit when the user has asked, or when a calling workflow already holds th
 
 Work for issue `<n>` happens on branch `<n>-<slug>` — the issue number, a hyphen and a short kebab-case slug of the English title (`2-solution-structure`).
 
-- **Never commit directly to `main`.**
+- **Issue work never goes to `main` or `master`.** A commit on `main` or `master` is work not tied to an issue and always uses Case 2.
 - `git branch --show-current` — if it already starts with `<n>-`, commit there.
 - `git branch --list '<n>-*'` — if the branch exists but is not checked out, switch to it.
 - If you are on `main` and the commit belongs to an issue, create the branch from an up-to-date `main`: run `git pull --ff-only` first (stop and report if it fails — diverged history or local conflicts), then `git switch -c <n>-<slug>`. Uncommitted changes travel with you. Ask the user first unless a calling workflow already decided it.
@@ -48,7 +48,7 @@ Example:
 
 ### Case 2 — the commit is not tied to an issue
 
-All lines are actions starting with `- `, contiguous, no header line:
+This is the only format for a commit on `main` or `master`. All lines are actions starting with `- `, contiguous, no header line:
 
 ```
 - Fix typo in README build section
@@ -72,7 +72,7 @@ Run this skill **inline** when the user asks for a commit directly. Inside `/imp
 
 ## Procedure
 
-1. Determine the case (branch name, workflow context, or ask for the issue number).
+1. Determine the case (branch name, workflow context, or ask for the issue number). On `main` or `master` without an issue, it is Case 2.
 2. Check or create the branch as above.
 3. Review and stage.
 4. Compose the message and write it to a scratch file outside the repository (the session's scratch directory, or the system temp folder).

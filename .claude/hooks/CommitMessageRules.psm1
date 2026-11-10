@@ -28,7 +28,7 @@ function Test-GitCommitCommand {
 
 .OUTPUTS
 	A hashtable: Kind = 'issue' (branch "<n>-<slug>", Issue = n), 'batch' (branch "<first>-<last>-<slug>"),
-	'main' (main or master) or 'other' (any other branch).
+	'main' (main or master, where every commit is a commit not tied to an issue) or 'other' (any other branch).
 #>
 function Get-BranchKind {
 	[CmdletBinding()]
@@ -69,18 +69,18 @@ function Test-CommitMessage {
 	$lines = @(($Message -replace '(\r?\n)+$', '') -split '\r?\n')
 	$branchKind = Get-BranchKind -Branch $Branch
 
-	if ($branchKind.Kind -eq 'main') {
-		$errors.Add("The commit is on '$Branch'. Commits go to an issue branch '<n>-<slug>', never to $Branch.")
-	}
-
 	for ($i = 0; $i -lt $lines.Count; $i++) {
 		if ($lines[$i] -match '^\s*(Co-Authored-By|Signed-off-by)\s*:' -or $lines[$i] -match 'Generated with') {
 			$errors.Add("Line $($i + 1) is a trailer or signature ('$($lines[$i].Trim())'); the skill forbids trailers.")
 		}
 	}
 
-	$isIssueCommit = $branchKind.Kind -in @('issue', 'batch') -or $lines[0] -match '^#\d+\s'
-	if ($isIssueCommit) {
+	$isIssueCommit = $branchKind.Kind -in @('issue', 'batch') -or ($branchKind.Kind -ne 'main' -and $lines[0] -match '^#\d+\s')
+	if ($branchKind.Kind -eq 'main' -and $lines[0] -match '^#\d+\s') {
+		$errors.Add("Line 1 has an issue header, but a commit on '$Branch' is not tied to an issue: use only '- ' action lines, or commit issue work on its branch '<n>-<slug>'; found '$($lines[0])'.")
+		$actionStart = 1
+	}
+	elseif ($isIssueCommit) {
 		$actionStart = 2
 		if ($lines[0] -notmatch '^#(\d+) (\S.*)$') {
 			$errors.Add("Line 1 must be '#<n> <exact issue title>'; found '$($lines[0])'.")
