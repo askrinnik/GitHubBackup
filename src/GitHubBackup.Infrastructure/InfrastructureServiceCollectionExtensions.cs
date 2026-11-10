@@ -1,11 +1,13 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
+using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Configuration;
@@ -26,7 +28,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IBackupConfigStore"/> and the
+        /// token, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IBackupConfigStore"/> and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
@@ -46,6 +48,7 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<IFileSystem, FileSystem>();
             services.TryAddSingleton<IProcessRunner, ProcessRunner>();
             services.TryAddSingleton<IToolLocator, ToolLocator>();
+            services.TryAddSingleton<IGitClient, GitClient>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
             services.TryAddSingleton<IRepositoryPathResolver>(provider => new RepositoryPathResolver(
                 Path.Combine(
