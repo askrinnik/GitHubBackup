@@ -104,6 +104,7 @@
 - Длина хеша берётся из `Backup:ShortHashLength` (по умолчанию 10, §7.2), а не жёстко 10.
 - `IArchiveNameBuilder` живёт и регистрируется в Core; `ArchiveName` возвращает и `CreatedAt`.
 - Добавлен тестовый пакет `Microsoft.Extensions.TimeProvider.Testing` ради `FakeTimeProvider`.
+- После security review (PRD 0.11, FR-4.6) git получает `core.symlinks=false` в `GitEnvironment`: иначе 7-Zip положил бы в архив содержимое файла, на который указывает символьная ссылка из чужого репозитория. Альтернатива — ключ 7-Zip `-snl`, но ZIP хранит ссылки не во всех версиях 7-Zip.
 
 ## 10. Задачи
 

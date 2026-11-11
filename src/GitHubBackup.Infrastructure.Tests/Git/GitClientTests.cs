@@ -412,6 +412,25 @@ public sealed class GitClientTests
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
+    [InlineData(Operation.LocalRefs)]
+    [InlineData(Operation.DefaultBranch)]
+    public async Task Operation_AnyStep_DisablesSymbolicLinks(Operation operation)
+    {
+        await RunAsync(operation, Request(_token));
+
+        _requests.ShouldNotBeEmpty();
+        foreach (var request in _requests)
+        {
+            var variables = Variables(request);
+            variables["GIT_CONFIG_KEY_2"].ShouldBe("core.symlinks");
+            variables["GIT_CONFIG_VALUE_2"].ShouldBe("false");
+        }
+    }
+
+    [Theory]
+    [InlineData(Operation.Clone)]
+    [InlineData(Operation.Update)]
+    [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.DefaultBranch)]
     public async Task Operation_TokenSet_PassesBasicExtraHeaderAsSecretOnEveryStep(Operation operation)
     {
@@ -424,12 +443,12 @@ public sealed class GitClientTests
         foreach (var request in _requests)
         {
             var variables = Variables(request);
-            variables["GIT_CONFIG_COUNT"].ShouldBe("3");
-            variables["GIT_CONFIG_KEY_2"].ShouldBe("http.https://github.com/.extraHeader");
-            var header = request.EnvironmentVariables.Single(variable => variable.Name == "GIT_CONFIG_VALUE_2");
+            variables["GIT_CONFIG_COUNT"].ShouldBe("4");
+            variables["GIT_CONFIG_KEY_3"].ShouldBe("http.https://github.com/.extraHeader");
+            var header = request.EnvironmentVariables.Single(variable => variable.Name == "GIT_CONFIG_VALUE_3");
             header.Value.ShouldBe(expectedHeader);
             header.IsSecret.ShouldBeTrue();
-            request.EnvironmentVariables.Where(variable => variable.Name != "GIT_CONFIG_VALUE_2")
+            request.EnvironmentVariables.Where(variable => variable.Name != "GIT_CONFIG_VALUE_3")
                 .ShouldAllBe(variable => !variable.IsSecret);
         }
     }
@@ -454,7 +473,7 @@ public sealed class GitClientTests
     {
         await CreateClient().GetLocalRefsAsync(Request(_token), TestContext.Current.CancellationToken);
 
-        Variables(_requests.Single())["GIT_CONFIG_COUNT"].ShouldBe("2");
+        Variables(_requests.Single())["GIT_CONFIG_COUNT"].ShouldBe("3");
         _requests.Single().EnvironmentVariables.ShouldAllBe(variable => !variable.IsSecret);
     }
 
@@ -468,7 +487,7 @@ public sealed class GitClientTests
 
         foreach (var request in _requests)
         {
-            Variables(request)["GIT_CONFIG_COUNT"].ShouldBe("2");
+            Variables(request)["GIT_CONFIG_COUNT"].ShouldBe("3");
             request.EnvironmentVariables.ShouldAllBe(variable => !variable.Value.Contains("extraHeader") && !variable.IsSecret);
         }
     }
@@ -484,12 +503,13 @@ public sealed class GitClientTests
         await client.UpdateAsync(Request(_token), TestContext.Current.CancellationToken);
 
         var variables = Variables(_requests[0]);
-        variables["GIT_CONFIG_COUNT"].ShouldBe("4");
+        variables["GIT_CONFIG_COUNT"].ShouldBe("5");
         variables["GIT_CONFIG_KEY_0"].ShouldBe("core.longpaths");
         variables["GIT_CONFIG_KEY_1"].ShouldBe("credential.helper");
-        variables["GIT_CONFIG_KEY_2"].ShouldBe("protocol.file.allow");
-        variables["GIT_CONFIG_VALUE_2"].ShouldBe("always");
-        variables["GIT_CONFIG_KEY_3"].ShouldBe("http.https://github.com/.extraHeader");
+        variables["GIT_CONFIG_KEY_2"].ShouldBe("core.symlinks");
+        variables["GIT_CONFIG_KEY_3"].ShouldBe("protocol.file.allow");
+        variables["GIT_CONFIG_VALUE_3"].ShouldBe("always");
+        variables["GIT_CONFIG_KEY_4"].ShouldBe("http.https://github.com/.extraHeader");
     }
 
     [Theory]
