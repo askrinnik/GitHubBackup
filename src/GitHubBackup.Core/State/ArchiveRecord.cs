@@ -1,6 +1,5 @@
-using System.Buffers;
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Git;
-using GitHubBackup.Core.GitHub;
 
 namespace GitHubBackup.Core.State;
 
@@ -9,9 +8,6 @@ namespace GitHubBackup.Core.State;
 /// </summary>
 public sealed record ArchiveRecord
 {
-    /// <summary>The printable characters Windows forbids in a file name, on every operating system.</summary>
-    private static readonly SearchValues<char> _invalidFileNameCharacters = SearchValues.Create(['\\', '/', ':', '<', '>', '"', '|', '?', '*']);
-
     /// <summary>
     /// Creates a record of an archive.
     /// </summary>
@@ -29,14 +25,7 @@ public sealed record ArchiveRecord
     public ArchiveRecord(
         string file, DateTimeOffset createdAt, string branch, string headCommit, long sizeBytes, RefSnapshot refs)
     {
-        // The file name is combined with the archive folder to check that the archive exists, so a separator, a
-        // relative folder name, a device name or a name Windows would shorten (trailing dot or space) must not pass.
-        if (string.IsNullOrWhiteSpace(file)
-            || file.AsSpan().ContainsAny(_invalidFileNameCharacters)
-            || file.Any(char.IsControl)
-            || file is "." or ".."
-            || file[^1] is '.' or ' '
-            || GitHubUrl.IsWindowsDeviceName(file))
+        if (!ArchiveFileName.IsValid(file))
         {
             throw new ArgumentException("The archive file must be a file name without a folder.", nameof(file));
         }

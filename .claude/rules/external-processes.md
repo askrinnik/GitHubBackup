@@ -21,7 +21,7 @@ The application drives `git.exe` and `7z.exe` as child processes (FR-4.1, FR-7.1
 - The GitHub token reaches git only through environment variables of that one process: `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` = `http.https://github.com/.extraHeader`, `GIT_CONFIG_VALUE_<n>` = `Authorization: …` (FR-11.3).
 - Never put the token in arguments, in a remote URL, in `.git/config`, in a credential helper or in any file inside the clone — the clone is archived as is.
 - Interactive prompts are disabled for every git process: `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`. `git credential fill` is not used (FR-11.2).
-- `core.longpaths=true` is set for every git invocation that touches the working tree (FR-4.6).
+- `core.longpaths=true` and `core.symlinks=false` are set for every git invocation that touches the working tree (FR-4.6): a symbolic link in a clone would make 7-Zip archive the content of a file outside the clone.
 
 ## Output, exit codes and logging
 

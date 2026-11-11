@@ -40,8 +40,8 @@ internal sealed class GitClient(
     private static readonly string[] _defaultBranchArguments = ["ls-remote", "--symref", "origin", "HEAD"];
 
     /// <summary>
-    /// Gets the configuration entries passed to every git process besides <c>core.longpaths</c> and the
-    /// authorization header; tests use it to allow submodules from <c>file://</c> remotes.
+    /// Gets the configuration entries passed to every git process besides the fixed entries of
+    /// <see cref="GitEnvironment"/> and the authorization header; tests use it to allow submodules from <c>file://</c> remotes.
     /// </summary>
     internal IReadOnlyList<KeyValuePair<string, string>> AdditionalConfiguration { get; init; } = [];
 
