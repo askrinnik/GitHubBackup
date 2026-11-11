@@ -23,7 +23,6 @@ internal sealed class OctokitGitHubApi : IGitHubApi, IDisposable
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<OctokitGitHubApi> _logger;
     private readonly GitHubClient _client;
-    private readonly ApiConnection _apiConnection;
     private readonly SemaphoreSlim _credentialsLock = new(1, 1);
     private volatile bool _credentialsResolved;
     private bool _isAnonymous;
@@ -51,7 +50,6 @@ internal sealed class OctokitGitHubApi : IGitHubApi, IDisposable
             new ProductHeaderValue(_productName, ProductVersion()),
             CreateBaseAddress(options.Value.ApiBaseUrl));
         _client = new(connection);
-        _apiConnection = new(connection);
     }
 
     /// <inheritdoc />
@@ -182,10 +180,51 @@ internal sealed class OctokitGitHubApi : IGitHubApi, IDisposable
             resource,
             async () =>
             {
-                var repositories = await _apiConnection.GetAll<Repository>(new(resource, UriKind.Relative), parameters);
-                return [.. repositories.Select(OctokitModelMapper.ToRepository)];
+                List<GitHubRepository> repositories = [];
+                Uri? page = new(resource, UriKind.Relative);
+                IDictionary<string, string>? query = parameters;
+                while (page is not null)
+                {
+                    var response = await _client.Connection.Get<List<Repository>>(page, query, null, cancellationToken);
+                    repositories.AddRange(response.Body.Select(OctokitModelMapper.ToRepository));
+
+                    // The next-page link already carries the query.
+                    page = EnsureNextPageOnApi(response.HttpResponse.ApiInfo.GetNextPageUrl(), resource);
+                    query = null;
+                }
+
+                return repositories;
             },
             cancellationToken);
+    }
+
+    /// <summary>
+    /// Accepts a next-page link only when it points under the configured API address, because the credentials go
+    /// with every page request and a server must not be able to send them to another host.
+    /// </summary>
+    /// <param name="next">The next-page link of the last response, or <see langword="null"/> on the last page.</param>
+    /// <param name="resource">The API resource, named in the failure message.</param>
+    /// <returns><paramref name="next"/>, or <see langword="null"/> when there is no further page.</returns>
+    /// <exception cref="GitHubApiException">The link points outside the configured API address.</exception>
+    private Uri? EnsureNextPageOnApi(Uri? next, string resource)
+    {
+        if (next is null)
+        {
+            return null;
+        }
+
+        var baseAddress = _client.Connection.BaseAddress;
+        if (next.IsAbsoluteUri
+            && Uri.Compare(next, baseAddress, UriComponents.SchemeAndServer, UriFormat.Unescaped, StringComparison.OrdinalIgnoreCase) == 0
+            && next.AbsolutePath.StartsWith(baseAddress.AbsolutePath, StringComparison.Ordinal))
+        {
+            return next;
+        }
+
+        throw new GitHubApiException(
+            $"The GitHub API returned a next-page link for {resource} outside the configured API address.",
+            resource,
+            null);
     }
 
     /// <summary>

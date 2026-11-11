@@ -191,7 +191,9 @@
 
 Отклонения при реализации:
 
-- `/user/repos` тоже идёт через `ApiConnection.GetAll`: в Octokit 14 `RepositoryAffiliation.All` сериализуется с пробелами (`owner, collaborator, organization_member`), что расходится с FR-2.1.
+- Списки обходятся постранично вручную через `IConnection.Get`: ссылка `rel="next"` принимается, только если она ведёт под настроенный `GitHub:ApiBaseUrl` (та же схема, хост, порт и префикс пути). Иначе — `GitHubApiException` без запроса: учётные данные идут с каждым запросом страницы, и сервер не должен уводить их на другой хост (ревью безопасности, S1).
+- PRD 0.15 (утверждено): §7.2 допускает `http` в `GitHub:ApiBaseUrl` только для loopback-адреса, FR-11.5 описывает правило ссылки на следующую страницу; `GitHubOptionsValidator` проверяет новое правило.
+- `/user/repos` идёт с явными параметрами, как и остальные списки: в Octokit 14 `RepositoryAffiliation.All` сериализуется с пробелами (`owner, collaborator, organization_member`), что расходится с FR-2.1.
 - `OctokitGitHubApi` получает `TimeProvider`, чтобы перевести `Retry-After` в секундах в `ResetAt`.
 - Ответ 429 тоже считается исчерпанным лимитом (решение 2).
 - Лимит пишется в лог только после успешного вызова и только при `Limit > 0`.

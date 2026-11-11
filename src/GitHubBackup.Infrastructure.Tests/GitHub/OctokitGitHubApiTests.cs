@@ -116,6 +116,33 @@ public sealed class OctokitGitHubApiTests : IDisposable
     }
 
     [Fact]
+    public async Task GetUserRepositoriesAsync_NextPageOnForeignHost_ThrowsWithoutSendingToken()
+    {
+        using var foreignServer = WireMockServer.Start();
+        foreignServer
+            .Given(Request.Create().UsingAnyMethod())
+            .RespondWith(Json(RepositoriesJson()));
+        GivenFirstPageLinkingTo("/users/octocat/repos", $"{foreignServer.Url}/users/octocat/repos?page=2");
+
+        var exception = await Should.ThrowAsync<GitHubApiException>(
+            () => CreateApi().GetUserRepositoriesAsync("octocat", TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain("outside the configured API address");
+        foreignServer.LogEntries.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetUserRepositoriesAsync_NextPageOutsideApiPath_ThrowsWithoutRequestingIt()
+    {
+        GivenFirstPageLinkingTo("/api/v3/users/octocat/repos", $"{_server.Url}/elsewhere/users/octocat/repos?page=2");
+
+        await Should.ThrowAsync<GitHubApiException>(
+            () => CreateApi($"{_server.Url}/api/v3").GetUserRepositoriesAsync("octocat", TestContext.Current.CancellationToken));
+
+        _server.LogEntries.ShouldHaveSingleItem();
+    }
+
+    [Fact]
     public async Task GetCurrentUserRepositoriesAsync_Anonymous_ReturnsEmptyWithoutRequest()
     {
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(GitHubToken.Anonymous);
@@ -482,6 +509,17 @@ public sealed class OctokitGitHubApiTests : IDisposable
         _apis.Add(api);
         return api;
     }
+
+    /// <summary>
+    /// Serves the first page of a repository list with a <c>Link</c> header whose next page is <paramref name="nextUrl"/>.
+    /// </summary>
+    /// <param name="path">The list path.</param>
+    /// <param name="nextUrl">The absolute next-page link.</param>
+    private void GivenFirstPageLinkingTo(string path, string nextUrl) =>
+        _server
+            .Given(Request.Create().WithPath(path).UsingGet())
+            .RespondWith(Json(RepositoriesJson(Repository(1, "octocat", "first")))
+                .WithHeader("Link", $"<{nextUrl}>; rel=\"next\""));
 
     /// <summary>
     /// Serves a repository list in two pages linked by a <c>Link</c> header; both pages require
