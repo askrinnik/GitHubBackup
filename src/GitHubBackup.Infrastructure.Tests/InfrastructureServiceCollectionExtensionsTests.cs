@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core;
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
@@ -7,6 +8,7 @@ using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
+using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
@@ -105,6 +107,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         client.ShouldBeOfType<GitClient>();
         provider.GetRequiredService<IGitClient>().ShouldBeSameAs(client);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_Archiver_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var archiver = provider.GetRequiredService<IArchiver>();
+
+        archiver.ShouldBeOfType<SevenZipArchiver>();
+        provider.GetRequiredService<IArchiver>().ShouldBeSameAs(archiver);
     }
 
     [Fact]

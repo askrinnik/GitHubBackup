@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
@@ -70,6 +71,14 @@ public sealed class CoreServiceCollectionExtensionsTests
             .BuildServiceProvider();
 
         provider.GetRequiredService<IChangeDetector>().ShouldBeOfType<ChangeDetector>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_ArchiveNameBuilder_IsResolved()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<IArchiveNameBuilder>().ShouldBeOfType<ArchiveNameBuilder>();
     }
 
     [Fact]
