@@ -157,6 +157,16 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_AutomaticDiscoveryDecisionHandler_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        var handler = provider.GetRequiredService<AutomaticDiscoveryDecisionHandler>();
+
+        provider.GetRequiredService<AutomaticDiscoveryDecisionHandler>().ShouldBeSameAs(handler);
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_TimeProvider_IsSystemClock()
     {
         using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();

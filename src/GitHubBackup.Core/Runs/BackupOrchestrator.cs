@@ -3,6 +3,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Logging;
@@ -26,8 +27,12 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="tokenProvider">Supplies the GitHub token, or anonymous access.</param>
 /// <param name="pathResolver">Resolves the archive, clone and temporary folders.</param>
 /// <param name="exclusionMatcher">Finds the repositories of the list that an exclusion mask removes from the run.</param>
+/// <param name="discoveryService">Finds new, missing and renamed repositories.</param>
+/// <param name="decisionApplier">Applies the decisions about discovered repositories to the configuration.</param>
 /// <param name="remoteUrlProvider">Supplies the URL git clones each repository and wiki from.</param>
-/// <param name="gitHubApi">Tells whether the wiki feature of a repository is enabled.</param>
+/// <param name="gitHubApi">
+/// Tells whether the wiki feature of a repository is enabled when discovery did not report the repository.
+/// </param>
 /// <param name="changeDetector">Brings each clone up to date and decides whether it needs an archive.</param>
 /// <param name="nameBuilder">Names each new archive.</param>
 /// <param name="archiver">Creates each archive.</param>
@@ -41,6 +46,8 @@ public sealed class BackupOrchestrator(
     ITokenProvider tokenProvider,
     IRepositoryPathResolver pathResolver,
     IExclusionMatcher exclusionMatcher,
+    IRepositoryDiscoveryService discoveryService,
+    IDiscoveryDecisionApplier decisionApplier,
     IRemoteUrlProvider remoteUrlProvider,
     IGitHubApi gitHubApi,
     IChangeDetector changeDetector,
@@ -52,7 +59,7 @@ public sealed class BackupOrchestrator(
     ILogger<BackupOrchestrator> logger) : IBackupOrchestrator
 {
     /// <inheritdoc />
-    public async Task<BackupRunResult> RunAsync(CancellationToken cancellationToken)
+    public async Task<BackupRunResult> RunAsync(BackupRunRequest request, CancellationToken cancellationToken)
     {
         BackupConfigLoadResult loaded;
         try
@@ -65,35 +72,118 @@ public sealed class BackupOrchestrator(
         }
 
         var config = loaded.Config;
+        var filter = request.Filter;
         ToolSet tools;
-        List<BackupWorkItem> items;
+        IReadOnlyList<BackupWorkItem> items;
         try
         {
             tools = await toolLocator.LocateAsync(cancellationToken);
-            items = ExcludeMatching(config, BackupWorkItem.CreateAll(config, pathResolver));
+            items = BackupWorkItem.CreateAll(config, pathResolver);
         }
         catch (Exception exception) when (exception is ToolUnavailableException or ArgumentException)
         {
             return Stop([exception.Message], loaded.Warnings, exception);
         }
 
+        if (filter.IsRepository && !items.Any(filter.Includes))
+        {
+            return Stop([$"The repository '{filter.RepositoryFullName}' is not in backup-config.json."], loaded.Warnings, null);
+        }
+
         var token = await tokenProvider.GetTokenAsync(cancellationToken);
         var temporaryFolder = pathResolver.GetTemporaryArchiveFolder(config);
         EmptyTemporaryFolder(temporaryFolder);
 
-        var results = new List<BackupItemResult>(items.Count);
-        foreach (var item in items)
+        DiscoveryResult discovery;
+        DiscoveryApplyResult? applied = null;
+        try
+        {
+            discovery = await DiscoverAsync(config, filter, cancellationToken);
+            if (discovery.HasChanges)
+            {
+                applied = await decisionApplier.ApplyAsync(
+                    config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
+                items = BackupWorkItem.CreateAll(config, pathResolver);
+            }
+        }
+        catch (BackupConfigException exception)
+        {
+            return Stop(exception.Errors, loaded.Warnings, exception);
+        }
+        catch (Exception exception) when (
+            exception is GitHubApiException or ArgumentException or IOException or UnauthorizedAccessException)
+        {
+            // Without a complete discovery the run cannot tell which repositories to back up, and a failed save
+            // leaves the configuration in memory out of step with the file, so neither may lead to a partial run.
+            return Stop([exception.Message], loaded.Warnings, exception);
+        }
+
+        var work = ExcludeMatching(config, SelectIncluded(items, filter));
+        var results = new List<BackupItemResult>(work.Count);
+        foreach (var item in work)
         {
             cancellationToken.ThrowIfCancellationRequested();
             results.Add(await ProcessAsync(item, tools, token, temporaryFolder, cancellationToken));
-            var wiki = await ProcessWikiAsync(item, tools, token, temporaryFolder, cancellationToken);
+            var wiki = await ProcessWikiAsync(item, discovery.Repositories, tools, token, temporaryFolder, cancellationToken);
             if (wiki is not null)
             {
                 results.Add(wiki);
             }
         }
 
-        return new(results, loaded.Warnings, []);
+        foreach (var repository in applied?.Skipped ?? [])
+        {
+            BackupOrchestratorLog.NewRepositoryNotConfirmed(logger, repository);
+            results.Add(new(repository, BackupItemStatus.Skipped, null, TimeSpan.Zero, "The new repository is not confirmed for backup."));
+        }
+
+        return new(results, loaded.Warnings, []) { Discovery = applied };
+    }
+
+    /// <summary>
+    /// Discovers the repositories of every account, or of the account the run is limited to; a run limited to one
+    /// repository skips discovery.
+    /// </summary>
+    /// <param name="config">The configuration to compare with.</param>
+    /// <param name="filter">The repositories the run covers.</param>
+    /// <param name="cancellationToken">Cancels the discovery.</param>
+    /// <returns>The classified repositories, or <see cref="DiscoveryResult.Empty"/> when discovery is skipped.</returns>
+    /// <exception cref="GitHubApiException">Listing the repositories failed.</exception>
+    /// <exception cref="ArgumentException">The account of <paramref name="filter"/> is not tracked.</exception>
+    private async Task<DiscoveryResult> DiscoverAsync(
+        BackupConfig config, BackupRunFilter filter, CancellationToken cancellationToken)
+    {
+        if (filter.IsRepository)
+        {
+            BackupOrchestratorLog.DiscoverySkipped(logger, filter.RepositoryFullName!);
+            return DiscoveryResult.Empty;
+        }
+
+        return await discoveryService.DiscoverAsync(config, filter.AccountLogin, cancellationToken);
+    }
+
+    /// <summary>
+    /// Keeps the repositories the filter of the run covers and logs each one it leaves out.
+    /// </summary>
+    /// <param name="items">The repositories of the configuration.</param>
+    /// <param name="filter">The filter of the run.</param>
+    /// <returns>The repositories the filter keeps, in their original order.</returns>
+    private List<BackupWorkItem> SelectIncluded(IReadOnlyList<BackupWorkItem> items, BackupRunFilter filter)
+    {
+        var kept = new List<BackupWorkItem>(items.Count);
+        foreach (var item in items)
+        {
+            if (filter.Includes(item))
+            {
+                kept.Add(item);
+            }
+            else
+            {
+                BackupOrchestratorLog.RepositoryFilteredOut(logger, item.FullName);
+            }
+        }
+
+        return kept;
     }
 
     /// <summary>
@@ -103,7 +193,7 @@ public sealed class BackupOrchestrator(
     /// <param name="config">The configuration that holds the masks.</param>
     /// <param name="items">The repositories of the list.</param>
     /// <returns>The repositories that no mask matches, in their original order.</returns>
-    private List<BackupWorkItem> ExcludeMatching(BackupConfig config, IReadOnlyList<BackupWorkItem> items)
+    private List<BackupWorkItem> ExcludeMatching(BackupConfig config, List<BackupWorkItem> items)
     {
         var kept = new List<BackupWorkItem>(items.Count);
         foreach (var item in items)
@@ -127,11 +217,11 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <param name="errors">The errors, one sentence each.</param>
     /// <param name="configWarnings">The warnings about <c>backup-config.json</c> found so far.</param>
-    /// <param name="exception">The exception that reported the errors.</param>
+    /// <param name="exception">The exception that reported the errors, or <see langword="null"/> when the run found them itself.</param>
     /// <returns>The result with <see cref="BackupRunResult.CriticalErrors"/> set.</returns>
-    private BackupRunResult Stop(IReadOnlyList<string> errors, IReadOnlyList<string> configWarnings, Exception exception)
+    private BackupRunResult Stop(IReadOnlyList<string> errors, IReadOnlyList<string> configWarnings, Exception? exception)
     {
-        var reported = errors.Count > 0 ? errors : [exception.Message];
+        var reported = errors.Count > 0 || exception is null ? errors : [exception.Message];
         foreach (var error in reported)
         {
             BackupOrchestratorLog.RunStopped(logger, error, exception);
@@ -257,6 +347,7 @@ public sealed class BackupOrchestrator(
     /// skipped, and its clone and archives from earlier runs are kept.
     /// </remarks>
     /// <param name="item">The repository that owns the wiki.</param>
+    /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
     /// <param name="tools">The located tools.</param>
     /// <param name="token">The token passed to git.</param>
     /// <param name="temporaryFolder">The folder in which archives are built.</param>
@@ -266,7 +357,12 @@ public sealed class BackupOrchestrator(
     /// disabled or the wiki has no git repository on the server.
     /// </returns>
     private async Task<BackupItemResult?> ProcessWikiAsync(
-        BackupWorkItem item, ToolSet tools, GitHubToken token, string temporaryFolder, CancellationToken cancellationToken)
+        BackupWorkItem item,
+        IReadOnlyDictionary<long, GitHubRepository> discovered,
+        ToolSet tools,
+        GitHubToken token,
+        string temporaryFolder,
+        CancellationToken cancellationToken)
     {
         if (!item.IsActive)
         {
@@ -277,7 +373,7 @@ public sealed class BackupOrchestrator(
         var started = timeProvider.GetTimestamp();
         try
         {
-            if (!await IsWikiEnabledAsync(item, cancellationToken))
+            if (!await IsWikiEnabledAsync(item, discovered, cancellationToken))
             {
                 BackupOrchestratorLog.WikiDisabled(logger);
                 return null;
@@ -338,15 +434,23 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Asks the GitHub API whether the wiki feature of a repository is enabled.
+    /// Tells whether the wiki feature of a repository is enabled, from the metadata discovery collected or, when
+    /// discovery did not report the repository, from the GitHub API.
     /// </summary>
     /// <param name="item">The repository.</param>
+    /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns><see langword="true"/> when the wiki feature is enabled.</returns>
     /// <exception cref="GitHubApiException">The request fails.</exception>
     /// <exception cref="ArgumentException">The owner or the name is not valid for the API.</exception>
-    private async Task<bool> IsWikiEnabledAsync(BackupWorkItem item, CancellationToken cancellationToken)
+    private async Task<bool> IsWikiEnabledAsync(
+        BackupWorkItem item, IReadOnlyDictionary<long, GitHubRepository> discovered, CancellationToken cancellationToken)
     {
+        if (discovered.TryGetValue(item.Id, out var known))
+        {
+            return known.HasWiki;
+        }
+
         var repository = await gitHubApi.GetRepositoryAsync(item.Owner, item.Name, cancellationToken);
         return repository.HasWiki;
     }

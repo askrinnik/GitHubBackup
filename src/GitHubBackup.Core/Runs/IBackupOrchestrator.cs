@@ -4,9 +4,11 @@ namespace GitHubBackup.Core.Runs;
 /// Runs a backup of the repositories listed in <c>backup-config.json</c>.
 /// </summary>
 /// <remarks>
-/// The run loads the configuration, checks the tools, obtains the token, empties the folder of temporary archives and
-/// then processes the repositories one by one. A failure of one repository is recorded in its result and the run goes
-/// on; an invalid configuration or a missing tool stops the run before any repository or file is touched and is
+/// The run loads the configuration, checks the tools, obtains the token and empties the folder of temporary archives.
+/// It then discovers new, missing and renamed repositories, applies the decisions about them to the configuration,
+/// and processes the repositories of the updated configuration one by one, so a repository confirmed in this run is
+/// backed up in this run. A failure of one repository is recorded in its result and the run goes on; an invalid
+/// configuration, a missing tool or a failure of discovery stops the run before any repository is processed and is
 /// reported in <see cref="BackupRunResult.CriticalErrors"/>, not thrown.
 /// </remarks>
 public interface IBackupOrchestrator
@@ -14,8 +16,11 @@ public interface IBackupOrchestrator
     /// <summary>
     /// Runs the backup.
     /// </summary>
+    /// <param name="request">The repositories the run covers and the handler of discovery decisions.</param>
     /// <param name="cancellationToken">Cancels the run; the repository being processed is stopped and no further one is started.</param>
-    /// <returns>The results of the repositories and the errors that stopped the run.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
-    Task<BackupRunResult> RunAsync(CancellationToken cancellationToken);
+    /// <returns>The results of the repositories, the changes made by discovery and the errors that stopped the run.</returns>
+    /// <exception cref="OperationCanceledException">
+    /// <paramref name="cancellationToken"/> was cancelled, or the decision handler cancelled.
+    /// </exception>
+    Task<BackupRunResult> RunAsync(BackupRunRequest request, CancellationToken cancellationToken);
 }

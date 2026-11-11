@@ -1,3 +1,5 @@
+using GitHubBackup.Core.Discovery;
+
 namespace GitHubBackup.Core.Runs;
 
 /// <summary>
@@ -11,13 +13,24 @@ public sealed record BackupRunResult(
     IReadOnlyList<BackupItemResult> Items, IReadOnlyList<string> ConfigWarnings, IReadOnlyList<string> CriticalErrors)
 {
     /// <summary>
+    /// Gets what the decisions about the discovered repositories changed, or <see langword="null"/> when discovery was
+    /// skipped or found nothing.
+    /// </summary>
+    public DiscoveryApplyResult? Discovery { get; init; }
+
+    /// <summary>
     /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped,
-    /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>, and
+    /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>,
+    /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, and
     /// <see cref="ExitCode.Success"/> otherwise.
     /// </summary>
+    /// <remarks>
+    /// An unavailable entry that GitHub reports again is not an event: it only returns the run to its normal state.
+    /// </remarks>
     public ExitCode ExitCode =>
         CriticalErrors.Count > 0 ? ExitCode.Critical
         : Items.Any(item => item.Status == BackupItemStatus.Failed) ? ExitCode.RepositoriesFailed
+        : HasDiscoveryEvents(Discovery) ? ExitCode.DiscoveryEvents
         : ExitCode.Success;
 
     /// <summary>
@@ -35,4 +48,17 @@ public sealed record BackupRunResult(
     /// <param name="status">The status to count.</param>
     /// <returns>The number of items with that status.</returns>
     public int Count(BackupItemStatus status) => Items.Count(item => item.Status == status);
+
+    /// <summary>
+    /// Returns whether discovery reported a new, missing or renamed repository.
+    /// </summary>
+    /// <param name="discovery">What the decisions changed, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when there was at least one such repository.</returns>
+    private static bool HasDiscoveryEvents(DiscoveryApplyResult? discovery) =>
+        discovery is not null
+        && (discovery.Added.Count > 0
+            || discovery.Skipped.Count > 0
+            || discovery.Excluded.Count > 0
+            || discovery.MarkedUnavailable.Count > 0
+            || discovery.Renamed.Count > 0);
 }

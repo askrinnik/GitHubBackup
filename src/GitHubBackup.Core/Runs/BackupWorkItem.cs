@@ -31,6 +31,12 @@ public sealed record BackupWorkItem(
     public string WikiFullName => $"{FullName}.wiki";
 
     /// <summary>
+    /// Gets the login of the tracked account that lists the repository, as configured, or <see langword="null"/> for
+    /// a standalone repository.
+    /// </summary>
+    public string? AccountLogin { get; init; }
+
+    /// <summary>
     /// Lists the repositories of <paramref name="config"/>: the repositories of each account in file order, then the
     /// standalone repositories in file order.
     /// </summary>
@@ -58,7 +64,10 @@ public sealed record BackupWorkItem(
                     pathResolver.GetArchiveFolder(config, account, repository),
                     pathResolver.GetCloneFolder(config, login, repository.Name),
                     repository.Status == RepositoryStatus.Active,
-                    pathResolver.GetWikiCloneFolder(config, login, repository.Name)));
+                    pathResolver.GetWikiCloneFolder(config, login, repository.Name))
+                {
+                    AccountLogin = login,
+                });
             }
         }
 

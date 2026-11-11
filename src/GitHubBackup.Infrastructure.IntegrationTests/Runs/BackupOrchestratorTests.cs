@@ -6,6 +6,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -29,8 +30,8 @@ using NSubstitute;
 namespace GitHubBackup.Infrastructure.IntegrationTests.Runs;
 
 /// <summary>
-/// Tests <see cref="BackupOrchestrator"/> with the real git client, 7-Zip archiver and JSON stores against local bare
-/// repositories.
+/// Tests <see cref="BackupOrchestrator"/> with the real git client, 7-Zip archiver, JSON stores and discovery services
+/// against local bare repositories and a <see cref="FakeGitHubApi"/>.
 /// </summary>
 public sealed class BackupOrchestratorTests : IDisposable
 {
@@ -42,6 +43,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private readonly Dictionary<string, string> _remoteUrls = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _wikiUrls = new(StringComparer.Ordinal);
     private readonly HashSet<string> _wikiEnabled = new(StringComparer.Ordinal);
+    private readonly FakeGitHubApi _gitHubApi = new();
     private readonly string _archiveRoot;
     private readonly string _sourcesRoot;
     private readonly JsonBackupConfigStore _configStore;
@@ -203,6 +205,62 @@ public sealed class BackupOrchestratorTests : IDisposable
         state.Wiki.Archives.ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task RunAsync_NewAccountRepository_IsAddedToConfigAndBackedUp()
+    {
+        await AddRemoteAsync("fresh");
+        _gitHubApi.AddAccount(_owner, GitHubAccountType.User);
+        _gitHubApi.AddRepository(7, _owner, "fresh", hasWiki: false);
+        await _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Accounts = [new() { Url = $"https://github.com/{_owner}" }],
+            },
+            CancellationToken);
+
+        var first = await RunAsync();
+        var second = await RunAsync();
+
+        first.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/fresh", BackupItemStatus.Archived)]);
+        first.Discovery.ShouldNotBeNull().Added.ShouldBe(["owner/fresh"]);
+        first.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        second.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/fresh", BackupItemStatus.UpToDate)]);
+        second.Discovery.ShouldBeNull();
+        second.ExitCode.ShouldBe(ExitCode.Success);
+
+        var saved = await _configStore.LoadAsync(CancellationToken);
+        var entry = saved.Config.Accounts.ShouldHaveSingleItem().Repositories.ShouldHaveSingleItem();
+        (entry.Name, entry.Id, entry.Status).ShouldBe(("fresh", 7L, RepositoryStatus.Active));
+        Directory.GetFiles(Path.Combine(_archiveRoot, _owner, "fresh"), "*.zip").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task RunAsync_NewRepositoryWithInvalidName_IsIgnoredAndRunContinues()
+    {
+        await AddRemoteAsync("fresh");
+        _gitHubApi.AddAccount(_owner, GitHubAccountType.User);
+        _gitHubApi.AddRepository(7, _owner, "fresh", hasWiki: false);
+        _gitHubApi.AddRepository(8, _owner, "con", hasWiki: false);
+        await _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Accounts = [new() { Url = $"https://github.com/{_owner}" }],
+            },
+            CancellationToken);
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/fresh", BackupItemStatus.Archived)]);
+        result.Discovery.ShouldNotBeNull().Added.ShouldBe(["owner/fresh"]);
+        var saved = await _configStore.LoadAsync(CancellationToken);
+        saved.Config.Accounts.ShouldHaveSingleItem().Repositories.ShouldHaveSingleItem().Name.ShouldBe("fresh");
+        Directory.GetFiles(Path.Combine(_archiveRoot, _owner, "fresh"), "*.zip").ShouldHaveSingleItem();
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
@@ -243,25 +301,34 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     /// <summary>
-    /// Writes <c>backup-config.json</c> with one standalone repository of <see cref="_owner"/> per name, ids from 1.
+    /// Writes <c>backup-config.json</c> with one standalone repository of <see cref="_owner"/> per name, ids from 1,
+    /// and registers each repository with the fake API so discovery finds it under its configured name.
     /// </summary>
     /// <param name="names">The repository names.</param>
     /// <returns>A task that completes when the file is written.</returns>
-    private Task SaveConfigAsync(params string[] names) => _configStore.SaveAsync(
-        new BackupConfig
+    private Task SaveConfigAsync(params string[] names)
+    {
+        for (var index = 0; index < names.Length; index++)
         {
-            BackupRoot = _archiveRoot,
-            SourcesRoot = _sourcesRoot,
-            Repositories =
-            [
-                .. names.Select((name, index) => new RepositoryConfig
-                {
-                    Url = $"https://github.com/{_owner}/{name}",
-                    Id = index + 1,
-                }),
-            ],
-        },
-        CancellationToken);
+            _gitHubApi.AddRepository(index + 1, _owner, names[index], _wikiEnabled.Contains(names[index]));
+        }
+
+        return _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Repositories =
+                [
+                    .. names.Select((name, index) => new RepositoryConfig
+                    {
+                        Url = $"https://github.com/{_owner}/{name}",
+                        Id = index + 1,
+                    }),
+                ],
+            },
+            CancellationToken);
+    }
 
     /// <summary>
     /// Runs the orchestrator over the real services, then moves the clock a minute on so the next run names its
@@ -284,27 +351,28 @@ public sealed class BackupOrchestratorTests : IDisposable
         remoteUrlProvider.GetRepositoryUrl(_owner, Arg.Any<string>()).Returns(call => _remoteUrls[call.ArgAt<string>(1)]);
         remoteUrlProvider.GetWikiUrl(_owner, Arg.Any<string>()).Returns(call =>
             _wikiUrls.GetValueOrDefault(call.ArgAt<string>(1)) ?? MissingRemoteUrl(call.ArgAt<string>(1) + ".wiki"));
-        var gitHubApi = Substitute.For<IGitHubApi>();
-        gitHubApi.GetRepositoryAsync(_owner, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
-            new GitHubRepository(
-                1,
-                _owner,
-                call.ArgAt<string>(1),
-                IsPrivate: false,
-                IsFork: false,
-                IsArchived: false,
-                HasWiki: _wikiEnabled.Contains(call.ArgAt<string>(1)),
-                "main",
-                $"https://github.com/{_owner}/{call.ArgAt<string>(1)}"));
+        var pathResolver = new RepositoryPathResolver(Path.Combine(_sandbox.RootPath, BackupConfig.DefaultSourcesFolderName));
+        var exclusionMatcher = new ExclusionMatcher();
+        var discoveryService = new RepositoryDiscoveryService(
+            _gitHubApi, exclusionMatcher, NullLogger<RepositoryDiscoveryService>.Instance);
+        var decisionApplier = new DiscoveryDecisionApplier(
+            _configStore,
+            pathResolver,
+            remoteUrlProvider,
+            new CloneRelocator(_fileSystem, gitClient, NullLogger<CloneRelocator>.Instance),
+            _fileSystem,
+            NullLogger<DiscoveryDecisionApplier>.Instance);
 
         var orchestrator = new BackupOrchestrator(
             _configStore,
             toolLocator,
             tokenProvider,
-            new RepositoryPathResolver(Path.Combine(_sandbox.RootPath, BackupConfig.DefaultSourcesFolderName)),
-            new ExclusionMatcher(),
+            pathResolver,
+            exclusionMatcher,
+            discoveryService,
+            decisionApplier,
             remoteUrlProvider,
-            gitHubApi,
+            _gitHubApi,
             new ChangeDetector(gitClient, _fileSystem, NullLogger<ChangeDetector>.Instance),
             new ArchiveNameBuilder(_timeProvider, backupOptions),
             new SevenZipArchiver(runner, _fileSystem, backupOptions, NullLogger<SevenZipArchiver>.Instance),
@@ -313,7 +381,8 @@ public sealed class BackupOrchestratorTests : IDisposable
             _timeProvider,
             NullLogger<BackupOrchestrator>.Instance);
 
-        var result = await orchestrator.RunAsync(CancellationToken);
+        var result = await orchestrator.RunAsync(
+            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()), CancellationToken);
         _timeProvider.Advance(TimeSpan.FromMinutes(1));
         return result;
     }

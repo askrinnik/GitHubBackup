@@ -39,8 +39,14 @@ public sealed class BackupWorkItemTests
 
         items.ShouldBe(
         [
-            new("octocat", "b-repo", 2, "dev", @"C:\backup\octocat\b-repo", @"D:\clones\octocat\b-repo", true, @"D:\clones\octocat\b-repo.wiki"),
-            new("octocat", "a-repo", 1, null, @"C:\backup\octocat\a-repo", @"D:\clones\octocat\a-repo", false, @"D:\clones\octocat\a-repo.wiki"),
+            new("octocat", "b-repo", 2, "dev", @"C:\backup\octocat\b-repo", @"D:\clones\octocat\b-repo", true, @"D:\clones\octocat\b-repo.wiki")
+            {
+                AccountLogin = "octocat",
+            },
+            new("octocat", "a-repo", 1, null, @"C:\backup\octocat\a-repo", @"D:\clones\octocat\a-repo", false, @"D:\clones\octocat\a-repo.wiki")
+            {
+                AccountLogin = "octocat",
+            },
             new("someone", "tool", 3, null, @"E:\archives\tool", @"D:\clones\someone\tool", true, @"D:\clones\someone\tool.wiki"),
         ]);
         items[2].FullName.ShouldBe("someone/tool");
