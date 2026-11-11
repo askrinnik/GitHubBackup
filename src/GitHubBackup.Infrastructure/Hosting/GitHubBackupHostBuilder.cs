@@ -157,7 +157,7 @@ public static class GitHubBackupHostBuilder
     /// </remarks>
     /// <param name="argument">One command-line argument.</param>
     /// <returns><see langword="true"/> when the argument sets a configuration key.</returns>
-    private static bool IsConfigurationArgument(string argument)
+    public static bool IsConfigurationArgument(string argument)
     {
         if (!argument.StartsWith("--", StringComparison.Ordinal))
         {

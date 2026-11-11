@@ -10,6 +10,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
+using Spectre.Console.Testing;
 
 namespace GitHubBackup.Cli.Tests;
 
@@ -35,6 +36,7 @@ public sealed class CliApplicationTests : IDisposable
     internal const string Token = "ghp_TestTokenValue0123456789abcdefABCDEF";
 
     private readonly StringWriter _standardError = new();
+    private readonly TestConsole _output = TestCliConsole.CreateOutput();
     private readonly TemporaryContentRoot _contentRoot = new();
 
     [Fact]
@@ -43,6 +45,65 @@ public sealed class CliApplicationTests : IDisposable
         var exitCode = await RunAsync(ValidAppSettings);
 
         exitCode.ShouldBe(ExitCode.Success);
+        _standardError.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupWithoutBackupConfig_ReturnsCriticalWithErrorAndLogPath()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "backup");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var lines = ErrorLines();
+        lines.Length.ShouldBe(2);
+        lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
+        lines[0].ShouldContain("backup-config.json");
+        lines[1].ShouldStartWith(BackupSummaryRenderer.LogPrefix + Path.Combine(LogsPath, LogFiles.FileNamePrefix));
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupWithTokenKey_AcceptsKeyAndNeverWritesToken()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "backup", $"--GitHub:Token={Token}");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _standardError.ToString().ShouldNotContain(CliApplication.CommandLineErrorPrefix);
+        _standardError.ToString().ShouldNotContain(Token);
+        _output.Output.ShouldNotContain(Token);
+    }
+
+    [Theory]
+    [InlineData("Unrecognized option '--bogus'.", "backup", "--bogus")]
+    [InlineData("Unrecognized option '--bogus'.", "--bogus=value")]
+    [InlineData("Unrecognized command or argument 'bakup'.", "bakup")]
+    [InlineData("Unrecognized option '--GitHub:Token'.", "backup", "--GitHub:Token")]
+    public async Task RunAsync_UnknownArgument_ReturnsCriticalWithCommandLineError(string error, params string[] args)
+    {
+        var exitCode = await RunAsync(ValidAppSettings, args);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + error]);
+    }
+
+    [Fact]
+    public async Task RunAsync_LongUnknownArgument_NeverWritesIt()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "backup", Token);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var line = ErrorLines().ShouldHaveSingleItem();
+        line.ShouldStartWith(CliApplication.CommandLineErrorPrefix);
+        line.ShouldNotContain(Token);
+    }
+
+    [Fact]
+    public async Task RunAsync_HelpOption_WritesCommandsAndReturnsSuccess()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "--help");
+
+        exitCode.ShouldBe(ExitCode.Success);
+        _output.Output.ShouldContain("backup");
+        _output.Output.ShouldContain("--config");
         _standardError.ToString().ShouldBeEmpty();
     }
 
@@ -198,7 +259,7 @@ public sealed class CliApplicationTests : IDisposable
     [Fact]
     public void BuildHost_CommandLineArgument_OverridesAppSettings()
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, "--Backup:ShortHashLength=20"));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, "--Backup:ShortHashLength=20"), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(20);
     }
@@ -207,7 +268,7 @@ public sealed class CliApplicationTests : IDisposable
     public void BuildHost_CommandOptions_AreNotReadAsConfiguration()
     {
         using var host = CliApplication.BuildHost(
-            CreateSettings(_contentRoot.FolderPath, ValidAppSettings, "--account", "octocat", "--silent", "--Backup:ShortHashLength=12"));
+            CreateSettings(_contentRoot.FolderPath, ValidAppSettings, "--account", "octocat", "--silent", "--Backup:ShortHashLength=12"), TestCliConsole.Create());
 
         var configuration = host.Services.GetRequiredService<IConfiguration>();
         configuration["account"].ShouldBeNull();
@@ -218,7 +279,7 @@ public sealed class CliApplicationTests : IDisposable
     [Fact]
     public void BuildHost_RelativePaths_ResolveAgainstContentRoot()
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath
             .ShouldBe(Path.Combine(_contentRoot.FolderPath, "backup-config.json"));
@@ -231,7 +292,7 @@ public sealed class CliApplicationTests : IDisposable
     [InlineData(@"--config=D:\configs\mine.json")]
     public void BuildHost_ConfigOption_OverridesConfigPath(params string[] args)
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\configs\mine.json");
     }
@@ -241,7 +302,7 @@ public sealed class CliApplicationTests : IDisposable
     [InlineData(@"--config=configs\mine.json")]
     public void BuildHost_RelativeConfigOption_ResolvesAgainstCurrentDirectory(params string[] args)
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath
             .ShouldBe(Path.Combine(Environment.CurrentDirectory, "configs", "mine.json"));
@@ -252,7 +313,7 @@ public sealed class CliApplicationTests : IDisposable
     [InlineData("--config", @"D:\mine.json", @"--Backup:ConfigPath=D:\other.json")]
     public void BuildHost_ConfigOptionAndConfigPathKey_ConfigOptionWins(params string[] args)
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\mine.json");
     }
@@ -283,17 +344,18 @@ public sealed class CliApplicationTests : IDisposable
     [Fact]
     public void BuildHost_ProductionEnvironment_UsesSettingsEnvironment()
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings));
+        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings), TestCliConsole.Create());
 
         host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName.ShouldBe(Environments.Production);
     }
 
     /// <summary>
-    /// Disposes the error writer and deletes the content root.
+    /// Disposes the outputs and deletes the content root.
     /// </summary>
     public void Dispose()
     {
         _standardError.Dispose();
+        _output.Dispose();
         _contentRoot.Dispose();
     }
 
@@ -361,7 +423,7 @@ public sealed class CliApplicationTests : IDisposable
     /// <param name="args">The command-line arguments.</param>
     /// <returns>The exit code.</returns>
     private Task<ExitCode> RunAsync(InMemoryFileProvider fileProvider, params string[] args) =>
-        new CliApplication(_standardError).RunAsync(
+        new CliApplication(new CliConsole(_output, _standardError)).RunAsync(
             CreateSettings(_contentRoot.FolderPath, fileProvider, args),
             TestContext.Current.CancellationToken);
 

@@ -5,4 +5,8 @@
     <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
+  </ItemGroup>
+
 </Project>

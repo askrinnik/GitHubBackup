@@ -2,6 +2,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -19,8 +20,9 @@ public static class CoreServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the core services, including the <see cref="IRunContext"/> of the host, the
-        /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/> and <see cref="TimeProvider.System"/>
-        /// as the <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
+        /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/>,
+        /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IBackupOrchestrator"/> and
+        /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
         /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
@@ -35,6 +37,8 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton(TimeProvider.System);
             services.TryAddSingleton<IChangeDetector, ChangeDetector>();
             services.TryAddSingleton<IArchiveNameBuilder, ArchiveNameBuilder>();
+            services.TryAddSingleton<IRemoteUrlProvider, GitHubRemoteUrlProvider>();
+            services.TryAddSingleton<IBackupOrchestrator, BackupOrchestrator>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());
             services.AddOptions<BackupOptions>().ValidateOnStart();
