@@ -1,8 +1,15 @@
+using System.IO.Abstractions;
+using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using NSubstitute;
 
 namespace GitHubBackup.Core.Tests;
 
@@ -50,6 +57,19 @@ public sealed class CoreServiceCollectionExtensionsTests
         using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
 
         provider.GetRequiredService<IBackupConfigValidator>().ShouldBeOfType<BackupConfigValidator>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_ChangeDetector_IsResolved()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton<ILogger<ChangeDetector>>(NullLogger<ChangeDetector>.Instance)
+            .AddSingleton(Substitute.For<IGitClient>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        provider.GetRequiredService<IChangeDetector>().ShouldBeOfType<ChangeDetector>();
     }
 
     [Fact]
