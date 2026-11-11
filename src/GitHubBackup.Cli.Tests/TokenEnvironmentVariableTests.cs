@@ -53,7 +53,8 @@ public sealed class TokenEnvironmentVariableTests : IDisposable
     private async Task<GitHubToken> GetTokenAsync()
     {
         using var host = CliApplication.BuildHost(
-            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings));
+            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings),
+            TestCliConsole.Create());
         return await host.Services.GetRequiredService<ITokenProvider>().GetTokenAsync(TestContext.Current.CancellationToken);
     }
 }

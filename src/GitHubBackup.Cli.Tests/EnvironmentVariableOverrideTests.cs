@@ -53,7 +53,7 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
         Environment.SetEnvironmentVariable(PrefixedVariable, "41");
         using var standardError = new StringWriter();
 
-        var exitCode = await new CliApplication(standardError).RunAsync(
+        var exitCode = await new CliApplication(TestCliConsole.Create(standardError)).RunAsync(
             CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings),
             TestContext.Current.CancellationToken);
 
@@ -79,7 +79,8 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
     private int ShortHashLength(params string[] args)
     {
         using var host = CliApplication.BuildHost(
-            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings, args));
+            CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings, args),
+            TestCliConsole.Create());
         return host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength;
     }
 }

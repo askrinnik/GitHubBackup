@@ -126,7 +126,7 @@ public sealed class UserSecretsSourceTests : IDisposable
         var baseSettings = CliApplicationTests.CreateSettings(
             _contentRoot.FolderPath, CliApplicationTests.ValidAppSettings, args);
         var settings = baseSettings with { EnvironmentName = environmentName };
-        using var host = CliApplication.BuildHost(settings);
+        using var host = CliApplication.BuildHost(settings, TestCliConsole.Create());
         return host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength;
     }
 }

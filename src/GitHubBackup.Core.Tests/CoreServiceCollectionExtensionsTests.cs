@@ -1,11 +1,15 @@
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Archiving;
+using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
+using GitHubBackup.Core.State;
+using GitHubBackup.Core.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -79,6 +83,33 @@ public sealed class CoreServiceCollectionExtensionsTests
         using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
 
         provider.GetRequiredService<IArchiveNameBuilder>().ShouldBeOfType<ArchiveNameBuilder>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_RemoteUrlProvider_IsGitHub()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<IRemoteUrlProvider>().ShouldBeOfType<GitHubRemoteUrlProvider>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_BackupOrchestrator_IsResolved()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(typeof(ILogger<>), typeof(NullLogger<>))
+            .AddSingleton(Substitute.For<IGitClient>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddSingleton(Substitute.For<IBackupConfigStore>())
+            .AddSingleton(Substitute.For<IToolLocator>())
+            .AddSingleton(Substitute.For<ITokenProvider>())
+            .AddSingleton(Substitute.For<IRepositoryPathResolver>())
+            .AddSingleton(Substitute.For<IArchiver>())
+            .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
+
+        provider.GetRequiredService<IBackupOrchestrator>().ShouldBeOfType<BackupOrchestrator>();
     }
 
     [Fact]
