@@ -82,11 +82,14 @@ public static class GitHubUrl
 
     /// <summary>
     /// Returns whether <paramref name="name"/> is a GitHub repository name: 1 to 100 letters, digits, <c>.</c>,
-    /// <c>_</c> and <c>-</c>, not ending with <c>.</c>, without a <c>.git</c> suffix and not a Windows device name.
+    /// <c>_</c> and <c>-</c>, not ending with <c>.</c>, without a <c>.git</c> or <c>.wiki</c> suffix and not a
+    /// Windows device name.
     /// </summary>
     /// <remarks>
     /// The name becomes a folder name, so the rule also keeps it from escaping its parent folder (<c>..</c>), from
     /// being silently shortened by Windows (a trailing dot) and from naming a device (<c>NUL</c>, <c>con.txt</c>).
+    /// The wiki clone of <c>x</c> lives in the folder <c>x.wiki</c> next to the clone of <c>x</c>, and its archive is
+    /// named <c>&lt;owner&gt;_x.wiki_…</c>, so a repository named <c>x.wiki</c> would share that folder.
     /// </remarks>
     /// <param name="name">The name to check.</param>
     /// <returns><see langword="true"/> when the name is valid.</returns>
@@ -95,6 +98,7 @@ public static class GitHubUrl
         && name.Length <= _maxRepositoryNameLength
         && !name.EndsWith('.')
         && !name.EndsWith(".git", StringComparison.OrdinalIgnoreCase)
+        && !name.EndsWith(".wiki", StringComparison.OrdinalIgnoreCase)
         && name.All(character => char.IsAsciiLetterOrDigit(character) || character is '.' or '_' or '-')
         && !IsWindowsDeviceName(name);
 

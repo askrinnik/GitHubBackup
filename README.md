@@ -54,7 +54,19 @@ src/    решение GitHubBackup.slnx: проекты и парные тес�
 
 Тесты работают на Microsoft.Testing.Platform (xUnit v3). Решение и проект передаются через `--solution` и `--project`, а не позиционным аргументом.
 
-Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=UI"` или `--filter-trait "Category=UI"`. Если в проекте все тесты отфильтрованы, платформа возвращает код 8 (ни один тест не запущен), поэтому в CI он игнорируется: `--ignore-exit-code 8`.
+Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
+
+UI-тесты (`GitHubBackup.App.UITests`) управляют запущенным WPF-приложением, поэтому обычный прогон решения их пропускает. Чтобы их запустить, передайте свойство `RunUITests` и в сборку, и в тесты:
+
+```bash
+dotnet build src/GitHubBackup.slnx -p:RunUITests=true
+```
+
+```bash
+dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --filter-trait "Category=UI" --ignore-exit-code 8
+```
+
+Код 8 означает, что в проекте не запущен ни один тест. При фильтре `--filter-trait` так завершаются все проекты, кроме выбранного, поэтому здесь код 8 игнорируется. В обычном прогоне и в CI он не игнорируется: проект, в котором не запустился ни один тест, роняет прогон.
 
 ### Консольное приложение
 

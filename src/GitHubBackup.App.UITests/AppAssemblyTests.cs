@@ -16,7 +16,7 @@ public sealed class AppAssemblyTests
     }
 
     [Fact]
-    public void TestAssembly_HasUiCategoryTrait_SoMainCiWorkflowSkipsIt()
+    public void TestAssembly_HasUiCategoryTrait_SoUiWorkflowSelectsIt()
     {
         var trait = typeof(AppAssemblyTests).Assembly
             .GetCustomAttributes<TraitAttribute>()

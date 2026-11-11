@@ -138,6 +138,25 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_DiscoveryDecisionApplier_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(typeof(ILogger<>), typeof(NullLogger<>))
+            .AddSingleton(Substitute.For<IGitClient>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddSingleton(Substitute.For<IBackupConfigStore>())
+            .AddSingleton(Substitute.For<IRepositoryPathResolver>())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var applier = provider.GetRequiredService<IDiscoveryDecisionApplier>();
+
+        applier.ShouldBeOfType<DiscoveryDecisionApplier>();
+        provider.GetRequiredService<IDiscoveryDecisionApplier>().ShouldBeSameAs(applier);
+        provider.GetRequiredService<ICloneRelocator>().ShouldBeOfType<CloneRelocator>();
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_TimeProvider_IsSystemClock()
     {
         using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();

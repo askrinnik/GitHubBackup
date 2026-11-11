@@ -97,4 +97,19 @@ public interface IGitClient
     /// <exception cref="ProcessStartException">git cannot be started or the clone folder does not exist.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<string?> GetDefaultBranchAsync(GitRepositoryRequest request, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Points <c>origin</c> of an existing clone at <paramref name="remoteUrl"/>, without the network.
+    /// </summary>
+    /// <param name="request">The git executable and the existing clone folder; the branch and the token are ignored.</param>
+    /// <param name="remoteUrl">The new URL of the repository on the server, without credentials.</param>
+    /// <param name="cancellationToken">Cancels the command and kills the running git process.</param>
+    /// <returns>A task that completes when the clone's configuration is changed.</returns>
+    /// <exception cref="ArgumentException">
+    /// The clone path is not fully qualified, or <paramref name="remoteUrl"/> is empty or starts with <c>-</c>.
+    /// </exception>
+    /// <exception cref="GitCommandException">The git command exits with a non-zero code.</exception>
+    /// <exception cref="ProcessStartException">git cannot be started or the clone folder does not exist.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    Task SetRemoteUrlAsync(GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken);
 }

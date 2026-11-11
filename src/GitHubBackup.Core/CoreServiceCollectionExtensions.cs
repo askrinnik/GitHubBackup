@@ -22,7 +22,8 @@ public static class CoreServiceCollectionExtensions
         /// <summary>
         /// Adds the core services, including the <see cref="IRunContext"/> of the host, the
         /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/>,
-        /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="IBackupOrchestrator"/> and
+        /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="ICloneRelocator"/>, the
+        /// <see cref="IDiscoveryDecisionApplier"/>, the <see cref="IBackupOrchestrator"/> and
         /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
         /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
@@ -41,6 +42,8 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton<IRemoteUrlProvider, GitHubRemoteUrlProvider>();
             services.TryAddSingleton<IExclusionMatcher, ExclusionMatcher>();
             services.TryAddSingleton<IRepositoryDiscoveryService, RepositoryDiscoveryService>();
+            services.TryAddSingleton<ICloneRelocator, CloneRelocator>();
+            services.TryAddSingleton<IDiscoveryDecisionApplier, DiscoveryDecisionApplier>();
             services.TryAddSingleton<IBackupOrchestrator, BackupOrchestrator>();
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());

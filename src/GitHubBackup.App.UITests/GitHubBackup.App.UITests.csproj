@@ -1,5 +1,14 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    The suite drives the running WPF app, so a plain solution test run skips it and a project that runs zero tests can
+    fail CI. Build with -p:RunUITests=true to include it, as ui-smoke-tests.yml does.
+  -->
+  <PropertyGroup Condition="'$(RunUITests)' != 'true'">
+    <IsTestProject>false</IsTestProject>
+    <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.App\GitHubBackup.App.csproj" />
   </ItemGroup>
