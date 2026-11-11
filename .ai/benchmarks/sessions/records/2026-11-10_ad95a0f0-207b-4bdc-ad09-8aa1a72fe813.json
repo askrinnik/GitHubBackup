@@ -1,6 +1,6 @@
 {
-  "schema": 1,
-  "profiler": "profile-session/7",
+  "schema": 2,
+  "profiler": "profile-session/8",
   "session": "ad95a0f0-207b-4bdc-ad09-8aa1a72fe813",
   "workItem": "46",
   "lane": "Feature",
@@ -42,6 +42,40 @@
     "main": 991614,
     "subagents": 109586
   },
+  "costUsd": {
+    "total": 3.2673,
+    "main": 3.2564,
+    "subagents": 0.011
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite5m": 0.125,
+        "cacheWrite1h": 0.2,
+        "cacheRead": 0.01,
+        "longPrompt": {
+          "above": 100000,
+          "input": 0.5,
+          "output": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1,
+          "cacheRead": 0.05
+        }
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
   "cacheReadShare": 59.3,
   "unitsPerCall": {
     "first40": 18131,
@@ -70,47 +104,56 @@
     {
       "activity": "bash (other)",
       "calls": 12,
-      "cost": 180476
+      "cost": 180476,
+      "costUsd": 0.4686
     },
     {
       "activity": "ship",
       "calls": 5,
-      "cost": 171587
+      "cost": 171587,
+      "costUsd": 0.8775
     },
     {
       "activity": "explore (read/search)",
       "calls": 11,
-      "cost": 147244
+      "cost": 147244,
+      "costUsd": 0.4229
     },
     {
       "activity": "reply (no tools)",
       "calls": 9,
-      "cost": 146121
+      "cost": 146121,
+      "costUsd": 0.3895
     },
     {
       "activity": "other tool",
       "calls": 7,
-      "cost": 114366
+      "cost": 114366,
+      "costUsd": 0.3184
     },
     {
       "activity": "implement",
       "calls": 5,
-      "cost": 103549
+      "cost": 103549,
+      "costUsd": 0.3073
     },
     {
       "activity": "plan",
       "calls": 3,
-      "cost": 59266
+      "cost": 59266,
+      "costUsd": 0.1778
     },
     {
       "activity": "skill load",
       "calls": 2,
-      "cost": 53185
+      "cost": 53185,
+      "costUsd": 0.2541
     },
     {
       "activity": "build/test",
       "calls": 1,
-      "cost": 15820
+      "cost": 15820,
+      "costUsd": 0.0403
     }
   ],
   "subagentsByType": [
@@ -119,14 +162,16 @@
       "model": "claude-haiku-5-5",
       "agents": 1,
       "calls": 8,
-      "cost": 56027
+      "cost": 56027,
+      "costUsd": 0.0056
     },
     {
       "type": "build-runner",
       "model": "claude-haiku-5-5",
       "agents": 1,
       "calls": 9,
-      "cost": 53560
+      "cost": 53560,
+      "costUsd": 0.0054
     }
   ],
   "topCarriers": [

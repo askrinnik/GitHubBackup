@@ -150,6 +150,6 @@ public sealed class ValidateCommandHandlerTests : IDisposable
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(_contentRoot);
         var options = Options.Create(new BackupOptions { ConfigPath = @"C:\app\backup-config.json" });
-        return new(new(_output, _error), _configStore, _pathResolver, _toolLocator, _tokenProvider, options, environment, _timeProvider);
+        return new(new(_output, _error, IsInputRedirected: false), _configStore, _pathResolver, _toolLocator, _tokenProvider, options, environment, _timeProvider);
     }
 }

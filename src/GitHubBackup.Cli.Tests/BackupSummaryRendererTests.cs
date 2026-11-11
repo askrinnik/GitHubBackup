@@ -122,5 +122,5 @@ public sealed class BackupSummaryRendererTests : IDisposable
     /// <param name="result">The result of the run.</param>
     /// <returns>A task that completes when the summary is written.</returns>
     private Task Render(BackupRunResult result) =>
-        new BackupSummaryRenderer(new CliConsole(_output, _error)).RenderAsync(result, _logPath);
+        new BackupSummaryRenderer(new CliConsole(_output, _error, IsInputRedirected: false)).RenderAsync(result, _logPath);
 }
