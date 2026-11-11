@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.IO.Compression;
 using GitHubBackup.Core;
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
@@ -8,6 +9,7 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.BackupConfiguration;
@@ -16,6 +18,7 @@ using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.State;
+using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -37,6 +40,8 @@ public sealed class BackupOrchestratorTests : IDisposable
     private readonly FileSystem _fileSystem = new();
     private readonly FakeTimeProvider _timeProvider = new(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
     private readonly Dictionary<string, string> _remoteUrls = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _wikiUrls = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _wikiEnabled = new(StringComparer.Ordinal);
     private readonly string _archiveRoot;
     private readonly string _sourcesRoot;
     private readonly JsonBackupConfigStore _configStore;
@@ -94,7 +99,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     [Fact]
     public async Task RunAsync_OneRemoteMissing_ReportsFailedAndArchivesOther()
     {
-        _remoteUrls["missing"] = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
+        _remoteUrls["missing"] = MissingRemoteUrl("missing");
         await AddRemoteAsync("present");
         await SaveConfigAsync("missing", "present");
 
@@ -128,10 +133,102 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.GetFileSystemEntries(temporaryFolder).ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task RunAsync_WikiChangesAlone_ArchivesOnlyWiki()
+    {
+        await AddRemoteAsync("repo");
+        var wiki = await AddWikiAsync("repo");
+        await SaveConfigAsync("repo");
+
+        var first = await RunAsync();
+        await wiki.CommitAsync("Home.md", "# Home", "Edit wiki", CancellationToken);
+        var second = await RunAsync();
+
+        first.Items.Select(item => (item.Repository, item.Status, item.Target)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository),
+            ("owner/repo.wiki", BackupItemStatus.Archived, BackupTarget.Wiki),
+        ]);
+        second.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.UpToDate),
+            ("owner/repo.wiki", BackupItemStatus.Archived),
+        ]);
+        second.ExitCode.ShouldBe(ExitCode.Success);
+
+        var archiveFolder = Path.Combine(_archiveRoot, _owner, "repo");
+        var state = await _stateStore.LoadAsync(archiveFolder, 1, "owner/repo", CancellationToken);
+        state.Repository.Archives.Select(archive => archive.File).ShouldBe([first.Items[0].ArchiveFileName!]);
+        state.Wiki.Archives.Select(archive => archive.File).ShouldBe(
+            [first.Items[1].ArchiveFileName!, second.Items[1].ArchiveFileName!]);
+        var wikiArchive = second.Items[1].ArchiveFileName.ShouldNotBeNull();
+        wikiArchive.ShouldStartWith("owner_repo.wiki_");
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "repo.wiki", ".git")).ShouldBeTrue();
+        using var zip = ZipFile.OpenRead(Path.Combine(archiveFolder, wikiArchive));
+        zip.Entries.Select(entry => entry.FullName.Split('/', '\\')[0]).Distinct().ShouldBe(["repo.wiki"]);
+        zip.Entries.ShouldContain(entry => entry.FullName.Replace('\\', '/') == "repo.wiki/Home.md");
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiMissing_DoesNotFail()
+    {
+        await AddRemoteAsync("repo");
+        _wikiEnabled.Add("repo");
+        await SaveConfigAsync("repo");
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "repo.wiki")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiDeletedAfterArchive_SkipsAndKeepsCloneAndArchive()
+    {
+        await AddRemoteAsync("repo");
+        var wiki = await AddWikiAsync("repo");
+        await SaveConfigAsync("repo");
+        var first = await RunAsync();
+        TemporaryFolder.Delete(wiki.BarePath);
+
+        var second = await RunAsync();
+
+        second.Items.ShouldHaveSingleItem().Repository.ShouldBe("owner/repo");
+        second.ExitCode.ShouldBe(ExitCode.Success);
+        var archiveFolder = Path.Combine(_archiveRoot, _owner, "repo");
+        File.Exists(Path.Combine(archiveFolder, first.Items[1].ArchiveFileName!)).ShouldBeTrue();
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "repo.wiki", ".git")).ShouldBeTrue();
+        var state = await _stateStore.LoadAsync(archiveFolder, 1, "owner/repo", CancellationToken);
+        state.Wiki.Archives.ShouldHaveSingleItem();
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
     public void Dispose() => _sandbox.Dispose();
+
+    /// <summary>
+    /// Returns a <c>file://</c> URL inside the sandbox where no repository exists.
+    /// </summary>
+    /// <param name="name">The name of the missing repository.</param>
+    /// <returns>The URL.</returns>
+    private string MissingRemoteUrl(string name) =>
+        new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing", name + ".git")).AbsoluteUri;
+
+    /// <summary>
+    /// Creates a local bare repository with one commit as the wiki of the repository <paramref name="name"/> and
+    /// enables its wiki feature.
+    /// </summary>
+    /// <param name="name">The repository name.</param>
+    /// <returns>The remote of the wiki.</returns>
+    private async Task<LocalGitRemote> AddWikiAsync(string name)
+    {
+        var remote = await _sandbox.CreateRemoteAsync(name + ".wiki", CancellationToken);
+        _wikiUrls[name] = remote.Url;
+        _wikiEnabled.Add(name);
+        return remote;
+    }
 
     /// <summary>
     /// Creates a local bare repository with one commit and routes the repository <paramref name="name"/> to it.
@@ -185,6 +282,20 @@ public sealed class BackupOrchestratorTests : IDisposable
         tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(GitHubToken.Anonymous);
         var remoteUrlProvider = Substitute.For<IRemoteUrlProvider>();
         remoteUrlProvider.GetRepositoryUrl(_owner, Arg.Any<string>()).Returns(call => _remoteUrls[call.ArgAt<string>(1)]);
+        remoteUrlProvider.GetWikiUrl(_owner, Arg.Any<string>()).Returns(call =>
+            _wikiUrls.GetValueOrDefault(call.ArgAt<string>(1)) ?? MissingRemoteUrl(call.ArgAt<string>(1) + ".wiki"));
+        var gitHubApi = Substitute.For<IGitHubApi>();
+        gitHubApi.GetRepositoryAsync(_owner, Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            new GitHubRepository(
+                1,
+                _owner,
+                call.ArgAt<string>(1),
+                IsPrivate: false,
+                IsFork: false,
+                IsArchived: false,
+                HasWiki: _wikiEnabled.Contains(call.ArgAt<string>(1)),
+                "main",
+                $"https://github.com/{_owner}/{call.ArgAt<string>(1)}"));
 
         var orchestrator = new BackupOrchestrator(
             _configStore,
@@ -193,6 +304,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             new RepositoryPathResolver(Path.Combine(_sandbox.RootPath, BackupConfig.DefaultSourcesFolderName)),
             new ExclusionMatcher(),
             remoteUrlProvider,
+            gitHubApi,
             new ChangeDetector(gitClient, _fileSystem, NullLogger<ChangeDetector>.Instance),
             new ArchiveNameBuilder(_timeProvider, backupOptions),
             new SevenZipArchiver(runner, _fileSystem, backupOptions, NullLogger<SevenZipArchiver>.Instance),

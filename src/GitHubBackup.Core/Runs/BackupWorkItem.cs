@@ -13,18 +13,29 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="ArchiveFolder">The absolute archive folder.</param>
 /// <param name="CloneFolder">The absolute clone folder.</param>
 /// <param name="IsActive">Whether the repository is <see cref="RepositoryStatus.Active"/>.</param>
+/// <param name="WikiCloneFolder">The absolute clone folder of the repository's wiki.</param>
 public sealed record BackupWorkItem(
-    string Owner, string Name, long Id, string? Branch, string ArchiveFolder, string CloneFolder, bool IsActive)
+    string Owner,
+    string Name,
+    long Id,
+    string? Branch,
+    string ArchiveFolder,
+    string CloneFolder,
+    bool IsActive,
+    string WikiCloneFolder)
 {
     /// <summary>Gets the repository as <c>owner/name</c>.</summary>
     public string FullName => $"{Owner}/{Name}";
+
+    /// <summary>Gets the wiki of the repository as <c>owner/name.wiki</c>.</summary>
+    public string WikiFullName => $"{FullName}.wiki";
 
     /// <summary>
     /// Lists the repositories of <paramref name="config"/>: the repositories of each account in file order, then the
     /// standalone repositories in file order.
     /// </summary>
     /// <param name="config">A configuration that has passed <see cref="IBackupConfigValidator"/>.</param>
-    /// <param name="pathResolver">Resolves the archive and clone folders.</param>
+    /// <param name="pathResolver">Resolves the archive, clone and wiki clone folders.</param>
     /// <returns>One item per repository, unavailable ones included.</returns>
     /// <exception cref="ArgumentException">A URL, a name or a folder in <paramref name="config"/> is not valid.</exception>
     public static IReadOnlyList<BackupWorkItem> CreateAll(BackupConfig config, IRepositoryPathResolver pathResolver)
@@ -46,7 +57,8 @@ public sealed record BackupWorkItem(
                     repository.Branch,
                     pathResolver.GetArchiveFolder(config, account, repository),
                     pathResolver.GetCloneFolder(config, login, repository.Name),
-                    repository.Status == RepositoryStatus.Active));
+                    repository.Status == RepositoryStatus.Active,
+                    pathResolver.GetWikiCloneFolder(config, login, repository.Name)));
             }
         }
 
@@ -65,7 +77,8 @@ public sealed record BackupWorkItem(
                 repository.Branch,
                 pathResolver.GetArchiveFolder(config, repository),
                 pathResolver.GetCloneFolder(config, owner, name),
-                repository.Status == RepositoryStatus.Active));
+                repository.Status == RepositoryStatus.Active,
+                pathResolver.GetWikiCloneFolder(config, owner, name)));
         }
 
         return items;

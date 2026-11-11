@@ -57,15 +57,16 @@ public sealed class GitClientCloneTests : GitClientTestBase
     }
 
     [Fact]
-    public async Task CloneAsync_RemoteMissing_ThrowsGitCommandException()
+    public async Task CloneAsync_RemoteMissing_ThrowsGitRepositoryNotFoundException()
     {
         var url = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
 
-        var exception = await Should.ThrowAsync<GitCommandException>(
+        var exception = await Should.ThrowAsync<GitRepositoryNotFoundException>(
             () => CreateClient().CloneAsync(Request(), url, CancellationToken));
 
         exception.Command.ShouldStartWith("git clone");
         exception.ExitCode.ShouldNotBe(0);
+        Directory.Exists(_clonePath).ShouldBeFalse();
     }
 
     [Theory]

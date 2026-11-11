@@ -570,6 +570,40 @@ public sealed class GitClientTests
         _requests.Count.ShouldBe(1);
     }
 
+    [Theory]
+    [InlineData(Operation.Clone, "remote: Repository not found.")]
+    [InlineData(Operation.Update, "remote: Repository not found.")]
+    [InlineData(Operation.RemoteRefs, "fatal: 'C:/remotes/repo.wiki.git' does not appear to be a git repository")]
+    [InlineData(Operation.DefaultBranch, "fatal: 'C:/remotes/repo.wiki.git' does not appear to be a git repository")]
+    public async Task Operation_RepositoryMissingOnServer_ThrowsRepositoryNotFoundWithMaskedMessage(
+        Operation operation, string marker)
+    {
+        _respond = _ => Result(128, marker, $"fatal: could not read from remote with {_token}");
+
+        var exception = await Should.ThrowAsync<GitRepositoryNotFoundException>(() => RunAsync(operation, Request(_token)));
+
+        exception.ExitCode.ShouldBe(128);
+        exception.Message.ShouldContain(marker);
+        exception.Message.ShouldContain(_clonePath);
+        exception.Message.ShouldNotContain(_token);
+    }
+
+    [Theory]
+    [InlineData(128, "fatal: Authentication failed")]
+    [InlineData(128, "fatal: repository not found")]
+    [InlineData(1, "remote: Repository not found.")]
+    [InlineData(128, "fatal: 'origin' does not appear to be a git repository")]
+    public async Task GetRemoteRefsAsync_OtherFailure_ThrowsGitCommandException(int exitCode, string error)
+    {
+        _respond = _ => Result(exitCode, error);
+
+        var exception = await Should.ThrowAsync<GitCommandException>(
+            () => CreateClient().GetRemoteRefsAsync(Request(), TestContext.Current.CancellationToken));
+
+        exception.ShouldNotBeOfType<GitRepositoryNotFoundException>();
+        exception.ExitCode.ShouldBe(exitCode);
+    }
+
     [Fact]
     public async Task UpdateAsync_StepCancelled_PropagatesCancellationAndStops()
     {

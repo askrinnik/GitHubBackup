@@ -29,6 +29,18 @@ internal sealed class GitClient(
     /// <summary>The text logged as the branch when the request leaves the choice to the server.</summary>
     private const string _defaultBranchLabel = "(server default)";
 
+    /// <summary>The exit code git uses for a fatal error.</summary>
+    private const int _fatalExitCode = 128;
+
+    /// <summary>The sentence GitHub sends when the remote URL has no repository.</summary>
+    private const string _serverNotFoundMarker = "Repository not found.";
+
+    /// <summary>The text git writes when a local or <c>file://</c> remote is not a repository.</summary>
+    private const string _localNotFoundMarker = "does not appear to be a git repository";
+
+    /// <summary>The text git writes when the clone has no remote named <c>origin</c>.</summary>
+    private const string _missingOriginMarker = "'origin' " + _localNotFoundMarker;
+
     /// <summary>The arguments that list the remote-tracking branches of <c>origin</c> and the tags of the clone.</summary>
     private static readonly string[] _localRefsArguments =
         ["for-each-ref", "--format=%(objectname)%09%(refname)", "refs/remotes/origin", "refs/tags"];
@@ -375,6 +387,7 @@ internal sealed class GitClient(
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
     /// <returns>The lines the command wrote to standard output.</returns>
+    /// <exception cref="GitRepositoryNotFoundException">The command fails because the remote URL has no repository.</exception>
     /// <exception cref="GitCommandException">The command exits with a non-zero code.</exception>
     private async Task<IReadOnlyList<string>> RunGitAsync(
         GitRepositoryRequest request,
@@ -402,9 +415,31 @@ internal sealed class GitClient(
         var error = secretMasker.Mask(string.Join(
             Environment.NewLine,
             result.StandardError.Where(line => line.Length > 0).TakeLast(_quotedErrorLines)));
-        throw new GitCommandException(
-            $"'{command}' failed for '{request.ClonePath}' with exit code {result.ExitCode}: {error}",
-            command,
-            result.ExitCode);
+        var message = $"'{command}' failed for '{request.ClonePath}' with exit code {result.ExitCode}: {error}";
+        if (IsRepositoryNotFound(result.ExitCode, result.StandardError))
+        {
+            throw new GitRepositoryNotFoundException(message, command, result.ExitCode);
+        }
+
+        throw new GitCommandException(message, command, result.ExitCode);
     }
+
+    /// <summary>
+    /// Decides whether a failed git command reports that the remote URL has no repository.
+    /// </summary>
+    /// <remarks>
+    /// git reports every fatal error with the same exit code, so standard error tells this case apart. GitHub answers
+    /// a missing repository with a fixed, untranslated sentence; git itself reports a missing local or <c>file://</c>
+    /// remote with the other marker. git writes that marker also when a damaged clone has lost its <c>origin</c>
+    /// remote; that is a fault of the clone, not a missing repository, so it stays a plain failure.
+    /// </remarks>
+    /// <param name="exitCode">The exit code of the command.</param>
+    /// <param name="standardError">The lines the command wrote to standard error.</param>
+    /// <returns><see langword="true"/> when the command failed because the repository does not exist.</returns>
+    private static bool IsRepositoryNotFound(int exitCode, IReadOnlyList<string> standardError) =>
+        exitCode == _fatalExitCode
+        && standardError.Any(line =>
+            line.Contains(_serverNotFoundMarker, StringComparison.Ordinal)
+            || (line.Contains(_localNotFoundMarker, StringComparison.Ordinal)
+                && !line.Contains(_missingOriginMarker, StringComparison.Ordinal)));
 }

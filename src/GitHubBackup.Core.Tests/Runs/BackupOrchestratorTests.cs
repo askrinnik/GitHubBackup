@@ -28,6 +28,9 @@ public sealed class BackupOrchestratorTests
     private const string _sevenZipPath = @"C:\7z\7z.exe";
     private const string _headCommit = "0123456789abcdef0123456789abcdef01234567";
     private const string _archiveFile = "owner_repo_20261111-120000_0123456789.zip";
+    private const string _wikiArchiveFile = "owner_repo.wiki_20261111-120000_0123456789.zip";
+    private const string _repositoryUrl = "https://github.com/owner/repo.git";
+    private const string _wikiUrl = "https://github.com/owner/repo.wiki.git";
 
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
@@ -35,6 +38,7 @@ public sealed class BackupOrchestratorTests
     private readonly IBackupConfigStore _configStore = Substitute.For<IBackupConfigStore>();
     private readonly IToolLocator _toolLocator = Substitute.For<IToolLocator>();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
+    private readonly IGitHubApi _gitHubApi = Substitute.For<IGitHubApi>();
     private readonly IChangeDetector _detector = Substitute.For<IChangeDetector>();
     private readonly IArchiveNameBuilder _nameBuilder = Substitute.For<IArchiveNameBuilder>();
     private readonly IArchiver _archiver = Substitute.For<IArchiver>();
@@ -45,8 +49,8 @@ public sealed class BackupOrchestratorTests
     private readonly BackupConfig _config = new() { BackupRoot = @"C:\backup", SourcesRoot = _sourcesRoot };
 
     /// <summary>
-    /// Sets up a valid configuration with one standalone repository, the tools, a token, an empty state and an
-    /// archiver that succeeds.
+    /// Sets up a valid configuration with one standalone repository whose wiki feature is disabled, the tools, a token,
+    /// an empty state and an archiver that succeeds.
     /// </summary>
     public BackupOrchestratorTests()
     {
@@ -59,8 +63,12 @@ public sealed class BackupOrchestratorTests
             .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
         _nameBuilder.Build(Arg.Any<string>(), Arg.Any<string>(), BackupTarget.Repository, Arg.Any<string>())
             .Returns(new ArchiveName(_archiveFile, _createdAt));
+        _nameBuilder.Build(Arg.Any<string>(), Arg.Any<string>(), BackupTarget.Wiki, Arg.Any<string>())
+            .Returns(new ArchiveName(_wikiArchiveFile, _createdAt));
+        SetupWiki(hasWiki: false);
         _archiver.CreateAsync(Arg.Any<ArchiveRequest>(), Arg.Any<CancellationToken>())
-            .Returns(call => new ArchiveResult(Path.Combine(call.Arg<ArchiveRequest>().DestinationFolder, _archiveFile), 1234));
+            .Returns(call => new ArchiveResult(
+                Path.Combine(call.Arg<ArchiveRequest>().DestinationFolder, call.Arg<ArchiveRequest>().FileName), 1234));
         SetupDetection(ChangeDecision.ArchiveNeeded);
     }
 
@@ -419,6 +427,207 @@ public sealed class BackupOrchestratorTests
         result.CriticalErrors.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task RunAsync_WikiEnabledAndChanged_ArchivesWikiSeparately()
+    {
+        SetupWiki(hasWiki: true);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBe(
+        [
+            new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null),
+            new("owner/repo.wiki", BackupItemStatus.Archived, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
+            {
+                Target = BackupTarget.Wiki,
+            },
+        ]);
+        await _detector.Received(1).DetectAsync(
+            new ChangeDetectionRequest
+            {
+                Git = new() { GitPath = _gitPath, ClonePath = @"C:\sources\owner\repo.wiki", Branch = null, Token = "secret-token" },
+                RemoteUrl = _wikiUrl,
+                ArchiveFolder = @"C:\backup\owner\repo",
+                LastArchive = null,
+            },
+            CancellationToken);
+        _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Wiki, _headCommit);
+        await _archiver.Received(1).CreateAsync(
+            new ArchiveRequest
+            {
+                SevenZipPath = _sevenZipPath,
+                SourceFolder = @"C:\sources\owner\repo.wiki",
+                TemporaryFolder = _temporaryFolder,
+                DestinationFolder = @"C:\backup\owner\repo",
+                FileName = _wikiArchiveFile,
+            },
+            CancellationToken);
+        await _stateStore.Received(1).AppendAsync(
+            @"C:\backup\owner\repo",
+            1,
+            "owner/repo",
+            BackupTarget.Wiki,
+            new ArchiveRecord(_wikiArchiveFile, _createdAt, "main", _headCommit, 1234, _refs),
+            CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiDisabled_ProcessesRepositoryOnly()
+    {
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Repository.ShouldBe("owner/repo");
+        await _gitHubApi.Received(1).GetRepositoryAsync("owner", "repo", CancellationToken);
+        await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
+        await _detector.DidNotReceive().DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _wikiUrl), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiNotFound_SkipsWithoutResultAndLogs()
+    {
+        SetupWiki(hasWiki: true);
+        _detector.DetectAsync(WikiRequest(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitRepositoryNotFoundException("'git ls-remote' failed: Repository not found.", "git ls-remote", 128));
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)]);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Information && entry.Message.Contains("no wiki git repository"));
+        _logger.Entries.ShouldNotContain(entry => entry.Level == LogLevel.Error);
+        await _stateStore.DidNotReceive().AppendAsync(
+            Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), BackupTarget.Wiki, Arg.Any<ArchiveRecord>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiFails_ReportsWikiFailedAndKeepsRepositoryArchived()
+    {
+        SetupWiki(hasWiki: true);
+        _detector.DetectAsync(WikiRequest(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitCommandException("'git fetch' failed with exit code 128: timeout", "git fetch", 128));
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status, item.Target, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository, null),
+            ("owner/repo.wiki", BackupItemStatus.Failed, BackupTarget.Wiki, "'git fetch' failed with exit code 128: timeout"),
+        ]);
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFails_StillProcessesWiki()
+    {
+        SetupWiki(hasWiki: true);
+        _detector.DetectAsync(Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _repositoryUrl), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("git exited with code 128."));
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status, item.ArchiveFileName)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Failed, null),
+            ("owner/repo.wiki", BackupItemStatus.Archived, _wikiArchiveFile),
+        ]);
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiUpToDate_UsesWikiLastArchive()
+    {
+        SetupWiki(hasWiki: true);
+        var repositoryArchive = new ArchiveRecord("repo.zip", _createdAt, "main", _headCommit, 1, _refs);
+        var wikiArchive = new ArchiveRecord("wiki.zip", _createdAt, "master", _headCommit, 1, _refs);
+        _stateStore.LoadAsync(@"C:\backup\owner\repo", 1, "owner/repo", Arg.Any<CancellationToken>())
+            .Returns(BackupState.CreateEmpty(1, "owner/repo")
+                .WithArchive(BackupTarget.Repository, repositoryArchive, "owner/repo")
+                .WithArchive(BackupTarget.Wiki, wikiArchive, "owner/repo"));
+        SetupDetection(ChangeDecision.UpToDate);
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.UpToDate),
+            ("owner/repo.wiki", BackupItemStatus.UpToDate),
+        ]);
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _wikiUrl && request.LastArchive == wikiArchive),
+            CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_RepositoryUnavailableOrExcluded_DoesNotQueryWiki(bool unavailable)
+    {
+        SetupWiki(hasWiki: true);
+        if (unavailable)
+        {
+            _config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        }
+        else
+        {
+            _config.Exclude.Add("owner/repo");
+        }
+
+        var result = await RunAsync();
+
+        result.Items.ShouldNotContain(item => item.Target == BackupTarget.Wiki);
+        await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiLookupFails_ReportsWikiFailed()
+    {
+        _gitHubApi.GetRepositoryAsync("owner", "repo", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitHubApiException("The GitHub API answered 502.", "repos/owner/repo", 502));
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status, item.Target, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository, null),
+            ("owner/repo.wiki", BackupItemStatus.Failed, BackupTarget.Wiki, "The GitHub API answered 502."),
+        ]);
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Error && entry.Message.Contains("wiki is enabled"));
+        await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryNotFoundForRepository_ReportsFailed()
+    {
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitRepositoryNotFoundException("'git clone' failed: Repository not found.", "git clone", 128));
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldBe("'git clone' failed: Repository not found.");
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledDuringWiki_Throws()
+    {
+        SetupWiki(hasWiki: true);
+        AddRepository("other");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        _detector.DetectAsync(WikiRequest(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+        });
+
+        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(cancellation.Token));
+
+        await _gitHubApi.DidNotReceive().GetRepositoryAsync("owner", "other", Arg.Any<CancellationToken>());
+    }
+
     /// <summary>
     /// Creates a detection result for the branch <c>main</c> with <see cref="_refs"/>.
     /// </summary>
@@ -443,6 +652,30 @@ public sealed class BackupOrchestratorTests
         });
 
     /// <summary>
+    /// Makes the GitHub API report for every repository whether its wiki feature is enabled.
+    /// </summary>
+    /// <param name="hasWiki">Whether the wiki feature is enabled.</param>
+    private void SetupWiki(bool hasWiki) =>
+        _gitHubApi.GetRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            new GitHubRepository(
+                1,
+                call.ArgAt<string>(0),
+                call.ArgAt<string>(1),
+                IsPrivate: false,
+                IsFork: false,
+                IsArchived: false,
+                hasWiki,
+                "main",
+                $"https://github.com/{call.ArgAt<string>(0)}/{call.ArgAt<string>(1)}"));
+
+    /// <summary>
+    /// Matches the detection request of the wiki of <c>owner/repo</c>.
+    /// </summary>
+    /// <returns>The argument matcher.</returns>
+    private static ChangeDetectionRequest WikiRequest() =>
+        Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _wikiUrl);
+
+    /// <summary>
     /// Adds a standalone repository of <c>owner</c> after the existing ones.
     /// </summary>
     /// <param name="name">The repository name.</param>
@@ -460,6 +693,7 @@ public sealed class BackupOrchestratorTests
         new RepositoryPathResolver(@"C:\app\sources"),
         new ExclusionMatcher(),
         new GitHubRemoteUrlProvider(),
+        _gitHubApi,
         _detector,
         _nameBuilder,
         _archiver,
