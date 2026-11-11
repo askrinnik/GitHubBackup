@@ -2,8 +2,8 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.GitHub;
-using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -20,13 +20,15 @@ public sealed class OctokitGitHubApiTests : IDisposable
 {
     private const string _token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
     private const long _resetEpochSeconds = 1_893_456_000;
+    private const int _rateLimitEventId = 1;
+    private const int _currentUserRepositoriesSkippedEventId = 2;
 
     private static readonly DateTimeOffset _now = new(2026, 11, 11, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset _resetAt = DateTimeOffset.FromUnixTimeSeconds(_resetEpochSeconds);
 
     private readonly WireMockServer _server = WireMockServer.Start();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
-    private readonly RecordingLogger<OctokitGitHubApi> _logger = new();
+    private readonly FakeLogger<OctokitGitHubApi> _logger = new();
     private readonly FakeTimeProvider _timeProvider = new(_now);
     private readonly List<OctokitGitHubApi> _apis = [];
 
@@ -151,7 +153,9 @@ public sealed class OctokitGitHubApiTests : IDisposable
 
         repositories.ShouldBeEmpty();
         _server.LogEntries.ShouldBeEmpty();
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Debug);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_currentUserRepositoriesSkippedEventId);
+        record.Level.ShouldBe(LogLevel.Debug);
     }
 
     [Theory]
@@ -323,9 +327,11 @@ public sealed class OctokitGitHubApiTests : IDisposable
 
         await CreateApi().GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
 
-        var entry = _logger.Entries.ShouldHaveSingleItem();
-        entry.Level.ShouldBe(LogLevel.Information);
-        entry.Message.ShouldStartWith("GitHub API rate limit: 4999/5000 remaining, resets at ");
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_rateLimitEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Remaining").ShouldBe("4999");
+        record.GetStructuredStateValue("Limit").ShouldBe("5000");
     }
 
     [Fact]
@@ -339,7 +345,9 @@ public sealed class OctokitGitHubApiTests : IDisposable
         headers.Keys.ShouldContain("Authorization", StringComparer.OrdinalIgnoreCase);
         headers.First(header => header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
             .Value.ToString().ShouldEndWith(_token);
-        _logger.Entries.ShouldAllBe(entry => !entry.Message.Contains(_token));
+        _logger.Collector.GetSnapshot().ShouldAllBe(record =>
+            !record.Message.Contains(_token)
+            && (record.StructuredState == null || record.StructuredState.All(pair => pair.Value == null || !pair.Value.Contains(_token))));
     }
 
     [Fact]

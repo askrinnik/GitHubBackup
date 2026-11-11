@@ -8,9 +8,9 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
-using GitHubBackup.Core.Tests.Logging;
 using GitHubBackup.Core.Tools;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
@@ -33,6 +33,17 @@ public sealed class BackupOrchestratorTests
     private const string _repositoryUrl = "https://github.com/owner/repo.git";
     private const string _wikiUrl = "https://github.com/owner/repo.wiki.git";
 
+    private const int _runStoppedEventId = 1;
+    private const int _temporaryEntryDeletedEventId = 2;
+    private const int _temporaryEntryNotDeletedEventId = 3;
+    private const int _repositoryWarningEventId = 7;
+    private const int _repositoryFailedEventId = 8;
+    private const int _temporaryFolderIsLinkEventId = 10;
+    private const int _repositoryExcludedEventId = 11;
+    private const int _wikiNotFoundEventId = 13;
+    private const int _wikiLookupFailedEventId = 14;
+    private const int _discoverySkippedEventId = 15;
+
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
 
@@ -49,7 +60,7 @@ public sealed class BackupOrchestratorTests
     private readonly IBackupStateStore _stateStore = Substitute.For<IBackupStateStore>();
     private readonly MockFileSystem _fileSystem = new();
     private readonly FakeTimeProvider _timeProvider = new(_createdAt);
-    private readonly RecordingLogger<BackupOrchestrator> _logger = new();
+    private readonly FakeLogger<BackupOrchestrator> _logger = new();
     private readonly BackupConfig _config = new() { BackupRoot = @"C:\backup", SourcesRoot = _sourcesRoot };
 
     /// <summary>
@@ -168,7 +179,9 @@ public sealed class BackupOrchestratorTests
         item.ArchiveFileName.ShouldBe(archive);
         item.Message.ShouldBe("The branch 'feature' does not exist on the server; the default branch 'main' is used.");
         result.ExitCode.ShouldBe(ExitCode.Success);
-        _logger.Entries.ShouldContain((LogLevel.Warning, item.Message!));
+        var record = SingleRecord(_repositoryWarningEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Warning").ShouldBe(item.Message);
     }
 
     [Fact]
@@ -186,7 +199,9 @@ public sealed class BackupOrchestratorTests
             ("owner/other", BackupItemStatus.Archived, null),
         ]);
         result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Error);
+        var record = SingleRecord(_repositoryFailedEventId);
+        record.Level.ShouldBe(LogLevel.Error);
+        record.Exception.ShouldNotBeNull().Message.ShouldBe("git exited with code 128.");
     }
 
     [Fact]
@@ -272,7 +287,9 @@ public sealed class BackupOrchestratorTests
         result.ExitCode.ShouldBe(ExitCode.Critical);
         _fileSystem.File.Exists(Path.Combine(_temporaryFolder, "left.zip")).ShouldBeTrue();
         await _toolLocator.DidNotReceiveWithAnyArgs().LocateAsync(CancellationToken);
-        _logger.Entries.Count(entry => entry.Level == LogLevel.Error).ShouldBe(2);
+        var records = Records(_runStoppedEventId);
+        records.ShouldAllBe(record => record.Level == LogLevel.Error);
+        records.Select(record => record.GetStructuredStateValue("Error")).ShouldBe(["backupRoot must be set.", "Second error."]);
     }
 
     [Fact]
@@ -334,7 +351,7 @@ public sealed class BackupOrchestratorTests
         await RunAsync();
 
         entriesAtDetection.ShouldNotBeNull().ShouldBeEmpty();
-        _logger.Entries.Count(entry => entry.Message.Contains("Deleted the leftover temporary archive")).ShouldBe(2);
+        Records(_temporaryEntryDeletedEventId).Count.ShouldBe(2);
     }
 
     [Fact]
@@ -356,7 +373,9 @@ public sealed class BackupOrchestratorTests
 
         result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
         _fileSystem.File.Exists(locked).ShouldBeTrue();
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains(locked));
+        var record = SingleRecord(_temporaryEntryNotDeletedEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Path").ShouldBe(locked);
     }
 
     [Fact]
@@ -370,7 +389,9 @@ public sealed class BackupOrchestratorTests
 
         result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
         _fileSystem.File.Exists(leftover).ShouldBeTrue();
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("is a link"));
+        var record = SingleRecord(_temporaryFolderIsLinkEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Path").ShouldBe(_temporaryFolder);
     }
 
     [Fact]
@@ -397,11 +418,11 @@ public sealed class BackupOrchestratorTests
 
         result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/repo", BackupItemStatus.Archived)]);
         result.ExitCode.ShouldBe(ExitCode.Success);
-        _logger.Entries.ShouldContain(entry =>
-            entry.Level == LogLevel.Warning
-            && entry.Message.Contains("owner/other-archive")
-            && entry.Message.Contains("owner/*-archive")
-            && entry.Message.Contains("Global"));
+        var record = SingleRecord(_repositoryExcludedEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Repository").ShouldBe("owner/other-archive");
+        record.GetStructuredStateValue("Mask").ShouldBe("owner/*-archive");
+        record.GetStructuredStateValue("Scope").ShouldBe(nameof(ExclusionScope.Global));
         await _detector.ReceivedWithAnyArgs(1).DetectAsync(default!, CancellationToken);
     }
 
@@ -418,8 +439,11 @@ public sealed class BackupOrchestratorTests
         var result = await RunAsync();
 
         result.Items.Select(item => item.Repository).ShouldBe(["octocat/open", "owner/repo"]);
-        _logger.Entries.ShouldContain(entry =>
-            entry.Level == LogLevel.Warning && entry.Message.Contains("octocat/secret") && entry.Message.Contains("Account"));
+        var record = SingleRecord(_repositoryExcludedEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Repository").ShouldBe("octocat/secret");
+        record.GetStructuredStateValue("Mask").ShouldBe("sec*");
+        record.GetStructuredStateValue("Scope").ShouldBe(nameof(ExclusionScope.Account));
     }
 
     [Fact]
@@ -500,8 +524,8 @@ public sealed class BackupOrchestratorTests
 
         result.Items.ShouldBe([new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)]);
         result.ExitCode.ShouldBe(ExitCode.Success);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Information && entry.Message.Contains("no wiki git repository"));
-        _logger.Entries.ShouldNotContain(entry => entry.Level == LogLevel.Error);
+        SingleRecord(_wikiNotFoundEventId).Level.ShouldBe(LogLevel.Information);
+        _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Level == LogLevel.Error);
         await _stateStore.DidNotReceive().AppendAsync(
             Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), BackupTarget.Wiki, Arg.Any<ArchiveRecord>(), Arg.Any<CancellationToken>());
     }
@@ -599,7 +623,7 @@ public sealed class BackupOrchestratorTests
             ("owner/repo.wiki", BackupItemStatus.Failed, BackupTarget.Wiki, "The GitHub API answered 502."),
         ]);
         result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Error && entry.Message.Contains("wiki is enabled"));
+        SingleRecord(_wikiLookupFailedEventId).Level.ShouldBe(LogLevel.Error);
         await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
     }
 
@@ -719,7 +743,7 @@ public sealed class BackupOrchestratorTests
         result.Items.Select(item => item.Repository).ShouldBe(["owner/other"]);
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
         await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
-        _logger.Entries.ShouldContain(entry => entry.Message.Contains("Discovery skipped"));
+        SingleRecord(_discoverySkippedEventId).GetStructuredStateValue("Repository").ShouldBe("OWNER/Other");
     }
 
     [Fact]
@@ -789,7 +813,9 @@ public sealed class BackupOrchestratorTests
         result.ExitCode.ShouldBe(ExitCode.Critical);
         await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
-        _logger.Entries.ShouldContain((LogLevel.Error, $"The backup run stopped: {failure.Message}"));
+        var record = SingleRecord(_runStoppedEventId);
+        record.Level.ShouldBe(LogLevel.Error);
+        record.GetStructuredStateValue("Error").ShouldBe(failure.Message);
     }
 
     [Theory]
@@ -1046,6 +1072,21 @@ public sealed class BackupOrchestratorTests
     /// <returns>The result of the run.</returns>
     private Task<BackupRunResult> RunAsync(BackupRunFilter? filter = null) =>
         CreateOrchestrator().RunAsync(Request(filter), CancellationToken);
+
+    /// <summary>
+    /// Returns the log records with the event id <paramref name="eventId"/>, in the order they were written.
+    /// </summary>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The records.</returns>
+    private List<FakeLogRecord> Records(int eventId) =>
+        [.. _logger.Collector.GetSnapshot().Where(record => record.Id.Id == eventId)];
+
+    /// <summary>
+    /// Returns the only log record with the event id <paramref name="eventId"/> and fails if there is not exactly one.
+    /// </summary>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The record.</returns>
+    private FakeLogRecord SingleRecord(int eventId) => Records(eventId).ShouldHaveSingleItem();
 
     /// <summary>
     /// Makes discovery report <paramref name="result"/>.

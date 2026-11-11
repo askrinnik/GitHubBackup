@@ -2,9 +2,9 @@ using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Configuration;
-using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
 using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -18,9 +18,10 @@ public sealed class ToolLocatorTests
     private const string _gitPath = @"C:\Tools\Git\cmd\git.exe";
     private const string _sevenZipPath = @"D:\Apps\7z\7z.exe";
     private const string _defaultSevenZip = ToolsOptions.DefaultSevenZipPath;
+    private const int _toolFoundEventId = 1;
 
     private readonly MockFileSystem _fileSystem = new();
-    private readonly RecordingLogger<ToolLocator> _logger = new();
+    private readonly FakeLogger<ToolLocator> _logger = new();
     private readonly List<ProcessRequest> _requests = [];
     private readonly ToolsOptions _options = new() { GitPath = _gitPath, SevenZipPath = _sevenZipPath };
     private string? _pathVariable;
@@ -50,11 +51,16 @@ public sealed class ToolLocatorTests
     {
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
 
-        _logger.Entries.ShouldBe(
+        var records = _logger.Collector.GetSnapshot();
+        records.ShouldAllBe(record => record.Id.Id == _toolFoundEventId && record.Level == LogLevel.Information);
+        records.Select(record => (
+            record.GetStructuredStateValue("Tool"),
+            record.GetStructuredStateValue("Version"),
+            record.GetStructuredStateValue("Path"))).ShouldBe(
         [
-            (LogLevel.Information, $"git 2.46.0.windows.1 found at {_gitPath}"),
-            (LogLevel.Information, $"Git LFS 3.5.1 found at {_gitPath}"),
-            (LogLevel.Information, $"7-Zip 24.08 found at {_sevenZipPath}"),
+            ("git", "2.46.0.windows.1", _gitPath),
+            ("Git LFS", "3.5.1", _gitPath),
+            ("7-Zip", "24.08", _sevenZipPath),
         ]);
     }
 

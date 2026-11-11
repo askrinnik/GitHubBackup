@@ -3,6 +3,7 @@ using System.Text;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using static GitHubBackup.Infrastructure.Tests.BackupConfiguration.BackupConfigSamples;
 
 namespace GitHubBackup.Infrastructure.Tests.BackupConfiguration;
@@ -14,6 +15,8 @@ public sealed class JsonBackupConfigStoreTests
 {
     /// <summary>A token value that must never reach an error message.</summary>
     private const string _token = "ghp_TestTokenValue0123456789abcdefABCDEF";
+
+    private const int _validationWarningEventId = 1;
 
     [Fact]
     public async Task LoadAsync_DocumentedSample_ReadsEveryField()
@@ -214,7 +217,7 @@ public sealed class JsonBackupConfigStoreTests
     [Fact]
     public async Task LoadAsync_SourcesRootInsideBackupRoot_ReturnsAndLogsWarning()
     {
-        var logger = new RecordingLogger<JsonBackupConfigStore>();
+        var logger = new FakeLogger<JsonBackupConfigStore>();
         var json = DocumentedSample.Replace(
             "\"sourcesRoot\": null", "\"sourcesRoot\": \"C:\\\\Users\\\\Sanya\\\\OneDrive\\\\GitHubBackups\\\\src\"", StringComparison.Ordinal);
         var fileSystem = CreateFileSystem(json);
@@ -223,7 +226,10 @@ public sealed class JsonBackupConfigStoreTests
 
         var warning = result.Warnings.ShouldHaveSingleItem();
         warning.ShouldContain("is inside backupRoot");
-        logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains(warning));
+        var record = logger.Collector.GetSnapshot().Where(r => r.Id.Id == _validationWarningEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Path").ShouldBe(ConfigPath);
+        record.GetStructuredStateValue("Warning").ShouldBe(warning);
     }
 
     /// <summary>

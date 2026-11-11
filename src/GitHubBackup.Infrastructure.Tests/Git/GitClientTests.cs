@@ -4,8 +4,8 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Git;
-using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 
 namespace GitHubBackup.Infrastructure.Tests.Git;
@@ -24,6 +24,12 @@ public sealed class GitClientTests
     private const string _developCommit = "2222222222222222222222222222222222222222";
     private const string _tagObject = "3333333333333333333333333333333333333333";
 
+    private const int _cloningEventId = 1;
+    private const int _updatingEventId = 2;
+    private const int _branchNotFoundEventId = 3;
+    private const int _emptyRepositoryEventId = 4;
+    private const int _usingDefaultBranchEventId = 5;
+
     private static readonly string[] _fetchArguments = ["fetch", "origin", "--prune", "--prune-tags", "--tags", "--force"];
 
     private static readonly string[] _localRefsArguments =
@@ -35,7 +41,7 @@ public sealed class GitClientTests
 
     private readonly MockFileSystem _fileSystem = new();
     private readonly SecretMasker _masker = new();
-    private readonly RecordingLogger<GitClient> _logger = new();
+    private readonly FakeLogger<GitClient> _logger = new();
     private readonly List<ProcessRequest> _requests = [];
     private Func<ProcessRequest, ProcessResult> _respond;
 
@@ -106,7 +112,12 @@ public sealed class GitClientTests
     {
         await CreateClient().CloneAsync(Request(), _remoteUrl, TestContext.Current.CancellationToken);
 
-        _logger.Entries.ShouldBe([(LogLevel.Information, $"Cloning {_remoteUrl} into {_clonePath}, branch main")]);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_cloningEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Url").ShouldBe(_remoteUrl);
+        record.GetStructuredStateValue("Path").ShouldBe(_clonePath);
+        record.GetStructuredStateValue("Branch").ShouldBe("main");
     }
 
     [Fact]
@@ -116,7 +127,11 @@ public sealed class GitClientTests
 
         _requests.Select(request => request.Arguments).ShouldBe([_fetchArguments, _localRefsArguments, .. _syncSteps]);
         _requests.ShouldAllBe(request => request.WorkingDirectory == _clonePath && request.FileName == _gitPath);
-        _logger.Entries.ShouldBe([(LogLevel.Information, $"Updating {_clonePath}, branch main")]);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_updatingEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_clonePath);
+        record.GetStructuredStateValue("Branch").ShouldBe("main");
     }
 
     [Theory]
@@ -144,8 +159,11 @@ public sealed class GitClientTests
         result.ShouldBe(new("develop", false, DefaultRefs()));
         _requests.Select(request => request.Arguments).Skip(1)
             .ShouldBe([_localRefsArguments, _defaultBranchArguments, .. SyncSteps("develop")]);
-        _logger.Entries.ShouldContain((LogLevel.Information, $"Checking out the default branch develop in {_clonePath}"));
-        _logger.Entries.ShouldNotContain(entry => entry.Level == LogLevel.Warning);
+        var record = SingleRecord(_usingDefaultBranchEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_clonePath);
+        record.GetStructuredStateValue("Branch").ShouldBe("develop");
+        _logger.Collector.GetSnapshot().ShouldNotContain(entry => entry.Level == LogLevel.Warning);
     }
 
     [Theory]
@@ -158,9 +176,11 @@ public sealed class GitClientTests
         result.ShouldBe(new("main", true, DefaultRefs()));
         _requests.Select(request => request.Arguments).Skip(1)
             .ShouldBe([_localRefsArguments, _defaultBranchArguments, .. _syncSteps]);
-        _logger.Entries.ShouldContain((
-            LogLevel.Warning,
-            $"Branch gone does not exist on the server of {_clonePath}; checking out the default branch main"));
+        var record = SingleRecord(_branchNotFoundEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Branch").ShouldBe("gone");
+        record.GetStructuredStateValue("Path").ShouldBe(_clonePath);
+        record.GetStructuredStateValue("DefaultBranch").ShouldBe("main");
     }
 
     [Theory]
@@ -176,8 +196,9 @@ public sealed class GitClientTests
         result.IsEmpty.ShouldBeTrue();
         _requests.Count.ShouldBe(2);
         _requests[1].Arguments.ShouldBe(_localRefsArguments);
-        _logger.Entries.ShouldContain(
-            (LogLevel.Information, $"The repository of {_clonePath} is empty on the server; nothing to check out"));
+        var record = SingleRecord(_emptyRepositoryEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_clonePath);
     }
 
     [Fact]
@@ -810,6 +831,14 @@ public sealed class GitClientTests
     /// </summary>
     /// <returns>The client.</returns>
     private GitClient CreateClient() => new(CreateRunner(), _fileSystem, _masker, _logger);
+
+    /// <summary>
+    /// Returns the only log record with the event id <paramref name="eventId"/> and fails if there is not exactly one.
+    /// </summary>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The record.</returns>
+    private FakeLogRecord SingleRecord(int eventId) =>
+        _logger.Collector.GetSnapshot().Where(record => record.Id.Id == eventId).ShouldHaveSingleItem();
 
     /// <summary>
     /// Creates a process runner that records every request and answers with <see cref="_respond"/>.

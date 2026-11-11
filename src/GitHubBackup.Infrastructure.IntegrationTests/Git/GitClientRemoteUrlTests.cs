@@ -15,7 +15,7 @@ public sealed class GitClientRemoteUrlTests : GitClientTestBase
         await CreateClient().SetRemoteUrlAsync(Request(), renamed.Url, CancellationToken);
 
         (await GitAsync(_clonePath, "remote", "get-url", "origin")).ShouldBe([renamed.Url]);
-        _clientLogger.Entries.ShouldContain(entry => entry.Message.Contains(renamed.Url));
+        Records(_clientLogger, _settingRemoteUrlEventId).ShouldHaveSingleItem().GetStructuredStateValue("Url").ShouldBe(renamed.Url);
     }
 
     [Theory]
@@ -27,7 +27,7 @@ public sealed class GitClientRemoteUrlTests : GitClientTestBase
             () => CreateClient().SetRemoteUrlAsync(Request(), url, CancellationToken));
 
         exception.ParamName.ShouldBe("remoteUrl");
-        _runnerLogger.Entries.ShouldBeEmpty();
+        _runnerLogger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 
     [Fact]

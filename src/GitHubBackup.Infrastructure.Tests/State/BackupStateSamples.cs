@@ -3,7 +3,7 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.State;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.State;
-using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace GitHubBackup.Infrastructure.Tests.State;
 
@@ -93,7 +93,7 @@ internal static class BackupStateSamples
     /// <param name="fileSystem">The mock file system.</param>
     /// <returns>The store.</returns>
     public static JsonBackupStateStore CreateStore(MockFileSystem fileSystem) =>
-        new(fileSystem, new(fileSystem), new RecordingLogger<JsonBackupStateStore>());
+        new(fileSystem, new(fileSystem), new FakeLogger<JsonBackupStateStore>());
 
     /// <summary>
     /// Adds the archive folder, the given archive files and, when given, the state file to

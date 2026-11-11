@@ -3,8 +3,8 @@ using System.Text.Json;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
-using GitHubBackup.Core.Tests.Logging;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -16,12 +16,15 @@ namespace GitHubBackup.Core.Tests.Discovery;
 public sealed class DiscoveryDecisionApplierTests
 {
     private const string _gitPath = @"C:\git\git.exe";
+    private const int _markedUnavailableEventId = 3;
+    private const int _reactivatedEventId = 4;
+    private const int _archiveFolderTargetExistsEventId = 7;
 
     private readonly MockFileSystem _fileSystem = new();
     private readonly IBackupConfigStore _store = Substitute.For<IBackupConfigStore>();
     private readonly ICloneRelocator _relocator = Substitute.For<ICloneRelocator>();
     private readonly IDiscoveryDecisionHandler _handler = Substitute.For<IDiscoveryDecisionHandler>();
-    private readonly RecordingLogger<DiscoveryDecisionApplier> _logger = new();
+    private readonly FakeLogger<DiscoveryDecisionApplier> _logger = new();
     private readonly DiscoveryDecisionApplier _applier;
 
     public DiscoveryDecisionApplierTests() =>
@@ -179,7 +182,9 @@ public sealed class DiscoveryDecisionApplierTests
         _fileSystem.AllFiles.Count().ShouldBe(3);
         await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
         await _store.Received(1).SaveAsync(config, Token);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("octo/app"));
+        var record = SingleRecord(_markedUnavailableEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Repository").ShouldBe("octo/app");
     }
 
     [Fact]
@@ -195,7 +200,9 @@ public sealed class DiscoveryDecisionApplierTests
         config.Repositories[0].Status.ShouldBe(RepositoryStatus.Active);
         result.Reactivated.ShouldBe(["acme/lib"]);
         await _store.Received(1).SaveAsync(config, Token);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Information && entry.Message.Contains("acme/lib"));
+        var record = SingleRecord(_reactivatedEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Repository").ShouldBe("acme/lib");
     }
 
     [Fact]
@@ -282,7 +289,10 @@ public sealed class DiscoveryDecisionApplierTests
         var outcome = result.Renamed.ShouldHaveSingleItem();
         outcome.Requested.ShouldBe(RenameDecision.RenameArchiveFolder);
         outcome.Applied.ShouldBe(RenameDecision.KeepArchiveFolder);
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning);
+        var record = SingleRecord(_archiveFolderTargetExistsEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("OldFolder").ShouldBe(@"C:\backup\octo\app");
+        record.GetStructuredStateValue("NewFolder").ShouldBe(@"C:\backup\octo\app2");
     }
 
     [Fact]
@@ -449,6 +459,14 @@ public sealed class DiscoveryDecisionApplierTests
     /// <returns>The result of the applier.</returns>
     private Task<DiscoveryApplyResult> ApplyAsync(BackupConfig config, DiscoveryResult discovery) =>
         _applier.ApplyAsync(config, discovery, _handler, _gitPath, Token);
+
+    /// <summary>
+    /// Returns the only log record with the event id <paramref name="eventId"/> and fails if there is not exactly one.
+    /// </summary>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The record.</returns>
+    private FakeLogRecord SingleRecord(int eventId) =>
+        _logger.Collector.GetSnapshot().Where(record => record.Id.Id == eventId).ShouldHaveSingleItem();
 
     /// <summary>
     /// Creates a configuration with the tracked account <c>octo</c> and the given repositories of it.

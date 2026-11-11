@@ -1,7 +1,8 @@
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 
 namespace GitHubBackup.Core.Tests.Discovery;
@@ -11,7 +12,10 @@ namespace GitHubBackup.Core.Tests.Discovery;
 /// </summary>
 public sealed class RepositoryDiscoveryServiceTests
 {
+    private const int _invalidNameEventId = 3;
+
     private readonly IGitHubApi _api = Substitute.For<IGitHubApi>();
+    private readonly FakeLogger<RepositoryDiscoveryService> _logger = new();
     private readonly RepositoryDiscoveryService _service;
 
     public RepositoryDiscoveryServiceTests()
@@ -21,7 +25,7 @@ public sealed class RepositoryDiscoveryServiceTests
             _ => throw new GitHubNotFoundException("not found", "repos"));
         _api.GetRepositoryByIdAsync(default, default).ReturnsForAnyArgs<GitHubRepository>(
             _ => throw new GitHubNotFoundException("not found", "repositories"));
-        _service = new(_api, new ExclusionMatcher(), NullLogger<RepositoryDiscoveryService>.Instance);
+        _service = new(_api, new ExclusionMatcher(), _logger);
     }
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -383,6 +387,7 @@ public sealed class RepositoryDiscoveryServiceTests
 
         result.NewInAccounts.ShouldHaveSingleItem().Repository.Id.ShouldBe(2);
         result.NewStandalone.ShouldBeEmpty();
+        ShouldLogInvalidName($"octo/{name}");
     }
 
     [Theory]
@@ -399,6 +404,7 @@ public sealed class RepositoryDiscoveryServiceTests
 
         result.NewStandalone.ShouldHaveSingleItem().Id.ShouldBe(2);
         result.NewInAccounts.ShouldBeEmpty();
+        ShouldLogInvalidName($"{owner}/{name}");
     }
 
     [Theory]
@@ -413,6 +419,7 @@ public sealed class RepositoryDiscoveryServiceTests
 
         result.HasChanges.ShouldBeFalse();
         result.Repositories.ShouldContainKey(1);
+        ShouldLogInvalidName($"octo/{name}");
     }
 
     [Theory]
@@ -426,6 +433,20 @@ public sealed class RepositoryDiscoveryServiceTests
         var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"))), null, Token);
 
         result.HasChanges.ShouldBeFalse();
+        ShouldLogInvalidName($"{owner}/{name}");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ExcludedRepositoryWithInvalidName_LogsNoInvalidNameWarning()
+    {
+        SetAccount("octo", GitHubAccountType.User, Repo(1, "octo", "con"));
+        var config = Config(Account("octo"));
+        config.Exclude.Add("octo/*");
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == _invalidNameEventId);
     }
 
     [Fact]
@@ -566,6 +587,17 @@ public sealed class RepositoryDiscoveryServiceTests
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => _service.DiscoverAsync(Config(Account("octo")), null, cancellation.Token));
+    }
+
+    /// <summary>
+    /// Asserts that discovery logged exactly one invalid-name warning, for <paramref name="repository"/>.
+    /// </summary>
+    /// <param name="repository">The expected <c>owner/name</c>.</param>
+    private void ShouldLogInvalidName(string repository)
+    {
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _invalidNameEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Repository").ShouldBe(repository);
     }
 
     private static GitHubRepository Repo(long id, string owner, string name) =>

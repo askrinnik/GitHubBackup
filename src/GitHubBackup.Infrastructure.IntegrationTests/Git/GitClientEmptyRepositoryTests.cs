@@ -19,7 +19,7 @@ public sealed class GitClientEmptyRepositoryTests : GitClientTestBase
         result.BranchFallback.ShouldBeFalse();
         result.Refs.ShouldBe(RefSnapshot.Empty);
         Directory.Exists(Path.Combine(_clonePath, ".git")).ShouldBeTrue();
-        _clientLogger.Entries.ShouldContain(entry => entry.Message.Contains("is empty on the server"));
+        Records(_clientLogger, _emptyRepositoryEventId).ShouldHaveSingleItem().GetStructuredStateValue("Path").ShouldBe(_clonePath);
         (await CreateClient().GetRemoteRefsAsync(Request(), CancellationToken)).ShouldBe(RefSnapshot.Empty);
         (await CreateClient().GetDefaultBranchAsync(Request(), CancellationToken)).ShouldBeNull();
     }
@@ -34,7 +34,7 @@ public sealed class GitClientEmptyRepositoryTests : GitClientTestBase
 
         result.IsEmpty.ShouldBeTrue();
         result.Refs.ShouldBe(RefSnapshot.Empty);
-        _clientLogger.Entries.Count(entry => entry.Message.Contains("is empty on the server")).ShouldBe(2);
+        Records(_clientLogger, _emptyRepositoryEventId).Count.ShouldBe(2);
     }
 
     [Fact]

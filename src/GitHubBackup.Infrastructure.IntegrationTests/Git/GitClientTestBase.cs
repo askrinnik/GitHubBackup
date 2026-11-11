@@ -2,9 +2,10 @@ using System.IO.Abstractions;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Git;
-using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities.Git;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 
@@ -19,6 +20,26 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 public abstract class GitClientTestBase : IDisposable
 {
     /// <summary>
+    /// The event id of the entry <see cref="ProcessRunner"/> logs with the command line before it starts a process.
+    /// </summary>
+    private protected const int _processStartingEventId = 1;
+
+    /// <summary>
+    /// The event id of the warning <see cref="GitClient"/> logs when it checks out the default branch instead of a
+    /// missing one.
+    /// </summary>
+    private protected const int _branchNotFoundEventId = 3;
+
+    /// <summary>
+    /// The event id of the entry <see cref="GitClient"/> logs for a repository without branches.
+    /// </summary>
+    private protected const int _emptyRepositoryEventId = 4;
+
+    /// <summary>
+    /// The event id of the entry <see cref="GitClient"/> logs before it changes the <c>origin</c> URL.
+    /// </summary>
+    private protected const int _settingRemoteUrlEventId = 6;
+    /// <summary>
     /// The sandbox that owns the temporary folder, the remotes and the isolated git configuration.
     /// </summary>
     private protected readonly LocalGitSandbox _sandbox = new();
@@ -26,12 +47,12 @@ public abstract class GitClientTestBase : IDisposable
     /// <summary>
     /// The logger of the process runner the client starts git through.
     /// </summary>
-    private protected readonly CapturingLogger<ProcessRunner> _runnerLogger = new();
+    private protected readonly FakeLogger<ProcessRunner> _runnerLogger = new();
 
     /// <summary>
     /// The logger of the client under test.
     /// </summary>
-    private protected readonly CapturingLogger<GitClient> _clientLogger = new();
+    private protected readonly FakeLogger<GitClient> _clientLogger = new();
 
     /// <summary>
     /// The clone folder of the test; its parent does not exist until the client creates it.
@@ -123,4 +144,15 @@ public abstract class GitClientTestBase : IDisposable
     /// <returns>The full ref names.</returns>
     private protected Task<IReadOnlyList<string>> RefsAsync(string workingDirectory) =>
         GitAsync(workingDirectory, "for-each-ref", "--format=%(refname)", "refs/remotes", "refs/tags");
+
+    /// <summary>
+    /// Returns the records of <paramref name="logger"/> with the event id <paramref name="eventId"/>, in the order
+    /// they were written.
+    /// </summary>
+    /// <typeparam name="T">The category type of the logger.</typeparam>
+    /// <param name="logger">The logger.</param>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The records.</returns>
+    private protected static List<FakeLogRecord> Records<T>(FakeLogger<T> logger, int eventId) =>
+        [.. logger.Collector.GetSnapshot().Where(record => record.Id.Id == eventId)];
 }

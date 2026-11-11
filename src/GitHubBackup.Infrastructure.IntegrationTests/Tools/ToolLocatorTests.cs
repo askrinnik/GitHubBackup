@@ -2,12 +2,12 @@ using System.IO.Abstractions;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Configuration;
-using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Tools;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Tools;
@@ -17,8 +17,10 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Tools;
 /// </summary>
 public sealed class ToolLocatorTests : IDisposable
 {
+    private const int _toolFoundEventId = 1;
+
     private readonly TemporaryContentRoot _folder = new();
-    private readonly CapturingLogger<ToolLocator> _logger = new();
+    private readonly FakeLogger<ToolLocator> _logger = new();
 
     [Fact]
     public async Task LocateAsync_InstalledTools_ReturnsPathsAndVersions()
@@ -37,9 +39,10 @@ public sealed class ToolLocatorTests : IDisposable
     {
         var tools = await CreateLocator(new()).LocateAsync(TestContext.Current.CancellationToken);
 
-        var found = _logger.Entries.Where(entry => entry.Level == LogLevel.Information && entry.Message.Contains(" found at ")).ToList();
-        found.Select(entry => entry.Properties["Tool"]).ShouldBe(["git", "Git LFS", "7-Zip"]);
-        found.Select(entry => entry.Properties["Version"]).ShouldBe([tools.Git.Version, tools.GitLfsVersion, tools.SevenZip.Version]);
+        var found = _logger.Collector.GetSnapshot().Where(record => record.Id.Id == _toolFoundEventId).ToList();
+        found.ShouldAllBe(record => record.Level == LogLevel.Information);
+        found.Select(record => record.GetStructuredStateValue("Tool")).ShouldBe(["git", "Git LFS", "7-Zip"]);
+        found.Select(record => record.GetStructuredStateValue("Version")).ShouldBe([tools.Git.Version, tools.GitLfsVersion, tools.SevenZip.Version]);
     }
 
     [Fact]

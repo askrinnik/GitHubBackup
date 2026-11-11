@@ -3,7 +3,7 @@
 | Поле | Значение |
 |---|---|
 | Продукт | GitHubBackup |
-| Версия документа | 0.16 (черновик) |
+| Версия документа | 0.17 (черновик) |
 | Дата | 2026-11-11 |
 | Автор | oskrynnik |
 | Статус | На согласовании |
@@ -587,7 +587,7 @@ src\
 | Телеметрия | `OpenTelemetry.Extensions.Hosting`, `OpenTelemetry.Exporter.OpenTelemetryProtocol` |
 | История | `Microsoft.EntityFrameworkCore.Sqlite` |
 | Credential Manager | NuGet-обёртка над `CredRead`/`CredWrite` (конкретный пакет выбирается при реализации) |
-| Тесты | xUnit v3, NSubstitute, Shouldly, WireMock.Net, FlaUI, NetArchTest |
+| Тесты | xUnit v3, NSubstitute, Shouldly, WireMock.Net, FlaUI, NetArchTest, Microsoft.Extensions.Diagnostics.Testing |
 
 ### 8.4. Совместная работа CLI и UI
 
@@ -691,3 +691,4 @@ src\
 | 0.14 | 2026-11-11 | FR-9.10: неверные аргументы командной строки дают код `2` |
 | 0.15 | 2026-11-11 | §7.2: `GitHub:ApiBaseUrl` со схемой `http` допускается только для loopback-адреса; FR-11.5: токен отправляется только на настроенный адрес API, ссылка на следующую страницу вне его — ошибка |
 | 0.16 | 2026-11-11 | Новое FR-2.9: репозиторий с именем, недопустимым как имя папки, не предлагается при обнаружении и не переименовывается, в лог пишется предупреждение; §7.3: проверка имён при загрузке |
+| 0.17 | 2026-11-11 | §8.3: в стек тестов добавлен Microsoft.Extensions.Diagnostics.Testing (FakeLogger) для проверки записей лога |
