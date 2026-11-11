@@ -27,4 +27,21 @@ public sealed class GitHubRemoteUrlProviderTests
 
         exception.ParamName.ShouldBe(parameter);
     }
+
+    [Theory]
+    [InlineData("octocat", "Hello-World", "https://github.com/octocat/Hello-World.wiki.git")]
+    [InlineData("my-org", "repo.name_1", "https://github.com/my-org/repo.name_1.wiki.git")]
+    public void GetWikiUrl_ValidNames_ReturnsHttpsWikiUrl(string owner, string name, string expected) =>
+        _provider.GetWikiUrl(owner, name).ShouldBe(expected);
+
+    [Theory]
+    [InlineData("octo/cat", "repo", "owner")]
+    [InlineData("octocat", "..", "name")]
+    [InlineData("octocat", "repo.git", "name")]
+    public void GetWikiUrl_InvalidName_Throws(string owner, string name, string parameter)
+    {
+        var exception = Should.Throw<ArgumentException>(() => _provider.GetWikiUrl(owner, name));
+
+        exception.ParamName.ShouldBe(parameter);
+    }
 }

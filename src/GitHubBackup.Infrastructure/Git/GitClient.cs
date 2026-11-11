@@ -125,6 +125,37 @@ internal sealed class GitClient(
         return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token, request.ClonePath), cancellationToken);
     }
 
+    /// <inheritdoc />
+    public async Task SetRemoteUrlAsync(GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken)
+    {
+        ValidateClonePath(request);
+        if (string.IsNullOrWhiteSpace(remoteUrl))
+        {
+            throw new ArgumentException($"The remote URL for '{request.ClonePath}' must not be empty.", nameof(remoteUrl));
+        }
+
+        if (remoteUrl.StartsWith('-'))
+        {
+            throw new ArgumentException(
+                $"The remote URL for '{request.ClonePath}' must not start with '-'.", nameof(remoteUrl));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (logger.IsEnabled(LogLevel.Information))
+        {
+            var maskedUrl = secretMasker.Mask(remoteUrl);
+            GitClientLog.SettingRemoteUrl(logger, request.ClonePath, maskedUrl);
+        }
+
+        await RunGitAsync(
+            request,
+            request.ClonePath,
+            CreateEnvironment(token: null, request.ClonePath),
+            ["remote", "set-url", "origin", remoteUrl],
+            cancellationToken);
+    }
+
     /// <summary>
     /// Rejects a clone path that is not fully qualified.
     /// </summary>

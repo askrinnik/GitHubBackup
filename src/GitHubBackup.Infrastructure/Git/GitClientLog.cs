@@ -61,4 +61,13 @@ internal static partial class GitClientLog
         Level = LogLevel.Information,
         Message = "Checking out the default branch {Branch} in {Path}")]
     public static partial void UsingDefaultBranch(ILogger logger, string path, string branch);
+
+    /// <summary>
+    /// Logs that <c>origin</c> of a clone is about to be pointed at another URL.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="path">The clone folder.</param>
+    /// <param name="url">The new remote URL, with secrets masked.</param>
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "Setting the origin of {Path} to {Url}")]
+    public static partial void SettingRemoteUrl(ILogger logger, string path, string url);
 }
