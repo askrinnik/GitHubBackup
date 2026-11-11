@@ -1,0 +1,1 @@
+bench-cs: read src/GitHubBackup.Core/ExitCode.cs with the Read tool, then answer with one word: done.

@@ -1,0 +1,69 @@
+{
+  "run": "2026-11-11-21-15_fixtures-for-code-bench-cs-bench-test-qu",
+  "note": "Fixtures for code: bench-cs, bench-test, quality-service-convention, quality-security",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-11 21:15",
+  "commit": "4f9c203c",
+  "dirty": "yes",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "2fd3f62a-3d4f-49fb-ac93-e711090ec4cd",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "cdbc878f-f276-45f4-b45f-cc3c1d4275c0",
+      "hash": "cdc276b0",
+      "judged": false
+    },
+    {
+      "test": "quality-security",
+      "rep": 1,
+      "session": "2ee3769e-d574-4fe9-aa38-d21d6642122a",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 2,
+      "session": "38b1b002-5a6d-49b8-825f-e41a663b196f",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 3,
+      "session": "e494762e-12e4-465f-87cb-94ac5feb90a9",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 1,
+      "session": "648627f2-feb7-491f-8b5f-2be10e2b2124",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 2,
+      "session": "ab415348-e074-4b12-9058-869f78965e0a",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 3,
+      "session": "b2721a2f-1001-4673-8822-17b235e11978",
+      "hash": "4adcb057",
+      "judged": true
+    }
+  ]
+}

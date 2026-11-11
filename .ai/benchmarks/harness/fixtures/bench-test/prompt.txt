@@ -1,0 +1,1 @@
+bench-test: read src/GitHubBackup.Core.Tests/Processes/ProcessResultTests.cs with the Read tool, then answer with one word: done.

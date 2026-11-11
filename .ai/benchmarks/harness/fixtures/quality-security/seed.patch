@@ -1,0 +1,130 @@
+diff --git a/src/GitHubBackup.Core/BackupConfiguration/RepositoryPathResolver.cs b/src/GitHubBackup.Core/BackupConfiguration/RepositoryPathResolver.cs
+index 5bd1eeb..b9483fd 100644
+--- a/src/GitHubBackup.Core/BackupConfiguration/RepositoryPathResolver.cs
++++ b/src/GitHubBackup.Core/BackupConfiguration/RepositoryPathResolver.cs
+@@ -41,11 +41,8 @@ public sealed class RepositoryPathResolver(string defaultSourcesRoot) : IReposit
+     public string GetSourcesRoot(BackupConfig config) => config.SourcesRoot ?? defaultSourcesRoot;
+ 
+     /// <inheritdoc />
+-    public string GetCloneFolder(BackupConfig config, string owner, string repository)
+-    {
+-        EnsureValidNames(owner, repository);
+-        return ContainedFolder.Combine(GetSourcesRoot(config), owner, repository);
+-    }
++    public string GetCloneFolder(BackupConfig config, string owner, string repository) =>
++        Path.Combine(GetSourcesRoot(config), owner, repository);
+ 
+     /// <inheritdoc />
+     public string GetWikiCloneFolder(BackupConfig config, string owner, string repository)
+diff --git a/src/GitHubBackup.Infrastructure/Archiving/SevenZipArchiver.cs b/src/GitHubBackup.Infrastructure/Archiving/SevenZipArchiver.cs
+index 1d7086a..7a0481a 100644
+--- a/src/GitHubBackup.Infrastructure/Archiving/SevenZipArchiver.cs
++++ b/src/GitHubBackup.Infrastructure/Archiving/SevenZipArchiver.cs
+@@ -103,9 +103,9 @@ internal sealed class SevenZipArchiver(
+             }
+         }
+ 
+-        if (!ArchiveFileName.IsValid(request.FileName))
++        if (string.IsNullOrWhiteSpace(request.FileName))
+         {
+-            throw new ArgumentException($"FileName '{request.FileName}' must be a file name without a folder.", nameof(request));
++            throw new ArgumentException("FileName must not be empty.", nameof(request));
+         }
+ 
+         if (fileSystem.Path.GetDirectoryName(fileSystem.Path.TrimEndingDirectorySeparator(request.SourceFolder)) is null)
+diff --git a/src/GitHubBackup.Infrastructure/Git/GitClient.cs b/src/GitHubBackup.Infrastructure/Git/GitClient.cs
+index eca6dbb..7bf4dad 100644
+--- a/src/GitHubBackup.Infrastructure/Git/GitClient.cs
++++ b/src/GitHubBackup.Infrastructure/Git/GitClient.cs
+@@ -73,16 +73,18 @@ internal sealed class GitClient(
+         cancellationToken.ThrowIfCancellationRequested();
+ 
+         var environment = CreateEnvironment(request.Token, request.ClonePath);
+-        if (logger.IsEnabled(LogLevel.Information))
+-        {
+-            var maskedUrl = secretMasker.Mask(remoteUrl);
+-            GitClientLog.Cloning(logger, maskedUrl, request.ClonePath, request.Branch ?? _defaultBranchLabel);
+-        }
++        var authenticatedUrl = string.IsNullOrWhiteSpace(request.Token)
++            ? remoteUrl
++            : remoteUrl.Replace("https://", "https://x-access-token:" + request.Token + "@", StringComparison.Ordinal);
++        GitClientLog.Cloning(logger, authenticatedUrl, request.ClonePath, request.Branch ?? _defaultBranchLabel);
+ 
+         fileSystem.Directory.CreateDirectory(parent);
+ 
+         await RunGitAsync(
+-            request, parent, environment, ["clone", "--no-checkout", "--origin", "origin", "--", remoteUrl, request.ClonePath],
++            request,
++            parent,
++            environment,
++            ["clone", "--no-checkout", "--origin", "origin", "--", authenticatedUrl, request.ClonePath],
+             cancellationToken);
+         return await SynchronizeAsync(request, environment, cancellationToken);
+     }
+@@ -102,7 +104,10 @@ internal sealed class GitClient(
+         GitClientLog.Updating(logger, request.ClonePath, request.Branch ?? _defaultBranchLabel);
+ 
+         await RunGitAsync(
+-            request, request.ClonePath, environment, ["fetch", "origin", "--prune", "--prune-tags", "--tags", "--force"],
++            request,
++            request.ClonePath,
++            environment,
++            ["fetch", "origin", request.Branch ?? "HEAD", "--prune", "--prune-tags", "--tags", "--force"],
+             cancellationToken);
+         return await SynchronizeAsync(request, environment, cancellationToken);
+     }
+@@ -113,10 +118,12 @@ internal sealed class GitClient(
+         ValidateClonePath(request);
+         cancellationToken.ThrowIfCancellationRequested();
+ 
++        string[] arguments = string.IsNullOrWhiteSpace(request.Token)
++            ? _remoteRefsArguments
++            : ["-c", GitEnvironment.ExtraHeaderKey + "=" + GitEnvironment.CreateAuthorizationHeader(request.Token), .. _remoteRefsArguments];
+         var output = await RunGitAsync(
+-            request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
+-            cancellationToken);
+-        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteRefs);
++            request, request.ClonePath, CreateEnvironment(token: null, request.ClonePath), arguments, cancellationToken);
++        return ParseOutput(request, arguments, output, GitRefParser.ParseRemoteRefs);
+     }
+ 
+     /// <inheritdoc />
+@@ -183,11 +190,11 @@ internal sealed class GitClient(
+     }
+ 
+     /// <summary>
+-    /// Rejects a branch that is empty or that git could read as an option, whether the request or the server named it.
++    /// Rejects a branch that is empty, whether the request or the server named it.
+     /// </summary>
+     /// <param name="branch">The branch to check.</param>
+     /// <param name="request">The request the branch belongs to.</param>
+-    /// <exception cref="ArgumentException">The branch is empty, white space or starts with <c>-</c>.</exception>
++    /// <exception cref="ArgumentException">The branch is empty or white space.</exception>
+     private static void ValidateBranch(string branch, GitRepositoryRequest request)
+     {
+         if (string.IsNullOrWhiteSpace(branch))
+@@ -195,12 +202,6 @@ internal sealed class GitClient(
+             throw new ArgumentException(
+                 $"The branch for '{request.ClonePath}' must not be empty.", nameof(request));
+         }
+-
+-        if (branch.StartsWith('-'))
+-        {
+-            throw new ArgumentException(
+-                $"The branch '{branch}' for '{request.ClonePath}' must not start with '-'.", nameof(request));
+-        }
+     }
+ 
+     /// <summary>
+diff --git a/src/GitHubBackup.Infrastructure/Git/GitEnvironment.cs b/src/GitHubBackup.Infrastructure/Git/GitEnvironment.cs
+index 38e10a9..dbc8894 100644
+--- a/src/GitHubBackup.Infrastructure/Git/GitEnvironment.cs
++++ b/src/GitHubBackup.Infrastructure/Git/GitEnvironment.cs
+@@ -62,7 +62,6 @@ internal static class GitEnvironment
+ 
+         List<ProcessEnvironmentVariable> variables =
+         [
+-            new("GIT_TERMINAL_PROMPT", "0"),
+             new("GCM_INTERACTIVE", "never"),
+             new("GIT_CONFIG_COUNT", entries.Count.ToString(CultureInfo.InvariantCulture)),
+         ];
