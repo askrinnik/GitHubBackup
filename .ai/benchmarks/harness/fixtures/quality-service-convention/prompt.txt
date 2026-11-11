@@ -1,0 +1,4 @@
+FR-7.4 of the PRD says that after a run takes the run lock, the program clears <sourcesRoot>\.tmp\ of the files that
+interrupted runs left behind; a file that cannot be deleted is left for the next run. Add a service that does this
+clean-up. Show the code you would write: the types and the files they go in, how the service is registered and
+called, and its tests. Do not edit any files.

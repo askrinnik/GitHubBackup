@@ -179,7 +179,18 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 
 Скилл `_local.harness-quality-check` запускает фиксированные тестовые сессии (`claude -p`) и записывает метрики: контекст в начале, токены от чтения файла, загруженные правила, оценку судьи по эталону. История — `.ai/benchmarks/harness/run-history.csv`, отчёты — `.ai/benchmarks/harness/reports/`. Запускать после изменения `CLAUDE.md`, правил, скиллов, агентов, MCP или настроек.
 
-Сейчас фикстуры: `bench-base` (стартовый контекст) и `quality-prd-first` (соблюдение правила PRD-first). Фикстуры, которым нужен код, — в отложенных задачах.
+Фикстуры (подробнее — таблица в `.ai/benchmarks/harness/README.md`):
+
+| Фикстура | Что измеряет |
+|---|---|
+| `bench-base` | Стартовый контекст по областям |
+| `bench-cs` | Сколько токенов добавляет чтение файла `Core` вместе с правилами по путям (`csharp`, `security`) |
+| `bench-test` | То же для файла тестового проекта (`csharp`, `tests`) |
+| `quality-prd-first` | Соблюдение правила PRD-first на запрос новой функции |
+| `quality-service-convention` | Соблюдение соглашений при проектировании нового сервиса: слои, DI, `IFileSystem` и `TimeProvider`, XML-документация, тест в парном проекте |
+| `quality-security` | Ревью безопасности: находит ли ассистент семь уязвимостей, подброшенных `seed.patch` |
+
+Остальные фикстуры, которым нужен код, — в отложенных задачах.
 
 ## Профиль реальных сессий
 
@@ -194,7 +205,6 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 
 | Issue | Когда | Что |
 |---|---|---|
-| [#47](https://github.com/askrinnik/GitHubBackup/issues/47) F1.13 | после #10, #13 | Фикстуры для кода: `bench-cs`, `bench-test`, `quality-service-convention`, `quality-security` |
 | [#48](https://github.com/askrinnik/GitHubBackup/issues/48) F3.11 | после #26 | Фикстура `quality-docs-sync` |
 | [#49](https://github.com/askrinnik/GitHubBackup/issues/49) F4.8 | после #36, до #37 | MCP для автоматизации WPF, фикстура `bench-xaml` |
 
