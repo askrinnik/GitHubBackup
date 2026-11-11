@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core;
 using GitHubBackup.Core.Archiving;
+using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
@@ -145,6 +146,38 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
         using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = token });
 
         provider.GetRequiredService<ISecretMasker>().Mask("plain text").ShouldBe("plain text");
+    }
+
+    [Fact]
+    public async Task AddGitHubBackupInfrastructure_TokenConfigured_TokenProviderFindsToken()
+    {
+        using var provider = BuildProvider(new() { [GitHubOptions.TokenKey] = "configured-token-value" });
+
+        var token = await provider.GetRequiredService<ITokenProvider>().GetTokenAsync(TestContext.Current.CancellationToken);
+
+        token.Value.ShouldBe("configured-token-value");
+        token.SourceName.ShouldBe("configuration (GitHub:Token)");
+    }
+
+    [Fact]
+    public async Task AddGitHubBackupInfrastructure_NoToken_TokenProviderReturnsAnonymous()
+    {
+        using var provider = BuildProvider(new());
+
+        var token = await provider.GetRequiredService<ITokenProvider>().GetTokenAsync(TestContext.Current.CancellationToken);
+
+        token.IsAnonymous.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_TokenProvider_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var tokenProvider = provider.GetRequiredService<ITokenProvider>();
+
+        tokenProvider.ShouldBeOfType<TokenProvider>();
+        provider.GetRequiredService<ITokenProvider>().ShouldBeSameAs(tokenProvider);
     }
 
     [Fact]
