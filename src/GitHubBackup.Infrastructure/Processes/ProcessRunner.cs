@@ -30,6 +30,9 @@ internal sealed class ProcessRunner(
     /// <summary>The <see cref="Core.Logging.LogProperties.Stream"/> value of a standard error line.</summary>
     internal const string StandardErrorStream = "stderr";
 
+    /// <summary>The prefix of the environment variables that configure the application.</summary>
+    private const string _applicationVariablePrefix = "GitHubBackup__";
+
     /// <summary>The encoding of the output streams; git writes UTF-8 regardless of the console code page.</summary>
     private static readonly UTF8Encoding _outputEncoding = new(encoderShouldEmitUTF8Identifier: false);
 
@@ -174,6 +177,13 @@ internal sealed class ProcessRunner(
             startInfo.ArgumentList.Add(argument);
         }
 
+        // Application settings supplied as environment variables (such as the token) must not reach a tool: neither
+        // git nor 7-Zip needs them, and a tool can log or forward its whole environment.
+        foreach (var name in startInfo.Environment.Keys.Where(IsApplicationVariable).ToList())
+        {
+            startInfo.Environment.Remove(name);
+        }
+
         foreach (var variable in request.EnvironmentVariables)
         {
             startInfo.Environment[variable.Name] = variable.Value;
@@ -181,6 +191,14 @@ internal sealed class ProcessRunner(
 
         return startInfo;
     }
+
+    /// <summary>
+    /// Returns whether <paramref name="name"/> names an environment variable that configures this application.
+    /// </summary>
+    /// <param name="name">The name of an environment variable.</param>
+    /// <returns><see langword="true"/> when the name starts with <c>GitHubBackup__</c>, in any case.</returns>
+    private static bool IsApplicationVariable(string name) =>
+        name.StartsWith(_applicationVariablePrefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Reads <paramref name="reader"/> to its end and logs every non-empty line, masked, as its own entry.
