@@ -26,6 +26,7 @@ public interface IChangeDetector
     /// <exception cref="GitBranchNotFoundException">
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
+    /// <exception cref="GitRepositoryNotFoundException">The server has no repository at the remote URL.</exception>
     /// <exception cref="GitCommandException">A git command exits with a non-zero code.</exception>
     /// <exception cref="ProcessStartException">git cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>

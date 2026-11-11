@@ -118,4 +118,35 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Information,
         Message = "Repository backup finished: {Status}, archive {Archive}, in {Duration}")]
     public static partial void RepositoryFinished(ILogger logger, BackupItemStatus status, string? archive, TimeSpan duration);
+
+    /// <summary>
+    /// Logs that the wiki of a repository is not backed up because the wiki feature is disabled.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    [LoggerMessage(EventId = 12, Level = LogLevel.Debug, Message = "Wiki skipped: the wiki feature is disabled")]
+    public static partial void WikiDisabled(ILogger logger);
+
+    /// <summary>
+    /// Logs that the wiki feature is enabled but the server has no wiki repository, so there is nothing to back up.
+    /// </summary>
+    /// <remarks>
+    /// GitHub gives the same answer when the token cannot read a private repository, so the message names both causes.
+    /// </remarks>
+    /// <param name="logger">The logger.</param>
+    [LoggerMessage(
+        EventId = 13,
+        Level = LogLevel.Information,
+        Message = "Wiki skipped: the wiki is enabled but the server reports no wiki git repository, or the token cannot access it")]
+    public static partial void WikiNotFound(ILogger logger);
+
+    /// <summary>
+    /// Logs that the GitHub API cannot tell whether the wiki feature is enabled; the wiki is reported as failed.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The failure of the request.</param>
+    [LoggerMessage(
+        EventId = 14,
+        Level = LogLevel.Error,
+        Message = "Cannot read from the GitHub API whether the wiki is enabled")]
+    public static partial void WikiLookupFailed(ILogger logger, Exception exception);
 }

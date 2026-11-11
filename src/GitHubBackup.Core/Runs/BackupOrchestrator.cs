@@ -13,20 +13,27 @@ using Microsoft.Extensions.Logging;
 namespace GitHubBackup.Core.Runs;
 
 /// <summary>
-/// Implements <see cref="IBackupOrchestrator"/> for the repositories listed in <c>backup-config.json</c>.
+/// Implements <see cref="IBackupOrchestrator"/> for the repositories listed in <c>backup-config.json</c> and their
+/// wikis.
 /// </summary>
+/// <remarks>
+/// The wiki of each active repository is processed right after the repository, by the same steps but with its own
+/// clone, its own entry in the state file and its own result, so a change or a failure of one never decides for the
+/// other.
+/// </remarks>
 /// <param name="configStore">Reads <c>backup-config.json</c>.</param>
 /// <param name="toolLocator">Locates git and 7-Zip.</param>
 /// <param name="tokenProvider">Supplies the GitHub token, or anonymous access.</param>
 /// <param name="pathResolver">Resolves the archive, clone and temporary folders.</param>
 /// <param name="exclusionMatcher">Finds the repositories of the list that an exclusion mask removes from the run.</param>
-/// <param name="remoteUrlProvider">Supplies the URL git clones each repository from.</param>
+/// <param name="remoteUrlProvider">Supplies the URL git clones each repository and wiki from.</param>
+/// <param name="gitHubApi">Tells whether the wiki feature of a repository is enabled.</param>
 /// <param name="changeDetector">Brings each clone up to date and decides whether it needs an archive.</param>
 /// <param name="nameBuilder">Names each new archive.</param>
 /// <param name="archiver">Creates each archive.</param>
 /// <param name="stateStore">Reads and records the archives of each repository.</param>
 /// <param name="fileSystem">Empties the folder of temporary archives.</param>
-/// <param name="timeProvider">Measures the time spent on each repository.</param>
+/// <param name="timeProvider">Measures the time spent on each repository and wiki.</param>
 /// <param name="logger">The logger.</param>
 public sealed class BackupOrchestrator(
     IBackupConfigStore configStore,
@@ -35,6 +42,7 @@ public sealed class BackupOrchestrator(
     IRepositoryPathResolver pathResolver,
     IExclusionMatcher exclusionMatcher,
     IRemoteUrlProvider remoteUrlProvider,
+    IGitHubApi gitHubApi,
     IChangeDetector changeDetector,
     IArchiveNameBuilder nameBuilder,
     IArchiver archiver,
@@ -78,6 +86,11 @@ public sealed class BackupOrchestrator(
         {
             cancellationToken.ThrowIfCancellationRequested();
             results.Add(await ProcessAsync(item, tools, token, temporaryFolder, cancellationToken));
+            var wiki = await ProcessWikiAsync(item, tools, token, temporaryFolder, cancellationToken);
+            if (wiki is not null)
+            {
+                results.Add(wiki);
+            }
         }
 
         return new(results, loaded.Warnings, []);
@@ -211,7 +224,13 @@ public sealed class BackupOrchestrator(
             BackupOrchestratorLog.RepositoryStarted(logger, item.CloneFolder, item.ArchiveFolder);
             try
             {
-                (status, archive, message) = await BackupAsync(item, tools, token, temporaryFolder, cancellationToken);
+                var source = new BackupSource(
+                    BackupTarget.Repository,
+                    item.FullName,
+                    item.CloneFolder,
+                    remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
+                    item.Branch);
+                (status, archive, message) = await BackupAsync(item, source, tools, token, temporaryFolder, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -229,16 +248,126 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Brings the clone up to date, archives it when it changed and records the archive.
+    /// Backs up the wiki of one repository when its wiki feature is enabled and turns any failure into a
+    /// <see cref="BackupItemStatus.Failed"/> result.
     /// </summary>
-    /// <param name="item">The active repository.</param>
+    /// <remarks>
+    /// The wiki is cloned on the server's default branch: the branch configured for the repository names a branch of
+    /// the code, not of the wiki. An enabled wiki that nobody has edited has no git repository; it is logged and
+    /// skipped, and its clone and archives from earlier runs are kept.
+    /// </remarks>
+    /// <param name="item">The repository that owns the wiki.</param>
+    /// <param name="tools">The located tools.</param>
+    /// <param name="token">The token passed to git.</param>
+    /// <param name="temporaryFolder">The folder in which archives are built.</param>
+    /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
+    /// <returns>
+    /// The result of the wiki, or <see langword="null"/> when the repository is not active, the wiki feature is
+    /// disabled or the wiki has no git repository on the server.
+    /// </returns>
+    private async Task<BackupItemResult?> ProcessWikiAsync(
+        BackupWorkItem item, ToolSet tools, GitHubToken token, string temporaryFolder, CancellationToken cancellationToken)
+    {
+        if (!item.IsActive)
+        {
+            return null;
+        }
+
+        using var scope = logger.BeginRepositoryScope(item.WikiFullName);
+        var started = timeProvider.GetTimestamp();
+        try
+        {
+            if (!await IsWikiEnabledAsync(item, cancellationToken))
+            {
+                BackupOrchestratorLog.WikiDisabled(logger);
+                return null;
+            }
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            // Without the answer the wiki may go unprotected, so the failed lookup is the failure of the wiki; the
+            // repository keeps its own result.
+            BackupOrchestratorLog.WikiLookupFailed(logger, exception);
+            return FinishWiki(item, started, BackupItemStatus.Failed, null, exception.Message);
+        }
+
+        BackupOrchestratorLog.RepositoryStarted(logger, item.WikiCloneFolder, item.ArchiveFolder);
+        BackupItemStatus status;
+        string? archive = null;
+        string? message;
+        try
+        {
+            var source = new BackupSource(
+                BackupTarget.Wiki,
+                item.WikiFullName,
+                item.WikiCloneFolder,
+                remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
+                Branch: null);
+            (status, archive, message) = await BackupAsync(item, source, tools, token, temporaryFolder, cancellationToken);
+        }
+        catch (GitRepositoryNotFoundException)
+        {
+            BackupOrchestratorLog.WikiNotFound(logger);
+            return null;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            BackupOrchestratorLog.RepositoryFailed(logger, exception);
+            status = BackupItemStatus.Failed;
+            message = exception.Message;
+        }
+
+        return FinishWiki(item, started, status, archive, message);
+    }
+
+    /// <summary>
+    /// Logs the outcome of a wiki and returns its result.
+    /// </summary>
+    /// <param name="item">The repository that owns the wiki.</param>
+    /// <param name="started">The timestamp taken when the wiki was started.</param>
+    /// <param name="status">The outcome.</param>
+    /// <param name="archive">The archive created, or <see langword="null"/>.</param>
+    /// <param name="message">The error or the warning, or <see langword="null"/>.</param>
+    /// <returns>The result of the wiki.</returns>
+    private BackupItemResult FinishWiki(
+        BackupWorkItem item, long started, BackupItemStatus status, string? archive, string? message)
+    {
+        var duration = timeProvider.GetElapsedTime(started);
+        BackupOrchestratorLog.RepositoryFinished(logger, status, archive, duration);
+        return new(item.WikiFullName, status, archive, duration, message) { Target = BackupTarget.Wiki };
+    }
+
+    /// <summary>
+    /// Asks the GitHub API whether the wiki feature of a repository is enabled.
+    /// </summary>
+    /// <param name="item">The repository.</param>
+    /// <param name="cancellationToken">Cancels the request.</param>
+    /// <returns><see langword="true"/> when the wiki feature is enabled.</returns>
+    /// <exception cref="GitHubApiException">The request fails.</exception>
+    /// <exception cref="ArgumentException">The owner or the name is not valid for the API.</exception>
+    private async Task<bool> IsWikiEnabledAsync(BackupWorkItem item, CancellationToken cancellationToken)
+    {
+        var repository = await gitHubApi.GetRepositoryAsync(item.Owner, item.Name, cancellationToken);
+        return repository.HasWiki;
+    }
+
+    /// <summary>
+    /// Brings the clone of a repository or wiki up to date, archives it when it changed and records the archive.
+    /// </summary>
+    /// <param name="item">The active repository, which supplies the archive folder and the state file.</param>
+    /// <param name="source">The repository or its wiki.</param>
     /// <param name="tools">The located tools.</param>
     /// <param name="token">The token passed to git.</param>
     /// <param name="temporaryFolder">The folder in which archives are built.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The status, the archive created or <see langword="null"/>, and the warning or <see langword="null"/>.</returns>
     private async Task<(BackupItemStatus Status, string? Archive, string? Warning)> BackupAsync(
-        BackupWorkItem item, ToolSet tools, GitHubToken token, string temporaryFolder, CancellationToken cancellationToken)
+        BackupWorkItem item,
+        BackupSource source,
+        ToolSet tools,
+        GitHubToken token,
+        string temporaryFolder,
+        CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
         var request = new ChangeDetectionRequest
@@ -246,23 +375,23 @@ public sealed class BackupOrchestrator(
             Git = new()
             {
                 GitPath = tools.Git.Path,
-                ClonePath = item.CloneFolder,
-                Branch = item.Branch,
+                ClonePath = source.CloneFolder,
+                Branch = source.Branch,
                 Token = token.Value,
             },
-            RemoteUrl = remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
+            RemoteUrl = source.RemoteUrl,
             ArchiveFolder = item.ArchiveFolder,
-            LastArchive = state.GetLastArchive(BackupTarget.Repository),
+            LastArchive = state.GetLastArchive(source.Target),
         };
         var detection = await changeDetector.DetectAsync(request, cancellationToken);
 
         var archive = detection.Decision == ChangeDecision.ArchiveNeeded
-            ? await ArchiveAsync(item, tools, detection, temporaryFolder, cancellationToken)
+            ? await ArchiveAsync(item, source, tools, detection, temporaryFolder, cancellationToken)
             : null;
 
         if (detection.BranchFallback)
         {
-            var warning = $"The branch '{item.Branch}' does not exist on the server; the default branch '{detection.Branch}' is used.";
+            var warning = $"The branch '{source.Branch}' does not exist on the server; the default branch '{detection.Branch}' is used.";
             BackupOrchestratorLog.RepositoryWarning(logger, warning);
             return (BackupItemStatus.Warning, archive, warning);
         }
@@ -277,7 +406,8 @@ public sealed class BackupOrchestrator(
     /// The state is written only after the archive is in its final place, so a failed archive never appears in the
     /// state file.
     /// </remarks>
-    /// <param name="item">The repository.</param>
+    /// <param name="item">The repository, which supplies the archive folder and the state file.</param>
+    /// <param name="source">The repository or its wiki.</param>
     /// <param name="tools">The located tools.</param>
     /// <param name="detection">The result of the change detection, with the branch and the refs of the clone.</param>
     /// <param name="temporaryFolder">The folder in which the archive is built.</param>
@@ -285,21 +415,26 @@ public sealed class BackupOrchestrator(
     /// <returns>The file name of the new archive.</returns>
     /// <exception cref="InvalidOperationException">The refs of the clone hold no commit for the checked-out branch.</exception>
     private async Task<string> ArchiveAsync(
-        BackupWorkItem item, ToolSet tools, ChangeDetection detection, string temporaryFolder, CancellationToken cancellationToken)
+        BackupWorkItem item,
+        BackupSource source,
+        ToolSet tools,
+        ChangeDetection detection,
+        string temporaryFolder,
+        CancellationToken cancellationToken)
     {
         var branch = detection.Branch;
         if (branch is null || !detection.Refs.Refs.TryGetValue(RefSnapshot.BranchPrefix + branch, out var headCommit))
         {
             throw new InvalidOperationException(
-                $"The clone of {item.FullName} has no commit for its checked-out branch '{branch}'.");
+                $"The clone of {source.FullName} has no commit for its checked-out branch '{branch}'.");
         }
 
-        var name = nameBuilder.Build(item.Owner, item.Name, BackupTarget.Repository, headCommit);
+        var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
         var result = await archiver.CreateAsync(
             new()
             {
                 SevenZipPath = tools.SevenZip.Path,
-                SourceFolder = item.CloneFolder,
+                SourceFolder = source.CloneFolder,
                 TemporaryFolder = temporaryFolder,
                 DestinationFolder = item.ArchiveFolder,
                 FileName = name.FileName,
@@ -307,7 +442,18 @@ public sealed class BackupOrchestrator(
             cancellationToken);
 
         var record = new ArchiveRecord(name.FileName, name.CreatedAt, branch, headCommit, result.SizeBytes, detection.Refs);
-        await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, BackupTarget.Repository, record, cancellationToken);
+        await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, cancellationToken);
         return name.FileName;
     }
+
+    /// <summary>
+    /// Describes what one backup step works on: a repository or its wiki.
+    /// </summary>
+    /// <param name="Target">Whether the source is the repository or its wiki.</param>
+    /// <param name="FullName">The source as <c>owner/name</c> or <c>owner/name.wiki</c>, used in messages.</param>
+    /// <param name="CloneFolder">The absolute clone folder.</param>
+    /// <param name="RemoteUrl">The URL git clones the source from, without credentials.</param>
+    /// <param name="Branch">The branch to check out, or <see langword="null"/> for the server's default branch.</param>
+    private readonly record struct BackupSource(
+        BackupTarget Target, string FullName, string CloneFolder, string RemoteUrl, string? Branch);
 }

@@ -217,15 +217,33 @@ public sealed class GitClientTests : IDisposable
     }
 
     [Fact]
-    public async Task CloneAsync_RemoteMissing_ThrowsGitCommandException()
+    public async Task CloneAsync_RemoteMissing_ThrowsGitRepositoryNotFoundException()
     {
         var url = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
 
-        var exception = await Should.ThrowAsync<GitCommandException>(
+        var exception = await Should.ThrowAsync<GitRepositoryNotFoundException>(
             () => CreateClient().CloneAsync(Request(), url, CancellationToken));
 
         exception.Command.ShouldStartWith("git clone");
         exception.ExitCode.ShouldNotBe(0);
+        Directory.Exists(_clonePath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_RemoteDeletedAfterClone_ThrowsGitRepositoryNotFoundException()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CommitAsync("a.txt", "a", "Initial commit", CancellationToken);
+        var client = CreateClient();
+        await client.CloneAsync(Request(), remote.Url, CancellationToken);
+        var missing = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
+        await client.SetRemoteUrlAsync(Request(), missing, CancellationToken);
+
+        var exception = await Should.ThrowAsync<GitRepositoryNotFoundException>(
+            () => client.GetRemoteRefsAsync(Request(), CancellationToken));
+
+        exception.Command.ShouldStartWith("git ls-remote");
+        File.Exists(Path.Combine(_clonePath, "a.txt")).ShouldBeTrue();
     }
 
     [Theory]

@@ -7,7 +7,7 @@ namespace GitHubBackup.Core.Git;
 /// error, with secrets masked.</param>
 /// <param name="command">The command line that failed, with secrets masked.</param>
 /// <param name="exitCode">The exit code of the command.</param>
-public sealed class GitCommandException(string message, string command, int exitCode) : Exception(message)
+public class GitCommandException(string message, string command, int exitCode) : Exception(message)
 {
     /// <summary>Gets the command line that failed, with secrets masked.</summary>
     public string Command { get; } = command;
