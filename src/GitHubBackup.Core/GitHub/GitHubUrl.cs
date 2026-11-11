@@ -105,7 +105,7 @@ public static class GitHubUrl
     /// </summary>
     /// <param name="name">A file or folder name.</param>
     /// <returns><see langword="true"/> when Windows would open a device instead of a file system entry.</returns>
-    private static bool IsWindowsDeviceName(string name)
+    internal static bool IsWindowsDeviceName(string name)
     {
         var dot = name.IndexOf('.', StringComparison.Ordinal);
         var stem = dot < 0 ? name : name[..dot];

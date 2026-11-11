@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.BackupConfiguration;
+using GitHubBackup.Infrastructure.Files;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -31,11 +32,13 @@ public sealed class JsonBackupConfigStoreFileTests : IDisposable
 
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(_folderPath);
+        var fileSystem = new FileSystem();
         _store = new(
-            new FileSystem(),
+            fileSystem,
             Options.Create(new BackupOptions { ConfigPath = _configPath }),
             environment,
             new BackupConfigValidator(),
+            new AtomicFileWriter(fileSystem),
             NullLogger<JsonBackupConfigStore>.Instance);
     }
 

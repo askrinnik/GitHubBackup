@@ -5,11 +5,13 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -59,6 +61,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         provider.GetRequiredService<IFileSystem>().ShouldBeOfType<FileSystem>();
         provider.GetRequiredService<IBackupConfigStore>().ShouldBeOfType<JsonBackupConfigStore>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_BackupStateStore_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var store = provider.GetRequiredService<IBackupStateStore>();
+
+        store.ShouldBeOfType<JsonBackupStateStore>();
+        provider.GetRequiredService<IBackupStateStore>().ShouldBeSameAs(store);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.BackupConfiguration;
+using GitHubBackup.Infrastructure.Files;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -20,7 +21,7 @@ internal static class BackupConfigSamples
     public const string ConfigPath = @"C:\app\backup-config.json";
 
     /// <summary>The path of the copy of the previous configuration file.</summary>
-    public const string BackupPath = ConfigPath + JsonBackupConfigStore.BackupExtension;
+    public const string BackupPath = ConfigPath + AtomicFileWriter.BackupExtension;
 
     /// <summary>The sample of the documentation, verbatim.</summary>
     public const string DocumentedSample =
@@ -65,6 +66,7 @@ internal static class BackupConfigSamples
             Options.Create(new BackupOptions { ConfigPath = ConfigPath }),
             environment,
             new BackupConfigValidator(),
+            new AtomicFileWriter(fileSystem),
             logger ?? new RecordingLogger<JsonBackupConfigStore>());
     }
 

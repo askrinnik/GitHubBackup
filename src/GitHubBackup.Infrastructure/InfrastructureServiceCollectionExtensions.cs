@@ -4,11 +4,14 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
+using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -28,7 +31,7 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IBackupConfigStore"/> and the
+        /// token, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/> and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
@@ -49,7 +52,9 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<IProcessRunner, ProcessRunner>();
             services.TryAddSingleton<IToolLocator, ToolLocator>();
             services.TryAddSingleton<IGitClient, GitClient>();
+            services.TryAddSingleton<AtomicFileWriter>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
+            services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.TryAddSingleton<IRepositoryPathResolver>(provider => new RepositoryPathResolver(
                 Path.Combine(
                     provider.GetRequiredService<IHostEnvironment>().ContentRootPath,

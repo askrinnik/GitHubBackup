@@ -2,6 +2,7 @@ using System.IO.Abstractions;
 using System.Text.Json;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Infrastructure.Files;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -16,20 +17,16 @@ namespace GitHubBackup.Infrastructure.BackupConfiguration;
 /// <param name="options">The options that name the configuration file.</param>
 /// <param name="environment">The host environment whose content root holds the default clone folder.</param>
 /// <param name="validator">The validator applied on every read and write.</param>
+/// <param name="writer">The writer that replaces the configuration file atomically.</param>
 /// <param name="logger">The logger.</param>
 internal sealed class JsonBackupConfigStore(
     IFileSystem fileSystem,
     IOptions<BackupOptions> options,
     IHostEnvironment environment,
     IBackupConfigValidator validator,
+    AtomicFileWriter writer,
     ILogger<JsonBackupConfigStore> logger) : IBackupConfigStore
 {
-    /// <summary>The extension appended to the configuration path for the copy of the previous file.</summary>
-    public const string BackupExtension = ".bak";
-
-    /// <summary>The extension of the temporary file written before it replaces the configuration file.</summary>
-    public const string TemporaryExtension = ".tmp";
-
     /// <summary>The line break that ends the file, matching the line breaks inside it.</summary>
     private static readonly byte[] _finalNewLine = "\r\n"u8.ToArray();
 
@@ -62,9 +59,7 @@ internal sealed class JsonBackupConfigStore(
 
     /// <inheritdoc />
     /// <remarks>
-    /// The new content goes to a uniquely named temporary file in the folder of the configuration file and is flushed
-    /// to disk; only then does it replace the file, so a crash at any point leaves either the old or the new file
-    /// under the final name, never a partial one.
+    /// The file is replaced through <see cref="AtomicFileWriter"/>, which keeps the previous version as a backup.
     /// </remarks>
     public async Task SaveAsync(BackupConfig config, CancellationToken cancellationToken)
     {
@@ -76,90 +71,9 @@ internal sealed class JsonBackupConfigStore(
         }
 
         var content = JsonSerializer.SerializeToUtf8Bytes(config, BackupConfigJsonContext.BackupConfigTypeInfo);
-        var temporaryPath = $"{path}.{Guid.NewGuid():N}{TemporaryExtension}";
-        var backupPath = path + BackupExtension;
-        var replacing = false;
-        try
-        {
-            await using (var stream = fileSystem.FileStream.New(temporaryPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                await stream.WriteAsync(content, cancellationToken);
-                await stream.WriteAsync(_finalNewLine, cancellationToken);
-                stream.Flush(flushToDisk: true);
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-
-            if (fileSystem.File.Exists(path))
-            {
-                replacing = true;
-                fileSystem.File.Replace(temporaryPath, path, backupPath);
-            }
-            else
-            {
-                fileSystem.File.Move(temporaryPath, path);
-            }
-        }
-        catch
-        {
-            if (replacing)
-            {
-                RestoreFinalFile(path, temporaryPath, backupPath);
-            }
-
-            // After a failed replace the complete temporary file may be the only copy of the new content, so it is
-            // kept unless the final name holds a file again.
-            if (!replacing || fileSystem.File.Exists(path))
-            {
-                TryDelete(temporaryPath);
-            }
-
-            throw;
-        }
+        await writer.WriteAsync(path, content.Concat(_finalNewLine).ToArray(), cancellationToken);
 
         BackupConfigLog.Saved(logger, path);
-    }
-
-    /// <summary>
-    /// Puts a file back under the final name when a failed replace has already moved the original to the backup name.
-    /// </summary>
-    /// <remarks>
-    /// <see cref="IFile.Replace(string, string, string?)"/> can fail after renaming the original to the backup name
-    /// and before moving the replacement in, which leaves no file under the final name. The complete temporary file
-    /// is moved in first; if that fails too, the original is copied back from the backup. Failures of these attempts
-    /// are ignored: the exception of the replace is the one the caller needs.
-    /// </remarks>
-    /// <param name="path">The path of the configuration file.</param>
-    /// <param name="temporaryPath">The path of the fully written temporary file.</param>
-    /// <param name="backupPath">The path of the copy of the previous file.</param>
-    private void RestoreFinalFile(string path, string temporaryPath, string backupPath)
-    {
-        if (fileSystem.File.Exists(path) || !fileSystem.File.Exists(backupPath))
-        {
-            return;
-        }
-
-        try
-        {
-            if (fileSystem.File.Exists(temporaryPath))
-            {
-                fileSystem.File.Move(temporaryPath, path);
-                return;
-            }
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Falls through to restoring the previous file.
-        }
-
-        try
-        {
-            fileSystem.File.Copy(backupPath, path);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Nothing more can be done; the previous content stays in the backup file.
-        }
     }
 
     /// <summary>
@@ -208,25 +122,5 @@ internal sealed class JsonBackupConfigStore(
 
         return config
             ?? throw new BackupConfigException(path, [$"The backup configuration file '{path}' must contain a JSON object, not null."]);
-    }
-
-    /// <summary>
-    /// Deletes a temporary file left by a failed write, ignoring a failure to delete it.
-    /// </summary>
-    /// <remarks>
-    /// The write has already failed and its exception is the one the caller needs; a leftover temporary file is
-    /// harmless because the next write uses a new name.
-    /// </remarks>
-    /// <param name="temporaryPath">The path of the temporary file.</param>
-    private void TryDelete(string temporaryPath)
-    {
-        try
-        {
-            fileSystem.File.Delete(temporaryPath);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            // Best effort only: the exception of the failed write is rethrown by the caller.
-        }
     }
 }
