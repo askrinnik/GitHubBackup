@@ -236,6 +236,31 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.GetFiles(Path.Combine(_archiveRoot, _owner, "fresh"), "*.zip").ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task RunAsync_NewRepositoryWithInvalidName_IsIgnoredAndRunContinues()
+    {
+        await AddRemoteAsync("fresh");
+        _gitHubApi.AddAccount(_owner, GitHubAccountType.User);
+        _gitHubApi.AddRepository(7, _owner, "fresh", hasWiki: false);
+        _gitHubApi.AddRepository(8, _owner, "con", hasWiki: false);
+        await _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Accounts = [new() { Url = $"https://github.com/{_owner}" }],
+            },
+            CancellationToken);
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/fresh", BackupItemStatus.Archived)]);
+        result.Discovery.ShouldNotBeNull().Added.ShouldBe(["owner/fresh"]);
+        var saved = await _configStore.LoadAsync(CancellationToken);
+        saved.Config.Accounts.ShouldHaveSingleItem().Repositories.ShouldHaveSingleItem().Name.ShouldBe("fresh");
+        Directory.GetFiles(Path.Combine(_archiveRoot, _owner, "fresh"), "*.zip").ShouldHaveSingleItem();
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>

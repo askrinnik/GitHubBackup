@@ -37,6 +37,11 @@ public sealed class RepositoryDiscoveryService(
                 continue;
             }
 
+            if (!HasValidName(repository))
+            {
+                continue;
+            }
+
             var owningAccount = accounts.Find(login => IsSameName(login, repository.Owner));
             if (owningAccount is not null)
             {
@@ -84,7 +89,7 @@ public sealed class RepositoryDiscoveryService(
                 returned.Add(new(item, current));
             }
 
-            if (!IsSameName(item.FullName, current.FullName))
+            if (!IsSameName(item.FullName, current.FullName) && HasValidName(current))
             {
                 renamed.Add(new(item, current));
             }
@@ -97,6 +102,26 @@ public sealed class RepositoryDiscoveryService(
         RepositoryDiscoveryServiceLog.Classified(
             logger, newInAccounts.Count, newStandalone.Count, missing.Count, returned.Count, renamed.Count);
         return result;
+    }
+
+    /// <summary>
+    /// Checks that the owner and the name of a repository can be folder names and logs a warning when they cannot.
+    /// </summary>
+    /// <remarks>
+    /// A repository with an invalid name is never offered as new or as a rename target. It stays in
+    /// <see cref="DiscoveryResult.Repositories"/>, which is keyed by id, so a tracked entry keeps its metadata.
+    /// </remarks>
+    /// <param name="repository">The repository GitHub reported.</param>
+    /// <returns><see langword="true"/> when both the owner and the name are valid.</returns>
+    private bool HasValidName(GitHubRepository repository)
+    {
+        if (GitHubUrl.IsValidLogin(repository.Owner) && GitHubUrl.IsValidRepositoryName(repository.Name))
+        {
+            return true;
+        }
+
+        RepositoryDiscoveryServiceLog.InvalidName(logger, repository.FullName);
+        return false;
     }
 
     /// <summary>

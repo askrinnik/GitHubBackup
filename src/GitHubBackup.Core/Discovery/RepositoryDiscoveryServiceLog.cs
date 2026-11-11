@@ -31,4 +31,15 @@ internal static partial class RepositoryDiscoveryServiceLog
         Message = "Discovery found {NewInAccounts} new in accounts, {NewStandalone} new standalone, {Missing} missing, {Returned} returned, {Renamed} renamed")]
     public static partial void Classified(
         ILogger logger, int newInAccounts, int newStandalone, int missing, int returned, int renamed);
+
+    /// <summary>
+    /// Logs a repository that discovery ignores because its owner or name cannot be a folder name.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The <c>owner/name</c> GitHub reported.</param>
+    [LoggerMessage(
+        EventId = 3,
+        Level = LogLevel.Warning,
+        Message = "Discovery ignores {Repository}: its owner or name is not valid as a folder name")]
+    public static partial void InvalidName(ILogger logger, string repository);
 }

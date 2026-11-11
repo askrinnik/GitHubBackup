@@ -371,6 +371,63 @@ public sealed class RepositoryDiscoveryServiceTests
         result.NewInAccounts.ShouldBeEmpty();
     }
 
+    [Theory]
+    [InlineData("con")]
+    [InlineData("x.wiki")]
+    [InlineData("name.")]
+    public async Task DiscoverAsync_NewAccountRepositoryWithInvalidName_IsNotNew(string name)
+    {
+        SetAccount("octo", GitHubAccountType.User, Repo(1, "octo", name), Repo(2, "octo", "tool"));
+
+        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+
+        result.NewInAccounts.ShouldHaveSingleItem().Repository.Id.ShouldBe(2);
+        result.NewStandalone.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("friend", "con")]
+    [InlineData("friend", "x.wiki")]
+    [InlineData("friend", "name.")]
+    [InlineData("nul", "shared")]
+    public async Task DiscoverAsync_NewStandaloneRepositoryWithInvalidName_IsNotNew(string owner, string name)
+    {
+        SetCurrentUser(Repo(1, owner, name), Repo(2, "friend", "shared"));
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+
+        result.NewStandalone.ShouldHaveSingleItem().Id.ShouldBe(2);
+        result.NewInAccounts.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("con")]
+    [InlineData("x.wiki")]
+    [InlineData("name.")]
+    public async Task DiscoverAsync_RecordRenamedToInvalidNameInList_IsNeitherRenamedNorMissing(string name)
+    {
+        SetAccount("octo", GitHubAccountType.User, Repo(1, "octo", name));
+
+        var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"))), null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        result.Repositories.ShouldContainKey(1);
+    }
+
+    [Theory]
+    [InlineData("octo", "con")]
+    [InlineData("nul", "tool")]
+    public async Task DiscoverAsync_RecordRenamedToInvalidNameByIdLookup_IsNeitherRenamedNorMissing(string owner, string name)
+    {
+        SetAccount("octo", GitHubAccountType.User);
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, owner, name));
+
+        var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"))), null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+    }
+
     [Fact]
     public async Task DiscoverAsync_RecordsOfSeveralAccounts_KeepFileOrder()
     {
