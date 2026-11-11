@@ -75,19 +75,49 @@ public sealed class CloneRelocatorTests
     }
 
     [Fact]
-    public async Task RelocateAsync_TargetExists_DeletesOldCloneIncludingReadOnlyFilesAndKeepsTarget()
+    public async Task RelocateAsync_TargetExists_ReturnsTargetOccupiedAndKeepsBothFolders()
     {
         _fileSystem.AddFile(@"C:\sources\octo\old\.git\HEAD", new("ref"));
-        _fileSystem.AddFile(
-            @"C:\sources\octo\old\.git\objects\ab\cdef", new("object") { Attributes = FileAttributes.ReadOnly });
         _fileSystem.AddFile(@"C:\sources\octo\new\stale.txt", new("stale"));
 
         var result = await Relocator().RelocateAsync(_gitPath, _oldFolder, _newFolder, _url, Token);
 
-        result.ShouldBe(CloneRelocationResult.DeletedForReclone);
-        _fileSystem.Directory.Exists(_oldFolder).ShouldBeFalse();
+        result.ShouldBe(CloneRelocationResult.TargetOccupied);
+        _fileSystem.File.Exists(@"C:\sources\octo\old\.git\HEAD").ShouldBeTrue();
         _fileSystem.File.Exists(@"C:\sources\octo\new\stale.txt").ShouldBeTrue();
         await _git.DidNotReceiveWithAnyArgs().SetRemoteUrlAsync(default!, default!, Token);
+    }
+
+    [Fact]
+    public async Task RelocateAsync_TargetIsFile_ReturnsTargetOccupiedAndKeepsBoth()
+    {
+        _fileSystem.AddFile(@"C:\sources\octo\old\.git\HEAD", new("ref"));
+        _fileSystem.AddFile(_newFolder, new("a file"));
+
+        var result = await Relocator().RelocateAsync(_gitPath, _oldFolder, _newFolder, _url, Token);
+
+        result.ShouldBe(CloneRelocationResult.TargetOccupied);
+        _fileSystem.File.Exists(@"C:\sources\octo\old\.git\HEAD").ShouldBeTrue();
+        _fileSystem.File.Exists(_newFolder).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RelocateAsync_MoveThrows_DeletesReadOnlyFilesToo()
+    {
+        _fileSystem.AddFile(@"C:\sources\octo\old\.git\HEAD", new("ref"));
+        _fileSystem.AddFile(
+            @"C:\sources\octo\old\.git\objects\ab\cdef", new("object") { Attributes = FileAttributes.ReadOnly });
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.Path.Returns(_fileSystem.Path);
+        fileSystem.File.Returns(_fileSystem.File);
+        fileSystem.DirectoryInfo.Returns(_fileSystem.DirectoryInfo);
+        fileSystem.Directory.Returns(new MoveFailingDirectory(_fileSystem));
+
+        var result = await new CloneRelocator(fileSystem, _git, NullLogger<CloneRelocator>.Instance)
+            .RelocateAsync(_gitPath, _oldFolder, _newFolder, _url, Token);
+
+        result.ShouldBe(CloneRelocationResult.DeletedForReclone);
+        _fileSystem.Directory.Exists(_oldFolder).ShouldBeFalse();
     }
 
     [Fact]
@@ -168,6 +198,18 @@ public sealed class CloneRelocatorTests
             () => Relocator().RelocateAsync(_gitPath, _oldFolder, _newFolder, _url, Token));
 
         _fileSystem.File.Exists(@"C:\sources\octo\new\.git\HEAD").ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// A mock directory API whose <see cref="Move"/> always fails and whose other members act on the mock file system.
+    /// </summary>
+    /// <param name="fileSystem">The mock file system.</param>
+    private sealed class MoveFailingDirectory(MockFileSystem fileSystem)
+        : MockDirectory(fileSystem, (FileBase)fileSystem.File, @"C:\")
+    {
+        /// <inheritdoc />
+        public override void Move(string sourceDirName, string destDirName) =>
+            throw new IOException("The folder is in use.");
     }
 
     /// <summary>

@@ -44,9 +44,20 @@ public sealed class CloneRelocator(IFileSystem fileSystem, IGitClient gitClient,
 
         // Windows compares paths without regard to case, so a rename that only changes the case keeps the folder
         // usable as it is.
-        if (!string.Equals(oldFolder, newFolder, StringComparison.OrdinalIgnoreCase) && !TryMove(oldFolder, newFolder))
+        if (!string.Equals(oldFolder, newFolder, StringComparison.OrdinalIgnoreCase))
         {
-            return Delete(oldFolder);
+            // Whatever occupies the target may belong to another repository, which a later backup would reuse, so
+            // both folders stay as they are until the user clears the target.
+            if (fileSystem.Directory.Exists(newFolder) || fileSystem.File.Exists(newFolder))
+            {
+                CloneRelocatorLog.TargetExists(logger, oldFolder, newFolder);
+                return CloneRelocationResult.TargetOccupied;
+            }
+
+            if (!TryMove(oldFolder, newFolder))
+            {
+                return Delete(oldFolder);
+            }
         }
 
         try
@@ -65,19 +76,13 @@ public sealed class CloneRelocator(IFileSystem fileSystem, IGitClient gitClient,
     }
 
     /// <summary>
-    /// Moves a clone folder to a folder that does not exist yet, creating its parent.
+    /// Moves a clone folder to a folder that the caller has checked does not exist, creating its parent.
     /// </summary>
     /// <param name="oldFolder">The clone folder.</param>
     /// <param name="newFolder">The target folder.</param>
     /// <returns><see langword="true"/> when the folder was moved.</returns>
     private bool TryMove(string oldFolder, string newFolder)
     {
-        if (fileSystem.Directory.Exists(newFolder) || fileSystem.File.Exists(newFolder))
-        {
-            CloneRelocatorLog.TargetExists(logger, oldFolder, newFolder);
-            return false;
-        }
-
         try
         {
             var parent = fileSystem.Path.GetDirectoryName(newFolder);

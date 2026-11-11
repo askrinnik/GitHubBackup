@@ -10,7 +10,10 @@ namespace GitHubBackup.Core.Discovery;
 /// The decision carried out: <see cref="RenameDecision.KeepArchiveFolder"/> when the archive folder could not be
 /// renamed.
 /// </param>
-/// <param name="CloneRelocation">What happened to the clone of the repository.</param>
+/// <param name="CloneRelocation">
+/// What happened to the clone of the repository; <see cref="CloneRelocationResult.TargetOccupied"/> means the user
+/// must clear the folder of the new name.
+/// </param>
 /// <param name="WikiRelocation">What happened to the clone of the wiki.</param>
 public sealed record RenameOutcome(
     string OldFullName,

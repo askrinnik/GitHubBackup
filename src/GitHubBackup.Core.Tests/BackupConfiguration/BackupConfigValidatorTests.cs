@@ -189,6 +189,7 @@ public sealed class BackupConfigValidatorTests
     [InlineData(@"..\escape")]
     [InlineData("my repo")]
     [InlineData("repo.git")]
+    [InlineData("repo.wiki")]
     [InlineData("repo.")]
     [InlineData("NUL")]
     [InlineData("com1.backup")]

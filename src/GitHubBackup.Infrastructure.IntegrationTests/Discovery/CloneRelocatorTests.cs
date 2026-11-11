@@ -6,6 +6,7 @@ using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -57,13 +58,14 @@ public sealed class CloneRelocatorTests : IDisposable
         var oldFolder = Path.Combine(_sourcesRoot, "octo", "app");
         var newFolder = Path.Combine(_sourcesRoot, "octo", "app2");
         await CreateGitClient().CloneAsync(Request(oldFolder), remote.Url, CancellationToken);
-        Directory.CreateDirectory(newFolder);
 
-        var result = await CreateRelocator().RelocateAsync(_sandbox.GitPath, oldFolder, newFolder, renamed.Url, CancellationToken);
+        var result = await new CloneRelocator(
+                new MoveFailingFileSystem(), CreateGitClient(), NullLogger<CloneRelocator>.Instance)
+            .RelocateAsync(_sandbox.GitPath, oldFolder, newFolder, renamed.Url, CancellationToken);
 
         result.ShouldBe(CloneRelocationResult.DeletedForReclone);
         Directory.Exists(oldFolder).ShouldBeFalse();
-        Directory.Exists(newFolder).ShouldBeTrue();
+        Directory.Exists(newFolder).ShouldBeFalse();
 
         var detection = await new ChangeDetector(CreateGitClient(), _fileSystem, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(
@@ -79,6 +81,23 @@ public sealed class CloneRelocatorTests : IDisposable
         detection.Reason.ShouldBe(ChangeReason.NoArchive);
         (await GitAsync(newFolder, "remote", "get-url", "origin")).ShouldBe([renamed.Url]);
         (await GitAsync(newFolder, "rev-parse", "HEAD")).ShouldBe([head]);
+    }
+
+    [Fact]
+    public async Task RelocateAsync_TargetOccupied_KeepsBothFolders()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("app", CancellationToken);
+        var other = await _sandbox.CreateRemoteAsync("app2", CancellationToken);
+        var oldFolder = Path.Combine(_sourcesRoot, "octo", "app");
+        var newFolder = Path.Combine(_sourcesRoot, "octo", "app2");
+        await CreateGitClient().CloneAsync(Request(oldFolder), remote.Url, CancellationToken);
+        await CreateGitClient().CloneAsync(Request(newFolder), other.Url, CancellationToken);
+
+        var result = await CreateRelocator().RelocateAsync(_sandbox.GitPath, oldFolder, newFolder, other.Url, CancellationToken);
+
+        result.ShouldBe(CloneRelocationResult.TargetOccupied);
+        (await GitAsync(oldFolder, "remote", "get-url", "origin")).ShouldBe([remote.Url]);
+        (await GitAsync(newFolder, "remote", "get-url", "origin")).ShouldBe([other.Url]);
     }
 
     [Fact]

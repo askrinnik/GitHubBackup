@@ -7,12 +7,14 @@ public interface ICloneRelocator
 {
     /// <summary>
     /// Moves <paramref name="oldFolder"/> to <paramref name="newFolder"/> and sets <c>origin</c> to
-    /// <paramref name="remoteUrl"/>; when either step fails, deletes the clone so that the next backup clones it again.
+    /// <paramref name="remoteUrl"/>; when the move or the <c>origin</c> change fails, deletes the clone so that the
+    /// next backup clones it again.
     /// </summary>
     /// <remarks>
     /// Failures are logged and reported in the result, never thrown, so one repository cannot stop the others. A
-    /// folder that already exists under the new name is never deleted, and a folder that is a junction or a symbolic
-    /// link is never touched.
+    /// folder that already exists under the new name is never deleted and leaves the old clone in place
+    /// (<see cref="CloneRelocationResult.TargetOccupied"/>), and a folder that is a junction or a symbolic link is
+    /// never touched.
     /// </remarks>
     /// <param name="gitPath">The fully qualified path of the git executable.</param>
     /// <param name="oldFolder">The absolute clone folder under the old name.</param>

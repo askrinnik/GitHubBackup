@@ -28,7 +28,7 @@ internal static partial class CloneRelocatorLog
     public static partial void CloneIsLink(ILogger logger, string folder);
 
     /// <summary>
-    /// Logs that the folder of the new name already exists, so the clone is not moved.
+    /// Logs that the folder of the new name already exists, so neither folder is touched.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="oldFolder">The folder under the old name.</param>
@@ -36,7 +36,8 @@ internal static partial class CloneRelocatorLog
     [LoggerMessage(
         EventId = 3,
         Level = LogLevel.Warning,
-        Message = "Cannot move the clone {OldFolder}: {NewFolder} already exists")]
+        Message = "Cannot move the clone {OldFolder} to {NewFolder}: the target already exists. Neither folder was "
+            + "changed; the user must clear the target before the renamed repository can be backed up")]
     public static partial void TargetExists(ILogger logger, string oldFolder, string newFolder);
 
     /// <summary>

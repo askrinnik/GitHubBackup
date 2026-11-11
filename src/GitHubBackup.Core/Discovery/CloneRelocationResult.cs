@@ -16,4 +16,10 @@ public enum CloneRelocationResult
 
     /// <summary>The clone could not be moved and could not be deleted; it is left where it was.</summary>
     DeleteFailed,
+
+    /// <summary>
+    /// The folder under the new name already exists, so nothing was moved or deleted. The user must clear it before
+    /// the renamed repository can be backed up, because the backup would otherwise reuse whatever it holds.
+    /// </summary>
+    TargetOccupied,
 }
