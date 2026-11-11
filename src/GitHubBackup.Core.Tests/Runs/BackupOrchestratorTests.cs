@@ -374,6 +374,41 @@ public sealed class BackupOrchestratorTests
     }
 
     [Fact]
+    public async Task RunAsync_ListedRepositoryMatchesExclusion_IsSkippedWithWarningAndOthersAreBackedUp()
+    {
+        AddRepository("other-archive");
+        _config.Exclude.Add("owner/*-archive");
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/repo", BackupItemStatus.Archived)]);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        _logger.Entries.ShouldContain(entry =>
+            entry.Level == LogLevel.Warning
+            && entry.Message.Contains("owner/other-archive")
+            && entry.Message.Contains("owner/*-archive")
+            && entry.Message.Contains("Global"));
+        await _detector.ReceivedWithAnyArgs(1).DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_AccountMaskMatchesAccountRepository_IsExcluded()
+    {
+        _config.Accounts.Add(new()
+        {
+            Url = "https://github.com/octocat",
+            Exclude = ["sec*"],
+            Repositories = [new() { Name = "secret", Id = 11 }, new() { Name = "open", Id = 10 }],
+        });
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => item.Repository).ShouldBe(["octocat/open", "owner/repo"]);
+        _logger.Entries.ShouldContain(entry =>
+            entry.Level == LogLevel.Warning && entry.Message.Contains("octocat/secret") && entry.Message.Contains("Account"));
+    }
+
+    [Fact]
     public async Task RunAsync_ConfigWarnings_ReturnedWithResult()
     {
         _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(_config, ["w1", "w2"]));
@@ -423,6 +458,7 @@ public sealed class BackupOrchestratorTests
         _toolLocator,
         _tokenProvider,
         new RepositoryPathResolver(@"C:\app\sources"),
+        new ExclusionMatcher(),
         new GitHubRemoteUrlProvider(),
         _detector,
         _nameBuilder,

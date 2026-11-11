@@ -5,6 +5,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
@@ -65,6 +66,14 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_ExclusionMatcher_IsResolved()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<IExclusionMatcher>().ShouldBeOfType<ExclusionMatcher>();
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_ChangeDetector_IsResolved()
     {
         using var provider = new ServiceCollection()
@@ -106,10 +115,26 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IRepositoryPathResolver>())
             .AddSingleton(Substitute.For<IArchiver>())
             .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton(Substitute.For<IGitHubApi>())
             .AddGitHubBackupCore()
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
         provider.GetRequiredService<IBackupOrchestrator>().ShouldBeOfType<BackupOrchestrator>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_RepositoryDiscoveryService_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(typeof(ILogger<>), typeof(NullLogger<>))
+            .AddSingleton(Substitute.For<IGitHubApi>())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var service = provider.GetRequiredService<IRepositoryDiscoveryService>();
+
+        service.ShouldBeOfType<RepositoryDiscoveryService>();
+        provider.GetRequiredService<IRepositoryDiscoveryService>().ShouldBeSameAs(service);
     }
 
     [Fact]
