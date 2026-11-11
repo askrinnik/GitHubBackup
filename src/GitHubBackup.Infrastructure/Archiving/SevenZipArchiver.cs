@@ -103,7 +103,7 @@ internal sealed class SevenZipArchiver(
             }
         }
 
-        if (string.IsNullOrWhiteSpace(request.FileName) || fileSystem.Path.GetFileName(request.FileName) != request.FileName)
+        if (!ArchiveFileName.IsValid(request.FileName))
         {
             throw new ArgumentException($"FileName '{request.FileName}' must be a file name without a folder.", nameof(request));
         }

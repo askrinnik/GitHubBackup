@@ -240,7 +240,19 @@ public sealed class SevenZipArchiverTests
     [InlineData("")]
     [InlineData(@"sub\a.zip")]
     [InlineData(@"C:\a.zip")]
-    public async Task CreateAsync_FileNameWithFolderOrEmpty_ThrowsArgumentException(string fileName) => await Should.ThrowAsync<ArgumentException>(() => CreateArchiver().CreateAsync(Request() with { FileName = fileName }, CancellationToken));
+    [InlineData("..")]
+    [InlineData(".")]
+    [InlineData("name.")]
+    [InlineData("name ")]
+    [InlineData("CON.zip")]
+    [InlineData("a*.zip")]
+    [InlineData("a?.zip")]
+    public async Task CreateAsync_UnsafeFileName_ThrowsArgumentExceptionWithoutStartingProcess(string fileName)
+    {
+        await Should.ThrowAsync<ArgumentException>(() => CreateArchiver().CreateAsync(Request() with { FileName = fileName }, CancellationToken));
+
+        await _runner.DidNotReceive().RunAsync(Arg.Any<ProcessRequest>(), Arg.Any<CancellationToken>());
+    }
 
     private const string _archiveContent = "zip bytes";
 
