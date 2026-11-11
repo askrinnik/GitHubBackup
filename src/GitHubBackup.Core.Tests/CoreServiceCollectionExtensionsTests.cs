@@ -65,6 +65,14 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_ExclusionMatcher_IsResolved()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<IExclusionMatcher>().ShouldBeOfType<ExclusionMatcher>();
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_ChangeDetector_IsResolved()
     {
         using var provider = new ServiceCollection()

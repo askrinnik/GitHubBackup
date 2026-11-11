@@ -1,3 +1,4 @@
+using GitHubBackup.Core.BackupConfiguration;
 using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.Core.Runs;
@@ -75,6 +76,19 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Information,
         Message = "Repository skipped: it is marked Unavailable in backup-config.json")]
     public static partial void RepositorySkipped(ILogger logger);
+
+    /// <summary>
+    /// Logs a repository of the list that is not backed up because an exclusion mask matches it.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="mask">The mask that matches.</param>
+    /// <param name="scope">The list the mask belongs to.</param>
+    [LoggerMessage(
+        EventId = 11,
+        Level = LogLevel.Warning,
+        Message = "Repository {Repository} is excluded by the {Scope} mask '{Mask}' and is not backed up")]
+    public static partial void RepositoryExcluded(ILogger logger, string repository, string mask, ExclusionScope scope);
 
     /// <summary>
     /// Logs a warning about a repository, such as the default branch used instead of a missing one.

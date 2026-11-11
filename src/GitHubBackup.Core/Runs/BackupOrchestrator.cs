@@ -19,6 +19,7 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="toolLocator">Locates git and 7-Zip.</param>
 /// <param name="tokenProvider">Supplies the GitHub token, or anonymous access.</param>
 /// <param name="pathResolver">Resolves the archive, clone and temporary folders.</param>
+/// <param name="exclusionMatcher">Finds the repositories of the list that an exclusion mask removes from the run.</param>
 /// <param name="remoteUrlProvider">Supplies the URL git clones each repository from.</param>
 /// <param name="changeDetector">Brings each clone up to date and decides whether it needs an archive.</param>
 /// <param name="nameBuilder">Names each new archive.</param>
@@ -32,6 +33,7 @@ public sealed class BackupOrchestrator(
     IToolLocator toolLocator,
     ITokenProvider tokenProvider,
     IRepositoryPathResolver pathResolver,
+    IExclusionMatcher exclusionMatcher,
     IRemoteUrlProvider remoteUrlProvider,
     IChangeDetector changeDetector,
     IArchiveNameBuilder nameBuilder,
@@ -56,11 +58,11 @@ public sealed class BackupOrchestrator(
 
         var config = loaded.Config;
         ToolSet tools;
-        IReadOnlyList<BackupWorkItem> items;
+        List<BackupWorkItem> items;
         try
         {
             tools = await toolLocator.LocateAsync(cancellationToken);
-            items = BackupWorkItem.CreateAll(config, pathResolver);
+            items = ExcludeMatching(config, BackupWorkItem.CreateAll(config, pathResolver));
         }
         catch (Exception exception) when (exception is ToolUnavailableException or ArgumentException)
         {
@@ -79,6 +81,32 @@ public sealed class BackupOrchestrator(
         }
 
         return new(results, loaded.Warnings, []);
+    }
+
+    /// <summary>
+    /// Removes the repositories that an exclusion mask matches and logs a warning for each; an exclusion wins over an
+    /// entry of the list.
+    /// </summary>
+    /// <param name="config">The configuration that holds the masks.</param>
+    /// <param name="items">The repositories of the list.</param>
+    /// <returns>The repositories that no mask matches, in their original order.</returns>
+    private List<BackupWorkItem> ExcludeMatching(BackupConfig config, IReadOnlyList<BackupWorkItem> items)
+    {
+        var kept = new List<BackupWorkItem>(items.Count);
+        foreach (var item in items)
+        {
+            var match = exclusionMatcher.Match(config, item.Owner, item.Name);
+            if (match is null)
+            {
+                kept.Add(item);
+            }
+            else
+            {
+                BackupOrchestratorLog.RepositoryExcluded(logger, item.FullName, match.Mask, match.Scope);
+            }
+        }
+
+        return kept;
     }
 
     /// <summary>

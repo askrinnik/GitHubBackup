@@ -191,6 +191,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             toolLocator,
             tokenProvider,
             new RepositoryPathResolver(Path.Combine(_sandbox.RootPath, BackupConfig.DefaultSourcesFolderName)),
+            new ExclusionMatcher(),
             remoteUrlProvider,
             new ChangeDetector(gitClient, _fileSystem, NullLogger<ChangeDetector>.Instance),
             new ArchiveNameBuilder(_timeProvider, backupOptions),
