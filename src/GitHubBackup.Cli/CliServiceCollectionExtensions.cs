@@ -11,8 +11,8 @@ internal static class CliServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the outputs of the console, the <see cref="BackupSummaryRenderer"/> and the
-        /// <see cref="BackupCommandHandler"/>.
+        /// Adds the outputs of the console, the <see cref="BackupSummaryRenderer"/> and the handlers of the
+        /// commands.
         /// </summary>
         /// <param name="console">The outputs of the console application.</param>
         /// <returns>The same service collection, for chaining.</returns>
@@ -21,6 +21,8 @@ internal static class CliServiceCollectionExtensions
             services.AddSingleton(console);
             services.AddSingleton<BackupSummaryRenderer>();
             services.AddSingleton<BackupCommandHandler>();
+            services.AddSingleton<ValidateCommandHandler>();
+            services.AddSingleton<SetTokenCommandHandler>();
             return services;
         }
     }

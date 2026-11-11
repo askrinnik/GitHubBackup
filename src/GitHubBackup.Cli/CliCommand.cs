@@ -11,6 +11,12 @@ internal enum CliCommand
     /// <summary>The <c>backup</c> command.</summary>
     Backup,
 
+    /// <summary>The <c>validate</c> command.</summary>
+    Validate,
+
+    /// <summary>The <c>set-token</c> command.</summary>
+    SetToken,
+
     /// <summary>An informational option such as <c>--help</c> or <c>--version</c>, answered without starting the host.</summary>
     Information,
 }

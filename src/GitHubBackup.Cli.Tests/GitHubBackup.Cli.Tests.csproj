@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- Mirrors GitHubBackup.Cli: the localized resource assemblies of System.CommandLine are not copied, so parser messages stay English. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Cli\GitHubBackup.Cli.csproj" />
     <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />

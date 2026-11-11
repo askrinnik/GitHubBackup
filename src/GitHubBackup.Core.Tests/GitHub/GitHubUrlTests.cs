@@ -165,4 +165,71 @@ public sealed class GitHubUrlTests
         GitHubUrl.IsValidRepositoryName(new string('a', 100)).ShouldBeTrue();
         GitHubUrl.IsValidRepositoryName(new string('a', 101)).ShouldBeFalse();
     }
+
+    [Theory]
+    [InlineData("https://github.com/askrinnik", "askrinnik")]
+    [InlineData("askrinnik", "askrinnik")]
+    [InlineData("get-the-manual", "get-the-manual")]
+    public void TryParseAccountReference_UrlOrLogin_ReturnsLogin(string reference, string expectedLogin)
+    {
+        var parsed = GitHubUrl.TryParseAccountReference(reference, out var login);
+
+        parsed.ShouldBeTrue();
+        login.ShouldBe(expectedLogin);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData("-askrinnik")]
+    [InlineData("ask_rinnik")]
+    [InlineData("owner/repo")]
+    [InlineData("CON")]
+    [InlineData("http://github.com/askrinnik")]
+    [InlineData("https://github.com/askrinnik/repo")]
+    public void TryParseAccountReference_Invalid_ReturnsFalse(string? reference)
+    {
+        var parsed = GitHubUrl.TryParseAccountReference(reference, out var login);
+
+        parsed.ShouldBeFalse();
+        login.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("https://github.com/someone-else/library", "someone-else", "library")]
+    [InlineData("someone-else/library", "someone-else", "library")]
+    [InlineData("a/b.c_d-e", "a", "b.c_d-e")]
+    public void TryParseRepositoryReference_UrlOrOwnerAndName_ReturnsParts(string reference, string expectedOwner, string expectedName)
+    {
+        var parsed = GitHubUrl.TryParseRepositoryReference(reference, out var owner, out var name);
+
+        parsed.ShouldBeTrue();
+        owner.ShouldBe(expectedOwner);
+        name.ShouldBe(expectedName);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("library")]
+    [InlineData("/library")]
+    [InlineData("owner/")]
+    [InlineData("owner/repo/extra")]
+    [InlineData("owner/repo/")]
+    [InlineData("-owner/repo")]
+    [InlineData("owner/repo.git")]
+    [InlineData("owner/..")]
+    [InlineData("owner/NUL")]
+    [InlineData("owner/re po")]
+    [InlineData("https://github.com/owner")]
+    [InlineData("http://github.com/owner/repo")]
+    public void TryParseRepositoryReference_Invalid_ReturnsFalse(string? reference)
+    {
+        var parsed = GitHubUrl.TryParseRepositoryReference(reference, out var owner, out var name);
+
+        parsed.ShouldBeFalse();
+        owner.ShouldBeNull();
+        name.ShouldBeNull();
+    }
 }
