@@ -5,11 +5,11 @@ using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.Configuration;
-using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Archiving;
@@ -20,9 +20,12 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Archiving;
 public sealed class SevenZipArchiverTests : IDisposable
 {
     private const string _fileName = "owner_repo_20261111-132030_0123456789.zip";
+    private const int _startingEventId = 1;
+    private const int _outputLineEventId = 2;
+    private const int _exitedEventId = 3;
 
     private readonly LocalGitSandbox _sandbox = new();
-    private readonly CapturingLogger<ProcessRunner> _runnerLogger = new();
+    private readonly FakeLogger<ProcessRunner> _runnerLogger = new();
     private readonly string _temporaryFolder;
     private readonly string _archiveFolder;
 
@@ -71,10 +74,12 @@ public sealed class SevenZipArchiverTests : IDisposable
 
         await CreateArchiver().CreateAsync(Request(clone), CancellationToken);
 
-        var entries = _runnerLogger.Entries.Where(entry => entry.Properties.TryGetValue("Tool", out var tool) && Equals(tool, "7z")).ToList();
-        entries.ShouldContain(entry => entry.Message.Contains("Starting", StringComparison.Ordinal));
-        entries.ShouldContain(entry => entry.Message.Contains("Everything is Ok", StringComparison.Ordinal));
-        entries.ShouldContain(entry => entry.Message.Contains("exited with code 0", StringComparison.Ordinal));
+        var records = _runnerLogger.Collector.GetSnapshot().Where(record => record.GetStructuredStateValue("Tool") == "7z").ToList();
+        records.ShouldContain(record => record.Id.Id == _startingEventId);
+        records.ShouldContain(record =>
+            record.Id.Id == _outputLineEventId
+            && record.GetStructuredStateValue("Line")!.Contains("Everything is Ok", StringComparison.Ordinal));
+        records.ShouldContain(record => record.Id.Id == _exitedEventId && record.GetStructuredStateValue("ExitCode") == "0");
     }
 
     [Fact]
@@ -116,7 +121,7 @@ public sealed class SevenZipArchiverTests : IDisposable
     {
         var target = Path.Combine(_sandbox.RootPath, "extracted", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(target);
-        var result = await CreateRunner(new CapturingLogger<ProcessRunner>()).RunAsync(
+        var result = await CreateRunner(NullLogger<ProcessRunner>.Instance).RunAsync(
             new ProcessRequest
             {
                 FileName = ToolsOptions.DefaultSevenZipPath,

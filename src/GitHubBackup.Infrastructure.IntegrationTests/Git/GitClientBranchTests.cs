@@ -36,7 +36,7 @@ public sealed class GitClientBranchTests : GitClientTestBase
         result.BranchFallback.ShouldBeFalse();
         (await HeadAsync(_clonePath)).ShouldBe(developHead);
         (await GitAsync(_clonePath, "rev-parse", "--abbrev-ref", "HEAD")).ShouldBe(["develop"]);
-        _clientLogger.Entries.ShouldNotContain(entry => entry.Level == LogLevel.Warning);
+        _clientLogger.Collector.GetSnapshot().ShouldNotContain(record => record.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -70,8 +70,10 @@ public sealed class GitClientBranchTests : GitClientTestBase
         result.BranchFallback.ShouldBeTrue();
         result.IsEmpty.ShouldBeFalse();
         (await HeadAsync(_clonePath)).ShouldBe(head);
-        _clientLogger.Entries.ShouldContain(
-            entry => entry.Level == LogLevel.Warning && entry.Message.Contains("missing") && entry.Message.Contains("main"));
+        var record = Records(_clientLogger, _branchNotFoundEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Branch").ShouldBe("missing");
+        record.GetStructuredStateValue("DefaultBranch").ShouldBe("main");
     }
 
     [Fact]
@@ -89,7 +91,10 @@ public sealed class GitClientBranchTests : GitClientTestBase
         result.BranchFallback.ShouldBeTrue();
         (await HeadAsync(_clonePath)).ShouldBe(head);
         (await GitAsync(_clonePath, "rev-parse", "--abbrev-ref", "HEAD")).ShouldBe(["main"]);
-        _clientLogger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("feature"));
+        var record = Records(_clientLogger, _branchNotFoundEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Branch").ShouldBe("feature");
+        record.GetStructuredStateValue("DefaultBranch").ShouldBe("main");
     }
 
     [Fact]

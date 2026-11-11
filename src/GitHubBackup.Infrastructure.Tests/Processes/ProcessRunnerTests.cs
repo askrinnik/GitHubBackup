@@ -2,7 +2,7 @@ using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Processes;
-using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 
 namespace GitHubBackup.Infrastructure.Tests.Processes;
@@ -16,7 +16,7 @@ public sealed class ProcessRunnerTests
     private const string _workingDirectory = @"C:\work";
 
     private readonly MockFileSystem _fileSystem = new();
-    private readonly RecordingLogger<ProcessRunner> _logger = new();
+    private readonly FakeLogger<ProcessRunner> _logger = new();
     private readonly ProcessRunner _runner;
 
     /// <summary>
@@ -40,7 +40,7 @@ public sealed class ProcessRunnerTests
 
         await Should.ThrowAsync<ArgumentException>(() => _runner.RunAsync(request, TestContext.Current.CancellationToken));
 
-        _logger.Entries.ShouldBeEmpty();
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 
     [Fact]
@@ -52,7 +52,7 @@ public sealed class ProcessRunnerTests
             () => _runner.RunAsync(request, TestContext.Current.CancellationToken));
 
         exception.Message.ShouldContain(@"C:\tools\missing.exe");
-        _logger.Entries.ShouldBeEmpty();
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 
     [Fact]
@@ -64,7 +64,7 @@ public sealed class ProcessRunnerTests
             () => _runner.RunAsync(request, TestContext.Current.CancellationToken));
 
         exception.Message.ShouldContain(@"C:\missing");
-        _logger.Entries.ShouldBeEmpty();
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 
     [Fact]
@@ -75,6 +75,6 @@ public sealed class ProcessRunnerTests
         await Should.ThrowAsync<OperationCanceledException>(
             () => _runner.RunAsync(request, new CancellationToken(canceled: true)));
 
-        _logger.Entries.ShouldBeEmpty();
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
     }
 }

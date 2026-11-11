@@ -5,6 +5,7 @@ using GitHubBackup.Core.Processes;
 using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.Tests.BackupConfiguration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -23,7 +24,11 @@ public sealed class SevenZipArchiverTests
 
     private readonly FaultInjectingFileSystem _fileSystem = new();
     private readonly IProcessRunner _runner = Substitute.For<IProcessRunner>();
-    private readonly RecordingLogger<SevenZipArchiver> _logger = new();
+    private const int _movingEventId = 4;
+    private const int _cleanupFailedEventId = 5;
+    private const int _sourceNotDeletedEventId = 6;
+
+    private readonly FakeLogger<SevenZipArchiver> _logger = new();
     private readonly BackupOptions _options = new();
 
     /// <summary>
@@ -127,7 +132,9 @@ public sealed class SevenZipArchiverTests
         var result = await CreateArchiver().CreateAsync(Request() with { DestinationFolder = @"c:\archives" }, CancellationToken);
 
         _fileSystem.File.Exists(result.Path).ShouldBeTrue();
-        _logger.Entries.ShouldContain(entry => entry.Message.Contains("same volume: True", StringComparison.Ordinal));
+        var record = Records(_movingEventId).ShouldHaveSingleItem();
+        record.GetStructuredStateValue("Destination").ShouldBe(result.Path);
+        record.GetStructuredStateValue("SameVolume").ShouldBe(bool.TrueString);
     }
 
     [Theory]
@@ -150,7 +157,9 @@ public sealed class SevenZipArchiverTests
         var result = await CreateArchiver().CreateAsync(Request() with { DestinationFolder = @"D:\archives" }, CancellationToken);
 
         _fileSystem.File.Exists(result.Path).ShouldBeTrue();
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("was not deleted", StringComparison.Ordinal));
+        var record = Records(_sourceNotDeletedEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Path").ShouldNotBeNull().ShouldStartWith(_temporary + @"\");
     }
 
     [Fact]
@@ -161,7 +170,9 @@ public sealed class SevenZipArchiverTests
 
         await Should.ThrowAsync<ArchiveCommandException>(() => CreateArchiver().CreateAsync(Request(), CancellationToken));
 
-        _logger.Entries.ShouldContain(entry => entry.Level == LogLevel.Warning && entry.Message.Contains("Cannot delete", StringComparison.Ordinal));
+        var records = Records(_cleanupFailedEventId);
+        records.ShouldNotBeEmpty();
+        records.ShouldAllBe(record => record.Level == LogLevel.Warning);
     }
 
     [Fact]
@@ -303,4 +314,12 @@ public sealed class SevenZipArchiverTests
     };
 
     private SevenZipArchiver CreateArchiver() => new(_runner, _fileSystem, Options.Create(_options), _logger);
+
+    /// <summary>
+    /// Returns the log records with the event id <paramref name="eventId"/>, in the order they were written.
+    /// </summary>
+    /// <param name="eventId">The event id of the <see cref="LoggerMessageAttribute"/>.</param>
+    /// <returns>The records.</returns>
+    private List<FakeLogRecord> Records(int eventId) =>
+        [.. _logger.Collector.GetSnapshot().Where(record => record.Id.Id == eventId)];
 }

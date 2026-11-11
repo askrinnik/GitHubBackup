@@ -21,7 +21,7 @@ public sealed class GitClientTokenTests : GitClientTestBase
         await CreateClient().UpdateAsync(Request(branch: "missing", token: _token), CancellationToken);
         await CreateClient().GetRemoteRefsAsync(Request(token: _token), CancellationToken);
         await CreateClient().GetDefaultBranchAsync(Request(token: _token), CancellationToken);
-        _runnerLogger.Entries.ShouldContain(entry => entry.Message.Contains("ls-remote"));
+        Records(_runnerLogger, _processStartingEventId).ShouldContain(record => record.GetStructuredStateValue("CommandLine")!.Contains("ls-remote"));
 
         var configs = Directory.EnumerateFiles(Path.Combine(_clonePath, ".git", "modules"), "config", SearchOption.AllDirectories)
             .Prepend(Path.Combine(_clonePath, ".git", "config"))
@@ -35,8 +35,8 @@ public sealed class GitClientTokenTests : GitClientTestBase
             content.ShouldNotContain("extraheader", Case.Insensitive);
         }
 
-        var logged = _runnerLogger.Entries.Concat(_clientLogger.Entries)
-            .SelectMany(entry => entry.Properties.Values.Select(value => value?.ToString() ?? string.Empty).Prepend(entry.Message))
+        var logged = _runnerLogger.Collector.GetSnapshot().Concat(_clientLogger.Collector.GetSnapshot())
+            .SelectMany(record => (record.StructuredState ?? []).Select(pair => pair.Value ?? string.Empty).Prepend(record.Message))
             .ToList();
         logged.ShouldNotBeEmpty();
         logged.ShouldAllBe(text => !text.Contains(_token) && !text.Contains(encoded));

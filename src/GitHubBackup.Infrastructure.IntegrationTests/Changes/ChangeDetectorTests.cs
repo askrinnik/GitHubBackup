@@ -4,11 +4,11 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
 using GitHubBackup.Infrastructure.Git;
-using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Changes;
 
@@ -19,10 +19,11 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Changes;
 public sealed class ChangeDetectorTests : IDisposable
 {
     private const string _archiveFile = "repo.7z";
+    private const int _startingEventId = 1;
 
     private readonly LocalGitSandbox _sandbox = new();
     private readonly SecretMasker _masker = new();
-    private readonly CapturingLogger<ProcessRunner> _runnerLogger = new();
+    private readonly FakeLogger<ProcessRunner> _runnerLogger = new();
     private readonly string _clonePath;
     private readonly string _archiveFolder;
 
@@ -82,13 +83,16 @@ public sealed class ChangeDetectorTests : IDisposable
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
         var archive = await ArchiveFirstAsync(remote);
-        var entriesBefore = _runnerLogger.Entries.Count;
+        _runnerLogger.Collector.Clear();
 
         var result = await DetectAsync(remote, archive);
 
         result.Decision.ShouldBe(ChangeDecision.UpToDate);
         result.Reason.ShouldBe(ChangeReason.Unchanged);
-        var commands = _runnerLogger.Entries.Skip(entriesBefore).Select(entry => entry.Message).ToList();
+        var commands = _runnerLogger.Collector.GetSnapshot()
+            .Where(record => record.Id.Id == _startingEventId)
+            .Select(record => record.GetStructuredStateValue("CommandLine")!)
+            .ToList();
         commands.ShouldContain(message => message.Contains("ls-remote"));
         commands.ShouldNotContain(message => message.Contains(" fetch"));
     }

@@ -10,6 +10,7 @@ using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Processes;
 
@@ -31,8 +32,14 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     private const string _secretName = "GITHUBBACKUP_TEST_SECRET";
     private const string _plainName = "GITHUBBACKUP_TEST_PLAIN";
 
+    private const int _startingEventId = 1;
+    private const int _outputLineEventId = 2;
+    private const int _exitedEventId = 3;
+    private const int _cancelledEventId = 4;
+    private const int _killFailedEventId = 5;
+
     private readonly TemporaryContentRoot _contentRoot = new(_informationAppSettings);
-    private readonly CapturingLogger<ProcessRunner> _logger = new();
+    private readonly FakeLogger<ProcessRunner> _logger = new();
     private readonly ProcessRunner _runner;
 
     /// <summary>
@@ -68,22 +75,22 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     {
         var result = await _runner.RunAsync(CreateSecretRequest(), TestContext.Current.CancellationToken);
 
-        var entries = _logger.Entries;
-        entries.ShouldNotBeEmpty();
-        foreach (var entry in entries)
+        var records = _logger.Collector.GetSnapshot();
+        records.ShouldNotBeEmpty();
+        foreach (var record in records)
         {
-            entry.Message.ShouldNotContain(_secretValue);
-            entry.Message.ShouldNotContain(_plainValue);
-            foreach (var value in entry.Properties.Values)
+            record.Message.ShouldNotContain(_secretValue);
+            record.Message.ShouldNotContain(_plainValue);
+            foreach (var pair in record.StructuredState ?? [])
             {
-                var text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+                var text = pair.Value ?? string.Empty;
                 text.ShouldNotContain(_secretValue);
                 text.ShouldNotContain(_plainValue);
             }
         }
 
-        entries.ShouldContain(entry => Equals(entry.Properties.GetValueOrDefault("Line"), "out ***"));
-        entries.ShouldContain(entry => Equals(entry.Properties.GetValueOrDefault("Line"), "err ***"));
+        records.ShouldContain(record => record.Id.Id == _outputLineEventId && record.GetStructuredStateValue("Line") == "out ***");
+        records.ShouldContain(record => record.Id.Id == _outputLineEventId && record.GetStructuredStateValue("Line") == "err ***");
         result.StandardOutput.ShouldBe([$"out {_secretValue}"]);
     }
 
@@ -115,15 +122,16 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
-        var entries = _logger.Entries;
-        entries.Select(entry => entry.EventId.Id).ShouldBe([1, 2, 2, 3]);
-        entries.Skip(1).Take(2).Select(entry => entry.Properties["Line"]).ShouldBe(["first", "second"]);
-        entries.Skip(1).Take(2).ShouldAllBe(entry => Equals(entry.Properties[LogProperties.Stream], "stdout"));
-        entries.ShouldAllBe(entry => Equals(entry.Properties[LogProperties.Tool], "cmd"));
-        var exited = entries[^1];
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _outputLineEventId, _exitedEventId]);
+        var lines = records.Where(record => record.Id.Id == _outputLineEventId).ToList();
+        lines.Select(record => record.GetStructuredStateValue("Line")).ShouldBe(["first", "second"]);
+        lines.ShouldAllBe(record => record.GetStructuredStateValue(LogProperties.Stream) == "stdout");
+        records.ShouldAllBe(record => record.GetStructuredStateValue(LogProperties.Tool) == "cmd");
+        var exited = records[^1];
         exited.Level.ShouldBe(LogLevel.Information);
-        exited.Properties["ExitCode"].ShouldBe(0);
-        exited.Properties["Duration"].ShouldBeOfType<TimeSpan>().ShouldBeGreaterThan(TimeSpan.Zero);
+        exited.GetStructuredStateValue("ExitCode").ShouldBe("0");
+        TimeSpan.Parse(exited.GetStructuredStateValue("Duration")!, CultureInfo.InvariantCulture).ShouldBeGreaterThan(TimeSpan.Zero);
     }
 
     [Fact]
@@ -133,9 +141,10 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
-        var exited = _logger.Entries[^1];
+        var exited = _logger.LatestRecord;
+        exited.Id.Id.ShouldBe(_exitedEventId);
         exited.Level.ShouldBe(LogLevel.Warning);
-        exited.Properties["ExitCode"].ShouldBe(5);
+        exited.GetStructuredStateValue("ExitCode").ShouldBe("5");
     }
 
     [Fact]
@@ -145,7 +154,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
-        _logger.Entries.Select(entry => entry.EventId.Id).ShouldBe([1, 3]);
+        EventIds().ShouldBe([_startingEventId, _exitedEventId]);
     }
 
     [Fact]
@@ -157,7 +166,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(() => _runner.RunAsync(request, cancellation.Token));
 
-        _logger.Entries.Select(entry => entry.EventId.Id).ShouldBe([1, 4]);
+        EventIds().ShouldBe([_startingEventId, _cancelledEventId]);
     }
 
     [Fact]
@@ -182,14 +191,20 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(() => runner.RunAsync(request, cancellation.Token));
 
-        _logger.Entries.Select(entry => entry.EventId.Id).ShouldBe([1, 5, 4]);
-        _logger.Entries[1].Properties["Error"].ShouldBe("Access is denied for ***");
+        EventIds().ShouldBe([_startingEventId, _killFailedEventId, _cancelledEventId]);
+        _logger.Collector.GetSnapshot()[1].GetStructuredStateValue("Error").ShouldBe("Access is denied for ***");
     }
 
     /// <summary>
     /// Deletes the temporary content root.
     /// </summary>
     public void Dispose() => _contentRoot.Dispose();
+
+    /// <summary>
+    /// Returns the event ids of the records the runner logged, in order.
+    /// </summary>
+    /// <returns>The event ids.</returns>
+    private int[] EventIds() => [.. _logger.Collector.GetSnapshot().Select(record => record.Id.Id)];
 
     /// <summary>
     /// Creates a request whose script prints the secret variable to both streams and never prints the plain one.

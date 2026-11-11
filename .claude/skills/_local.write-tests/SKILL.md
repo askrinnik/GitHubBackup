@@ -25,6 +25,7 @@ Write the regression test **first**, run it, and confirm it fails for the reason
 ## Checklist
 
 - Assertions with Shouldly; doubles with NSubstitute; large outputs compared with an expected raw string literal written in the test (no snapshot files).
+- A log entry the PRD requires is checked through `FakeLogger<T>`: find the record by `EventId`, assert its level and structured properties; read the message text only to prove a secret is absent. No hand-written loggers.
 - No `// Arrange / Act / Assert` comments.
 - Test names `Method_Scenario_ExpectedResult`.
 - No test depends on another test, on order, on the clock or on the network.

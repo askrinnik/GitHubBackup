@@ -4,6 +4,7 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Files;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using NSubstitute;
 
@@ -56,7 +57,7 @@ internal static class BackupConfigSamples
     /// <param name="fileSystem">The mock file system.</param>
     /// <param name="logger">The logger, or <see langword="null"/> for one that only records.</param>
     /// <returns>The store.</returns>
-    public static JsonBackupConfigStore CreateStore(MockFileSystem fileSystem, RecordingLogger<JsonBackupConfigStore>? logger = null)
+    public static JsonBackupConfigStore CreateStore(MockFileSystem fileSystem, FakeLogger<JsonBackupConfigStore>? logger = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(ContentRootPath);
@@ -67,7 +68,7 @@ internal static class BackupConfigSamples
             environment,
             new BackupConfigValidator(),
             new AtomicFileWriter(fileSystem),
-            logger ?? new RecordingLogger<JsonBackupConfigStore>());
+            logger ?? new FakeLogger<JsonBackupConfigStore>());
     }
 
     /// <summary>

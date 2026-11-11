@@ -4,11 +4,11 @@ using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Git;
-using GitHubBackup.Infrastructure.IntegrationTests.Processes;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Discovery;
 
@@ -20,7 +20,7 @@ public sealed class CloneRelocatorTests : IDisposable
 {
     private readonly LocalGitSandbox _sandbox = new();
     private readonly SecretMasker _masker = new();
-    private readonly CapturingLogger<ProcessRunner> _runnerLogger = new();
+    private readonly FakeLogger<ProcessRunner> _runnerLogger = new();
     private readonly FileSystem _fileSystem = new();
     private readonly string _sourcesRoot;
 

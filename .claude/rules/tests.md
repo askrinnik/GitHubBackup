@@ -29,6 +29,7 @@ Smoke tests against real GitHub carry a separate trait/category and do not run b
 - **Shouldly** for assertions (`result.ShouldBe(…)`, `Should.ThrowAsync<T>(…)`). No `Assert.*` mixed in, no FluentAssertions.
 - **NSubstitute** for test doubles of interfaces. Substitute only what the subject depends on; prefer a small hand-written fake when it makes the test clearer than a chain of `Returns`.
 - **Large outputs** (summary table, dry-run output, saved `backup-config.json`, `.backup-state.json`) are compared with an expected value written in the test itself (a raw string literal) using Shouldly. No snapshot library and no committed reference files.
+- **Logs.** A log entry the PRD requires is asserted through `FakeLogger<T>` (`Microsoft.Extensions.Diagnostics.Testing`), never a hand-written logger. Find the record by `EventId` (`_logger.Collector.GetSnapshot().Where(r => r.Id.Id == N)`, the number held in a named `private const` of the test class), then assert `Level` and `GetStructuredStateValue("Property")`; values are strings (an enum compares as its name). The formatted `Message` is read only in a negative check that a secret is absent — then check every `StructuredState` value too. A test that checks no log entry passes `NullLogger<T>.Instance`.
 - **WireMock.Net** for GitHub API contract tests: pagination, 401/403/404, exhausted rate limit, a rename (same id, different name).
 - **FlaUI** for UI tests; **NetArchTest** for architecture tests.
 

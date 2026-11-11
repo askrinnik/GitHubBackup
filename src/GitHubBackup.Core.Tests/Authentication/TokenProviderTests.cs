@@ -1,7 +1,7 @@
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.Security;
-using GitHubBackup.Core.Tests.Logging;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 
 namespace GitHubBackup.Core.Tests.Authentication;
@@ -13,8 +13,11 @@ public sealed class TokenProviderTests
 {
     internal const string Secret = "ghp_secret-token-value";
 
+    private const int _tokenFoundEventId = 1;
+    private const int _anonymousModeEventId = 2;
+
     private readonly SecretMasker _masker = new();
-    private readonly RecordingLogger<TokenProvider> _logger = new();
+    private readonly FakeLogger<TokenProvider> _logger = new();
 
     [Fact]
     public async Task GetTokenAsync_FirstSourceHasToken_ReturnsItAndSkipsOthers()
@@ -65,10 +68,9 @@ public sealed class TokenProviderTests
     {
         await Provider().GetTokenAsync(TestContext.Current.CancellationToken);
 
-        var entry = _logger.Entries.ShouldHaveSingleItem();
-        entry.Level.ShouldBe(LogLevel.Warning);
-        entry.Message.ShouldContain("anonymous");
-        entry.Message.ShouldContain("60 requests per hour");
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_anonymousModeEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
     }
 
     [Fact]
@@ -76,10 +78,12 @@ public sealed class TokenProviderTests
     {
         await Provider(Source("my source", Secret)).GetTokenAsync(TestContext.Current.CancellationToken);
 
-        var entry = _logger.Entries.ShouldHaveSingleItem();
-        entry.Level.ShouldBe(LogLevel.Information);
-        entry.Message.ShouldContain("my source");
-        entry.Message.ShouldNotContain(Secret);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_tokenFoundEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Source").ShouldBe("my source");
+        record.Message.ShouldNotContain(Secret);
+        record.StructuredState.ShouldNotBeNull().ShouldAllBe(pair => pair.Value == null || !pair.Value.Contains(Secret));
     }
 
     [Fact]
