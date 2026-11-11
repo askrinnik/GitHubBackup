@@ -104,6 +104,17 @@ public sealed class RuleDetectionTests
     }
 
     [Theory]
+    [InlineData("Octokit", true)]
+    [InlineData("OctokitX", false)]
+    [InlineData("GitHubBackup.Infrastructure", false)]
+    public void Find_HostReference_ReportsOnlyOctokit(string referenceName, bool isReported)
+    {
+        var found = ForbiddenReferenceFinder.Find([new AssemblyName(referenceName)], [LayerRules.Octokit]);
+
+        found.Count.ShouldBe(isReported ? 1 : 0);
+    }
+
+    [Theory]
     [InlineData("Microsoft.Extensions.Options")]
     [InlineData("Microsoft.Extensions.Logging.Abstractions")]
     [InlineData("System.IO.Abstractions")]

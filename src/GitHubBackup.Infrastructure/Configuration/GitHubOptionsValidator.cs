@@ -10,12 +10,13 @@ internal sealed class GitHubOptionsValidator : IValidateOptions<GitHubOptions>
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, GitHubOptions options)
     {
-        var isHttpUri = Uri.TryCreate(options.ApiBaseUrl, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp);
+        // The token goes with every API request, so plain http is allowed only where it never leaves the machine.
+        var isAllowedUri = Uri.TryCreate(options.ApiBaseUrl, UriKind.Absolute, out var uri)
+            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
 
-        return isHttpUri
+        return isAllowedUri
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(
-                $"{GitHubOptions.SectionName}:{nameof(GitHubOptions.ApiBaseUrl)} must be an absolute http or https URI.");
+                $"{GitHubOptions.SectionName}:{nameof(GitHubOptions.ApiBaseUrl)} must be an absolute https URI, or http for a loopback address.");
     }
 }

@@ -48,6 +48,22 @@ public static class LayerRules
     public static Assembly Infrastructure { get; } = Assembly.Load(new AssemblyName(_infrastructure));
 
     /// <summary>
+    /// Gets the <c>Cli</c> assembly.
+    /// </summary>
+    public static Assembly Cli { get; } = Assembly.Load(new AssemblyName(_cli));
+
+    /// <summary>
+    /// Gets the <c>App</c> assembly.
+    /// </summary>
+    public static Assembly App { get; } = Assembly.Load(new AssemblyName(_app));
+
+    /// <summary>
+    /// Gets the namespace and assembly name of Octokit, which only <c>Infrastructure</c> uses, and only in types the
+    /// hosts cannot see, so the hosts depend on <c>IGitHubApi</c> alone.
+    /// </summary>
+    public static string Octokit { get; } = "Octokit";
+
+    /// <summary>
     /// Gets the namespaces whose types <c>Core</c> must not use: the outer layers, the I/O libraries and the
     /// configuration system.
     /// </summary>

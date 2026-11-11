@@ -161,7 +161,7 @@ public sealed class CliApplicationTests : IDisposable
         ErrorLines().Order(StringComparer.Ordinal).ShouldBe(
         [
             "Configuration error: Backup:ShortHashLength must be between 4 and 40.",
-            "Configuration error: GitHub:ApiBaseUrl must be an absolute http or https URI.",
+            "Configuration error: GitHub:ApiBaseUrl must be an absolute https URI, or http for a loopback address.",
             "Configuration error: Tools:GitPath must be an absolute path when set.",
         ]);
     }
