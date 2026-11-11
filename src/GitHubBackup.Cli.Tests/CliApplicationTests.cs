@@ -6,7 +6,6 @@ using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -103,8 +102,21 @@ public sealed class CliApplicationTests : IDisposable
 
         exitCode.ShouldBe(ExitCode.Success);
         _output.Output.ShouldContain("backup");
-        _output.Output.ShouldContain("--config");
+        _output.Output.ShouldContain("validate");
+        _output.Output.ShouldContain("set-token");
         _standardError.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupHelp_ListsAllOptions()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "backup", "--help");
+
+        exitCode.ShouldBe(ExitCode.Success);
+        foreach (var option in new[] { "--account", "--repo", "--dry-run", "--silent", "--config" })
+        {
+            _output.Output.ShouldContain(option);
+        }
     }
 
     [Fact]
@@ -265,18 +277,6 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
-    public void BuildHost_CommandOptions_AreNotReadAsConfiguration()
-    {
-        using var host = CliApplication.BuildHost(
-            CreateSettings(_contentRoot.FolderPath, ValidAppSettings, "--account", "octocat", "--silent", "--Backup:ShortHashLength=12"), TestCliConsole.Create());
-
-        var configuration = host.Services.GetRequiredService<IConfiguration>();
-        configuration["account"].ShouldBeNull();
-        configuration["silent"].ShouldBeNull();
-        configuration["Backup:ShortHashLength"].ShouldBe("12");
-    }
-
-    [Fact]
     public void BuildHost_RelativePaths_ResolveAgainstContentRoot()
     {
         using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings), TestCliConsole.Create());
@@ -287,58 +287,130 @@ public sealed class CliApplicationTests : IDisposable
             .ShouldBe(Path.Combine(_contentRoot.FolderPath, "data", "history.db"));
     }
 
-    [Theory]
-    [InlineData("--config", @"D:\configs\mine.json")]
-    [InlineData(@"--config=D:\configs\mine.json")]
-    public void BuildHost_ConfigOption_OverridesConfigPath(params string[] args)
+    [Fact]
+    public void BuildHost_BackupConfigPath_OverridesConfigPath()
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
+        using var host = CliApplication.BuildHost(
+            CreateSettings(_contentRoot.FolderPath, ValidAppSettings) with { BackupConfigPath = @"D:\configs\mine.json" },
+            TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\configs\mine.json");
     }
 
-    [Theory]
-    [InlineData("--config", @"configs\mine.json")]
-    [InlineData(@"--config=configs\mine.json")]
-    public void BuildHost_RelativeConfigOption_ResolvesAgainstCurrentDirectory(params string[] args)
+    [Fact]
+    public void BuildHost_BackupConfigPathAndConfigPathKey_BackupConfigPathWins()
     {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
-
-        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath
-            .ShouldBe(Path.Combine(Environment.CurrentDirectory, "configs", "mine.json"));
-    }
-
-    [Theory]
-    [InlineData(@"--Backup:ConfigPath=D:\other.json", "--config", @"D:\mine.json")]
-    [InlineData("--config", @"D:\mine.json", @"--Backup:ConfigPath=D:\other.json")]
-    public void BuildHost_ConfigOptionAndConfigPathKey_ConfigOptionWins(params string[] args)
-    {
-        using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings, args), TestCliConsole.Create());
+        using var host = CliApplication.BuildHost(
+            CreateSettings(_contentRoot.FolderPath, ValidAppSettings, @"--Backup:ConfigPath=D:\other.json") with { BackupConfigPath = @"D:\mine.json" },
+            TestCliConsole.Create());
 
         host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ConfigPath.ShouldBe(@"D:\mine.json");
     }
 
     [Theory]
-    [InlineData("--config")]
-    [InlineData("--config=")]
-    [InlineData("--config", " ")]
-    [InlineData("--config", "--silent")]
-    [InlineData("--config", @"D:\mine.json", "--config")]
-    public async Task RunAsync_ConfigOptionWithoutValue_ReturnsCriticalWithOneLine(params string[] args)
+    [InlineData("backup", "--config")]
+    [InlineData("backup", "--config=")]
+    [InlineData("backup", "--config", " ")]
+    [InlineData("backup", "--config", "--silent")]
+    [InlineData("validate", "--config", "--silent")]
+    [InlineData("backup", "--config", @"D:\mine.json", "--config", @"D:\other.json")]
+    public async Task RunAsync_InvalidConfigOption_ReturnsCriticalWithOneCommandLineErrorAndValueNotShown(params string[] args)
     {
         var exitCode = await RunAsync(ValidAppSettings, args);
 
         exitCode.ShouldBe(ExitCode.Critical);
-        ErrorLines().ShouldBe(["Configuration error: The --config option requires the path of the backup configuration file."]);
+        var line = ErrorLines().ShouldHaveSingleItem();
+        line.ShouldStartWith(CliApplication.CommandLineErrorPrefix);
+        line.ShouldNotContain("mine.json");
+        line.ShouldNotContain("other.json");
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigOptionWithoutCommand_ReturnsCriticalWithCommandLineError()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "--config");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + "Unrecognized option '--config'."]);
     }
 
     [Fact]
     public async Task RunAsync_ConfigOptionNotAPath_ReturnsCriticalWithOneLine()
     {
-        var exitCode = await RunAsync(ValidAppSettings, "--config", "D:\\mine\0.json");
+        var exitCode = await RunAsync(ValidAppSettings, "backup", "--config", "D:\\mine\0.json");
 
         exitCode.ShouldBe(ExitCode.Critical);
-        ErrorLines().ShouldBe(["Configuration error: The --config option is not a valid path."]);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + CliCommandLine.ConfigInvalidMessage]);
+    }
+
+    [Theory]
+    [InlineData("--account", "octocat", "--repo", "octocat/hello")]
+    [InlineData("--repo", "octocat/hello", "--account", "octocat")]
+    public async Task RunAsync_AccountAndRepo_ReturnsCriticalWithOneLine(params string[] options)
+    {
+        var exitCode = await RunAsync(ValidAppSettings, ["backup", .. options]);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + CliCommandLine.AccountAndRepositoryMessage]);
+    }
+
+    [Fact]
+    public async Task RunAsync_CommandLineError_DoesNotBuildHost()
+    {
+        var exitCode = await RunAsync(new InMemoryFileProvider(new Dictionary<string, string>()), "backup", "--bogus");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + "Unrecognized option '--bogus'."]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ConfigOption_ReadsThatFile()
+    {
+        var path = Path.Combine(_contentRoot.FolderPath, "mine.json");
+
+        var exitCode = await RunAsync(ValidAppSettings, "backup", "--config", path);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines()[0].ShouldContain(path);
+    }
+
+    [Fact]
+    public async Task RunAsync_ValidateWithoutBackupConfig_ReturnsCriticalWithErrorAndLogPath()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "validate");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var lines = ErrorLines();
+        lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
+        lines[0].ShouldContain("backup-config.json");
+        lines[^1].ShouldStartWith(BackupSummaryRenderer.LogPrefix);
+    }
+
+    [Fact]
+    public async Task RunAsync_SetToken_ReturnsCriticalNotImplemented()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "set-token");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([SetTokenCommandHandler.NotImplementedMessage]);
+    }
+
+    [Fact]
+    public async Task RunAsync_SetTokenWithArgument_NeverWritesIt()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "set-token", Token);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + CliCommandLine.SetTokenArgumentMessage]);
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupDryRun_ReturnsCriticalAndChangesNothing()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "backup", "--dry-run");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines()[0].ShouldBe(BackupSummaryRenderer.ErrorPrefix + BackupCommandHandler.DryRunNotImplementedMessage);
     }
 
     [Fact]
@@ -364,22 +436,23 @@ public sealed class CliApplicationTests : IDisposable
     /// </summary>
     /// <param name="contentRootPath">The existing folder that the host uses as its content root.</param>
     /// <param name="appSettings">The JSON text of the settings file.</param>
-    /// <param name="args">The command-line arguments.</param>
+    /// <param name="configurationArguments">The configuration keys, each in the form <c>--Section:Key=value</c>.</param>
     /// <returns>The host settings.</returns>
-    internal static GitHubBackupHostSettings CreateSettings(string contentRootPath, string appSettings, params string[] args) =>
-        CreateSettings(contentRootPath, InMemoryFileProvider.WithAppSettings(appSettings), args);
+    internal static GitHubBackupHostSettings CreateSettings(
+        string contentRootPath, string appSettings, params string[] configurationArguments) =>
+        CreateSettings(contentRootPath, InMemoryFileProvider.WithAppSettings(appSettings), configurationArguments);
 
     /// <summary>
     /// Creates host settings that read <c>appsettings.json</c> from <paramref name="fileProvider"/>.
     /// </summary>
     /// <param name="contentRootPath">The existing folder that the host uses as its content root.</param>
     /// <param name="fileProvider">The provider of the settings file.</param>
-    /// <param name="args">The command-line arguments.</param>
+    /// <param name="configurationArguments">The configuration keys, each in the form <c>--Section:Key=value</c>.</param>
     /// <returns>The host settings.</returns>
     private static GitHubBackupHostSettings CreateSettings(
-        string contentRootPath, InMemoryFileProvider fileProvider, string[] args) => new()
+        string contentRootPath, InMemoryFileProvider fileProvider, string[] configurationArguments) => new()
         {
-            Args = args,
+            ConfigurationArguments = configurationArguments,
             ContentRootPath = contentRootPath,
             EnvironmentName = Environments.Production,
             ConfigurationFileProvider = fileProvider,
@@ -424,7 +497,8 @@ public sealed class CliApplicationTests : IDisposable
     /// <returns>The exit code.</returns>
     private Task<ExitCode> RunAsync(InMemoryFileProvider fileProvider, params string[] args) =>
         new CliApplication(new CliConsole(_output, _standardError)).RunAsync(
-            CreateSettings(_contentRoot.FolderPath, fileProvider, args),
+            args,
+            CreateSettings(_contentRoot.FolderPath, fileProvider, []),
             TestContext.Current.CancellationToken);
 
     /// <summary>

@@ -1,13 +1,13 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Runs;
-using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.Cli;
 
 /// <summary>
-/// Runs the <c>backup</c> command: runs the backup of every repository, shows the summary and returns the exit code.
+/// Runs the <c>backup</c> command: runs the backup of the selected repositories, shows the summary and returns the
+/// exit code.
 /// </summary>
 /// <remarks>
 /// Discovered repositories are decided by <see cref="AutomaticDiscoveryDecisionHandler"/>, the policy of the silent
@@ -25,24 +25,24 @@ internal sealed class BackupCommandHandler(
     IHostEnvironment environment,
     TimeProvider timeProvider)
 {
+    /// <summary>The error that stops a run with <c>--dry-run</c>, which is not available yet.</summary>
+    public const string DryRunNotImplementedMessage = "The --dry-run option is not implemented yet; nothing was changed.";
+
     /// <summary>
     /// Runs the backup and shows its summary.
     /// </summary>
+    /// <remarks>
+    /// With <see cref="BackupCommandOptions.DryRun"/> the run stops before the orchestrator, so nothing is changed.
+    /// </remarks>
+    /// <param name="options">The options of the command.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The exit code of the run.</returns>
-    public async Task<ExitCode> RunAsync(CancellationToken cancellationToken)
+    public async Task<ExitCode> RunAsync(BackupCommandOptions options, CancellationToken cancellationToken)
     {
-        var result = await orchestrator.RunAsync(new(BackupRunFilter.All, decisionHandler), cancellationToken);
-        await renderer.RenderAsync(result, GetLogPath());
+        var result = options.DryRun
+            ? BackupRunResult.Stopped([DryRunNotImplementedMessage], [])
+            : await orchestrator.RunAsync(new(options.Filter, decisionHandler), cancellationToken);
+        await renderer.RenderAsync(result, CliLogPath.Get(environment, timeProvider));
         return result.ExitCode;
     }
-
-    /// <summary>
-    /// Returns the path of the text log of the current day.
-    /// </summary>
-    /// <returns>The absolute path of the log file.</returns>
-    private string GetLogPath() => Path.Combine(
-        environment.ContentRootPath,
-        LogFiles.FolderName,
-        LogFiles.GetFileName(DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime), LogFiles.TextExtension));
 }

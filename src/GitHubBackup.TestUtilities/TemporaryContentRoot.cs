@@ -33,12 +33,12 @@ public sealed class TemporaryContentRoot : IDisposable
     /// <summary>
     /// Builds a host over this content root in the <see cref="Environments.Production"/> environment, not yet started.
     /// </summary>
-    /// <param name="args">The command-line arguments.</param>
+    /// <param name="configurationArguments">The configuration keys, each in the form <c>--Section:Key=value</c>.</param>
     /// <returns>The host; the caller disposes it.</returns>
-    public IHost BuildHost(params string[] args) =>
+    public IHost BuildHost(params string[] configurationArguments) =>
         GitHubBackupHostBuilder.Create(new()
         {
-            Args = args,
+            ConfigurationArguments = configurationArguments,
             ContentRootPath = FolderPath,
             EnvironmentName = Environments.Production,
         }).Build();

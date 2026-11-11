@@ -1,0 +1,203 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "de380043-6dd7-4f3f-bba7-80e58f161b73",
+  "workItem": "26",
+  "lane": "Feature",
+  "branch": "26-cli-commands-and-options",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-11 20:05",
+  "started": "2026-11-11 19:39",
+  "ended": "2026-11-11 20:05",
+  "duration": {
+    "wall": 1614,
+    "active": 1384,
+    "waiting": 230,
+    "waits": 2
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-cca2",
+  "note": null,
+  "marker": null,
+  "calls": 39,
+  "humanTurns": 3,
+  "subagents": 6,
+  "subagentCalls": 107,
+  "tokens": {
+    "input": 322,
+    "cacheRead": 11952201,
+    "cacheWrite": 483470,
+    "output": 130793
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 2453845,
+    "main": 752165,
+    "subagents": 1701679
+  },
+  "cacheReadShare": 48.7,
+  "unitsPerCall": {
+    "first40": null,
+    "first70": null,
+    "whole": 19286
+  },
+  "context": {
+    "first": 75565,
+    "max": 157691,
+    "last": 157691,
+    "first40": null,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 182836,
+  "diff": {
+    "files": 29,
+    "lines": 1608
+  },
+  "byActivity": [
+    {
+      "activity": "explore (read/search)",
+      "calls": 11,
+      "cost": 224027
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 7,
+      "cost": 115378
+    },
+    {
+      "activity": "implement",
+      "calls": 6,
+      "cost": 95148
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 3,
+      "cost": 83537
+    },
+    {
+      "activity": "ship",
+      "calls": 4,
+      "cost": 60539
+    },
+    {
+      "activity": "build/test",
+      "calls": 3,
+      "cost": 59695
+    },
+    {
+      "activity": "plan",
+      "calls": 2,
+      "cost": 56830
+    },
+    {
+      "activity": "other tool",
+      "calls": 2,
+      "cost": 39723
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 17288
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-developer",
+      "model": "claude-sonnet-5-5",
+      "agents": 1,
+      "calls": 38,
+      "cost": 883126
+    },
+    {
+      "type": "issue-planner",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 37,
+      "cost": 536152
+    },
+    {
+      "type": "security-reviewer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 8,
+      "cost": 115101
+    },
+    {
+      "type": "build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 2,
+      "calls": 17,
+      "cost": 103488
+    },
+    {
+      "type": "skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 7,
+      "cost": 63813
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "(reply)",
+      "cost": 31786
+    },
+    {
+      "tools": "Bash",
+      "cost": 17436
+    },
+    {
+      "tools": "Write",
+      "cost": 16388
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "cli",
+      "tokens": 614
+    },
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 451
+    },
+    {
+      "rule": "msbuild",
+      "tokens": 591
+    },
+    {
+      "rule": "security",
+      "tokens": 1085
+    },
+    {
+      "rule": "tests",
+      "tokens": 1351
+    }
+  ],
+  "rulesTokens": 6889,
+  "limit": {
+    "startPct": 32,
+    "startAt": "2026-11-11 19:39",
+    "endPct": 35,
+    "usedPct": 3,
+    "limitCost": 2394348,
+    "unitsPerPct": 798116,
+    "reason": null
+  }
+}

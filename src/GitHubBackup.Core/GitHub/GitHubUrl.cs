@@ -66,6 +66,59 @@ public static class GitHubUrl
     }
 
     /// <summary>
+    /// Parses an account given as a URL (see <see cref="TryParseAccount"/>) or as a bare login.
+    /// </summary>
+    /// <param name="reference">The URL or the login.</param>
+    /// <param name="login">The login of the account when the reference is valid.</param>
+    /// <returns><see langword="true"/> when <paramref name="reference"/> names a valid account.</returns>
+    public static bool TryParseAccountReference(string? reference, [NotNullWhen(true)] out string? login)
+    {
+        if (TryParseAccount(reference, out login))
+        {
+            return true;
+        }
+
+        if (reference is null || !IsValidLogin(reference))
+        {
+            login = null;
+            return false;
+        }
+
+        login = reference;
+        return true;
+    }
+
+    /// <summary>
+    /// Parses a repository given as a URL (see <see cref="TryParseRepository"/>) or as <c>owner/name</c>.
+    /// </summary>
+    /// <param name="reference">The URL or <c>owner/name</c>.</param>
+    /// <param name="owner">The login of the owner when the reference is valid.</param>
+    /// <param name="name">The repository name when the reference is valid.</param>
+    /// <returns><see langword="true"/> when <paramref name="reference"/> names a valid repository.</returns>
+    public static bool TryParseRepositoryReference(
+        string? reference, [NotNullWhen(true)] out string? owner, [NotNullWhen(true)] out string? name)
+    {
+        if (TryParseRepository(reference, out owner, out name))
+        {
+            return true;
+        }
+
+        var parts = reference?.Split('/');
+        if (parts is not [var candidateOwner, var candidateName]
+            || !IsValidLogin(candidateOwner)
+            || !IsValidRepositoryName(candidateName))
+        {
+            owner = null;
+            name = null;
+            return false;
+        }
+
+        owner = candidateOwner;
+        name = candidateName;
+        return true;
+    }
+
+    /// <summary>
     /// Returns whether <paramref name="login"/> is a GitHub user or organization login: 1 to 39 letters, digits and
     /// hyphens, not starting or ending with a hyphen and not a Windows device name.
     /// </summary>

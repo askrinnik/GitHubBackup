@@ -54,6 +54,7 @@ public sealed class EnvironmentVariableOverrideTests : IDisposable
         using var standardError = new StringWriter();
 
         var exitCode = await new CliApplication(TestCliConsole.Create(standardError)).RunAsync(
+            [],
             CliApplicationTests.CreateSettings(_contentRoot.FolderPath, CliApplicationTests.ValidAppSettings),
             TestContext.Current.CancellationToken);
 

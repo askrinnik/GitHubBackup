@@ -28,20 +28,26 @@ internal sealed class CliApplication(CliConsole console)
     /// the start and the end of the run, and stops the host again.
     /// </summary>
     /// <remarks>
-    /// <c>--help</c> and <c>--version</c> are answered before the host is built. The host is built before command-line
-    /// errors are reported, so an invalid <c>--config</c> value is reported as a configuration error. Invalid
-    /// configuration or an invalid command line produces one line per error on the error output and
+    /// <c>--help</c> and <c>--version</c> are answered, and an invalid command line is reported, before the host is
+    /// built. Invalid configuration or an invalid command line produces one line per error on the error output and
     /// <see cref="ExitCode.Critical"/>; no stack trace is written, because the console shows results and the details
     /// belong in the log. The start entry is written as soon as the host has started, so both log files of the day
     /// exist from then on.
     /// </remarks>
-    /// <param name="settings">The process the host is built for.</param>
+    /// <param name="args">The command-line arguments of the process.</param>
+    /// <param name="settings">The process the host is built for; the command line adds its configuration keys and the path of <c>backup-config.json</c>.</param>
     /// <param name="cancellationToken">Cancels starting and stopping the host and the command.</param>
     /// <returns>The exit code of the process.</returns>
-    public async Task<ExitCode> RunAsync(GitHubBackupHostSettings settings, CancellationToken cancellationToken)
+    public async Task<ExitCode> RunAsync(
+        IReadOnlyList<string> args, GitHubBackupHostSettings settings, CancellationToken cancellationToken)
     {
-        var arguments = CliCommandLine.Parse(settings.Args);
-        if (arguments.Command == CliCommand.Information && arguments.Errors.Count == 0)
+        var arguments = CliCommandLine.Parse(args);
+        if (arguments.Errors.Count > 0)
+        {
+            return await ReportAsync(CommandLineErrorPrefix, arguments.Errors);
+        }
+
+        if (arguments.Command == CliCommand.Information)
         {
             await arguments.ParseResult.InvokeAsync(
                 new InvocationConfiguration { Output = console.Output.Profile.Out.Writer, Error = console.Error },
@@ -52,7 +58,13 @@ internal sealed class CliApplication(CliConsole console)
         IHost host;
         try
         {
-            host = BuildHost(settings, console);
+            host = BuildHost(
+                settings with
+                {
+                    BackupConfigPath = arguments.BackupConfigPath,
+                    ConfigurationArguments = arguments.ConfigurationArguments,
+                },
+                console);
         }
         catch (Exception exception) when (ConfigurationErrorMessages.TryGet(exception, out var messages))
         {
@@ -61,11 +73,6 @@ internal sealed class CliApplication(CliConsole console)
 
         using (host)
         {
-            if (arguments.Errors.Count > 0)
-            {
-                return await ReportAsync(CommandLineErrorPrefix, arguments.Errors);
-            }
-
             try
             {
                 await host.StartAsync(cancellationToken);
@@ -79,9 +86,7 @@ internal sealed class CliApplication(CliConsole console)
             var environment = host.Services.GetRequiredService<IHostEnvironment>();
             CliLog.RunStarted(logger, _version, environment.EnvironmentName);
 
-            var exitCode = arguments.Command == CliCommand.Backup
-                ? await host.Services.GetRequiredService<BackupCommandHandler>().RunAsync(cancellationToken)
-                : ExitCode.Success;
+            var exitCode = await RunCommandAsync(host.Services, arguments, cancellationToken);
 
             await host.StopAsync(cancellationToken);
 
@@ -102,6 +107,22 @@ internal sealed class CliApplication(CliConsole console)
         builder.Services.AddGitHubBackupCli(console);
         return builder.Build();
     }
+
+    /// <summary>
+    /// Runs the handler of the parsed command.
+    /// </summary>
+    /// <param name="services">The services of the started host.</param>
+    /// <param name="arguments">The parsed command line.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The exit code of the command.</returns>
+    private static async Task<ExitCode> RunCommandAsync(
+        IServiceProvider services, CliArguments arguments, CancellationToken cancellationToken) => arguments.Command switch
+        {
+            CliCommand.Backup => await services.GetRequiredService<BackupCommandHandler>().RunAsync(arguments.Backup, cancellationToken),
+            CliCommand.Validate => await services.GetRequiredService<ValidateCommandHandler>().RunAsync(cancellationToken),
+            CliCommand.SetToken => await services.GetRequiredService<SetTokenCommandHandler>().RunAsync(),
+            _ => ExitCode.Success,
+        };
 
     /// <summary>
     /// Writes one line per error to the error output.

@@ -45,7 +45,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>())
             .Returns(new BackupRunResult([new("octocat/hello", status, null, TimeSpan.Zero, null)], [], []));
 
-        var exitCode = await CreateHandler().RunAsync(TestContext.Current.CancellationToken);
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
 
         exitCode.ShouldBe(expected);
     }
@@ -55,7 +55,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
     {
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
 
-        await CreateHandler().RunAsync(TestContext.Current.CancellationToken);
+        await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
 
         _output.Output.ShouldContain(@"Log: C:\app\logs\githubbackup-20261112.log");
     }
@@ -65,7 +65,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
     {
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(BackupRunResult.Stopped(["git was not found."], []));
 
-        var exitCode = await CreateHandler().RunAsync(TestContext.Current.CancellationToken);
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
 
         exitCode.ShouldBe(ExitCode.Critical);
         _error.ToString().ShouldStartWith("Error: git was not found.");
@@ -76,10 +76,33 @@ public sealed class BackupCommandHandlerTests : IDisposable
     {
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
 
-        await CreateHandler().RunAsync(TestContext.Current.CancellationToken);
+        await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
             new BackupRunRequest(BackupRunFilter.All, _decisionHandler), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_Filter_IsPassedToOrchestrator()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
+        var filter = BackupRunFilter.ForRepository("octocat", "hello");
+
+        await CreateHandler().RunAsync(new(filter, DryRun: false, Silent: true), TestContext.Current.CancellationToken);
+
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(filter, _decisionHandler), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRun_ReturnsCriticalWithoutRunningOrchestrator()
+    {
+        var exitCode = await CreateHandler().RunAsync(
+            BackupCommandOptions.Default with { DryRun = true }, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _error.ToString().ShouldStartWith("Error: " + BackupCommandHandler.DryRunNotImplementedMessage);
+        await _orchestrator.DidNotReceiveWithAnyArgs().RunAsync(default!, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -92,7 +115,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
                 Discovery = discovery,
             });
 
-        var exitCode = await CreateHandler().RunAsync(TestContext.Current.CancellationToken);
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
 
         exitCode.ShouldBe(ExitCode.DiscoveryEvents);
     }

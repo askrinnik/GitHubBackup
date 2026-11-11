@@ -57,12 +57,12 @@ public sealed class ConfigurationErrorMessagesTests
     }
 
     [Fact]
-    public void TryGet_ConfigOptionError_ReturnsMessage()
+    public void TryGet_ConfigurationFileExceptionWithMessage_ReturnsMessage()
     {
-        var found = ConfigurationErrorMessages.TryGet(new ConfigurationFileException("The --config option is not a valid path."), out var messages);
+        var found = ConfigurationErrorMessages.TryGet(new ConfigurationFileException("The settings file is not valid."), out var messages);
 
         found.ShouldBeTrue();
-        messages.ShouldHaveSingleItem().ShouldBe("The --config option is not a valid path.");
+        messages.ShouldHaveSingleItem().ShouldBe("The settings file is not valid.");
     }
 
     [Fact]

@@ -2,7 +2,7 @@
 
 Приложение для Windows 11, которое делает локальные резервные копии GitHub-репозиториев и ZIP-архивы их состояния.
 
-> **Статус:** фаза 2 — команда `backup` обнаруживает новые, пропавшие и переименованные репозитории, обновляет `backup-config.json` и бэкапит репозитории и их wiki. Параметры `--account`, `--repo`, `--silent` и `--dry-run`, интерактивные вопросы, история запусков и WPF-интерфейс ещё не реализованы. Требования описаны в [docs/PRD.md](docs/PRD.md).
+> **Статус:** фаза 2 — команда `backup` обнаруживает новые, пропавшие и переименованные репозитории, обновляет `backup-config.json` и бэкапит репозитории и их wiki. У CLI есть команды `backup`, `validate` и `set-token` и параметры `--account`, `--repo`, `--dry-run`, `--silent`, `--config`. Хранение токена командой `set-token`, поведение `--dry-run`, интерактивные вопросы, история запусков и WPF-интерфейс ещё не реализованы. Требования описаны в [docs/PRD.md](docs/PRD.md).
 
 ## Возможности (план)
 
@@ -102,9 +102,15 @@ Remove-MpPreference -ExclusionPath (Join-Path $env:TEMP "GitHubBackup.Tests")
 |---|---|
 | `GitHubBackup.Cli backup` | Обнаружение репозиториев и бэкап репозиториев из `backup-config.json`: аккаунтов, затем отдельных, в порядке файла |
 | `GitHubBackup.Cli backup --config <path>` | То же с другим файлом `backup-config.json` (по умолчанию — рядом с exe) |
+| `GitHubBackup.Cli backup --account <url\|login>` | Только записи одного отслеживаемого аккаунта |
+| `GitHubBackup.Cli backup --repo <url\|owner/repo>` | Только один репозиторий из `backup-config.json`; `--account` и `--repo` вместе — ошибка |
+| `GitHubBackup.Cli backup --silent` | Принимается; запуск и так идёт без вопросов |
+| `GitHubBackup.Cli backup --dry-run` | Пока не реализован: команда останавливается с кодом `2` и ничего не меняет |
+| `GitHubBackup.Cli validate [--config <path>]` | Проверка `backup-config.json`, git, git-lfs, 7-Zip и источника токена без запросов к GitHub и без изменений; код `0` или `2` |
+| `GitHubBackup.Cli set-token` | Пока не реализован: сообщает об этом и завершается с кодом `2` |
 | `GitHubBackup.Cli --help` | Справка по командам и параметрам |
 
-Через `dotnet run` аргументы передаются после `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. Ключи конфигурации .NET (`--Section:Key=value`) тоже принимаются.
+Через `dotnet run` аргументы передаются после `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. Ключи конфигурации .NET (`--Section:Key=value`) тоже принимаются. Любая ошибка в аргументах даёт одну строку `Command-line error: …` и код `2`. Значения опций в сообщения не попадают; посторонний аргумент показывается, только если он не длиннее 32 символов, а у `set-token` не показывается никогда.
 
 Перед обработкой репозиториев `backup` очищает `<sourcesRoot>\.tmp\` от файлов прерванных запусков. Затем он сравнивает репозитории отслеживаемых аккаунтов и репозитории, доступные по токену, с `backup-config.json` и решает без вопросов, как тихий режим:
 
