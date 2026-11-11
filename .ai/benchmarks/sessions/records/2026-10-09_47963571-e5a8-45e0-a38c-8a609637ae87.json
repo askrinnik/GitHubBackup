@@ -1,6 +1,6 @@
 {
-  "schema": 1,
-  "profiler": "profile-session/7",
+  "schema": 2,
+  "profiler": "profile-session/8",
   "session": "47963571-e5a8-45e0-a38c-8a609637ae87",
   "workItem": null,
   "lane": null,
@@ -42,6 +42,25 @@
     "main": 895052,
     "subagents": 0
   },
+  "costUsd": {
+    "total": 2.682,
+    "main": 2.682,
+    "subagents": 0
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
   "cacheReadShare": 70.2,
   "unitsPerCall": {
     "first40": 17439,
@@ -70,47 +89,56 @@
     {
       "activity": "implement",
       "calls": 9,
-      "cost": 199001
+      "cost": 199001,
+      "costUsd": 0.6379
     },
     {
       "activity": "explore (read/search)",
       "calls": 10,
-      "cost": 189666
+      "cost": 189666,
+      "costUsd": 0.7987
     },
     {
       "activity": "reply (no tools)",
       "calls": 8,
-      "cost": 138626
+      "cost": 138626,
+      "costUsd": 0.3527
     },
     {
       "activity": "browser verify",
       "calls": 9,
-      "cost": 131442
+      "cost": 131442,
+      "costUsd": 0.2949
     },
     {
       "activity": "other tool",
       "calls": 4,
-      "cost": 67330
+      "cost": 67330,
+      "costUsd": 0.2033
     },
     {
       "activity": "bash (other)",
       "calls": 4,
-      "cost": 65435
+      "cost": 65435,
+      "costUsd": 0.1494
     },
     {
       "activity": "ship",
       "calls": 4,
-      "cost": 61875
+      "cost": 61875,
+      "costUsd": 0.1363
     },
     {
       "activity": "plan",
       "calls": 2,
-      "cost": 26994
+      "cost": 26994,
+      "costUsd": 0.0704
     },
     {
       "activity": "skill load",
       "calls": 1,
-      "cost": 14683
+      "cost": 14683,
+      "costUsd": 0.0385
     }
   ],
   "subagentsByType": [],
