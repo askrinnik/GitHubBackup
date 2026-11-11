@@ -20,6 +20,17 @@ public sealed record DiscoveryResult(
     /// <summary>Gets a result without any finding.</summary>
     public static DiscoveryResult Empty { get; } = new([], [], [], [], []);
 
+    /// <summary>
+    /// Gets the repositories GitHub reported during discovery, by id: those of the collected lists and those found by
+    /// a lookup of a configured entry.
+    /// </summary>
+    /// <remarks>
+    /// The run reads repository metadata, such as whether the wiki feature is enabled, from here instead of asking the
+    /// API again. The repositories are not classes of the result and do not count for <see cref="HasChanges"/>.
+    /// </remarks>
+    public IReadOnlyDictionary<long, GitHubRepository> Repositories { get; init; } =
+        new Dictionary<long, GitHubRepository>();
+
     /// <summary>Gets whether at least one class holds a repository.</summary>
     public bool HasChanges =>
         NewInAccounts.Count > 0

@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Runs;
 
 namespace GitHubBackup.Core.Tests.Runs;
@@ -22,6 +23,37 @@ public sealed class BackupRunResultTests
     public void ExitCode_StoppedWithFailedItems_IsCritical()
     {
         var result = new BackupRunResult([Item(BackupItemStatus.Failed)], [], ["git was not found."]);
+
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+    }
+
+    [Theory]
+    [InlineData("added", ExitCode.DiscoveryEvents)]
+    [InlineData("skipped", ExitCode.DiscoveryEvents)]
+    [InlineData("excluded", ExitCode.DiscoveryEvents)]
+    [InlineData("unavailable", ExitCode.DiscoveryEvents)]
+    [InlineData("renamed", ExitCode.DiscoveryEvents)]
+    [InlineData("reactivated", ExitCode.Success)]
+    [InlineData("none", ExitCode.Success)]
+    public void ExitCode_DiscoveryWithoutFailures_IsDiscoveryEventsForNewMissingOrRenamed(string kind, ExitCode expected)
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Archived)], [], []) { Discovery = Discovery(kind) };
+
+        result.ExitCode.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void ExitCode_DiscoveryEventsWithFailedItem_IsRepositoriesFailed()
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Failed)], [], []) { Discovery = Discovery("added") };
+
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+    }
+
+    [Fact]
+    public void ExitCode_DiscoveryEventsAndStopped_IsCritical()
+    {
+        var result = new BackupRunResult([], [], ["error"]) { Discovery = Discovery("added") };
 
         result.ExitCode.ShouldBe(ExitCode.Critical);
     }
@@ -54,4 +86,28 @@ public sealed class BackupRunResultTests
     /// <param name="status">The status.</param>
     /// <returns>The item.</returns>
     private static BackupItemResult Item(BackupItemStatus status) => new("owner/repo", status, null, TimeSpan.Zero, null);
+
+    /// <summary>
+    /// Creates what discovery changed, with one repository in the list named by <paramref name="kind"/>.
+    /// </summary>
+    /// <param name="kind">
+    /// <c>added</c>, <c>skipped</c>, <c>excluded</c>, <c>unavailable</c>, <c>renamed</c>, <c>reactivated</c>, or
+    /// <c>none</c> for no repository at all.
+    /// </param>
+    /// <returns>The apply result.</returns>
+    private static DiscoveryApplyResult Discovery(string kind)
+    {
+        string[] one = ["owner/repo"];
+        RenameOutcome[] renamed = kind == "renamed"
+            ? [new("owner/old", "owner/repo", RenameDecision.KeepArchiveFolder, RenameDecision.KeepArchiveFolder, CloneRelocationResult.Moved, CloneRelocationResult.NotPresent)]
+            : [];
+        return new(
+            kind == "added" ? one : [],
+            kind == "skipped" ? one : [],
+            kind == "excluded" ? one : [],
+            kind == "unavailable" ? one : [],
+            kind == "reactivated" ? one : [],
+            renamed,
+            ConfigSaved: kind != "none");
+    }
 }

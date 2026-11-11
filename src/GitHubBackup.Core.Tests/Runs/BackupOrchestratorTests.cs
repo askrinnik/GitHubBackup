@@ -3,6 +3,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
@@ -17,8 +18,8 @@ using NSubstitute.ExceptionExtensions;
 namespace GitHubBackup.Core.Tests.Runs;
 
 /// <summary>
-/// Tests <see cref="BackupOrchestrator"/> with substitutes for the stores, the tools, the detector and the archiver, an
-/// in-memory file system and a fake clock.
+/// Tests <see cref="BackupOrchestrator"/> with substitutes for the stores, the tools, discovery, the detector and the
+/// archiver, an in-memory file system and a fake clock.
 /// </summary>
 public sealed class BackupOrchestratorTests
 {
@@ -39,6 +40,9 @@ public sealed class BackupOrchestratorTests
     private readonly IToolLocator _toolLocator = Substitute.For<IToolLocator>();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
     private readonly IGitHubApi _gitHubApi = Substitute.For<IGitHubApi>();
+    private readonly IRepositoryDiscoveryService _discovery = Substitute.For<IRepositoryDiscoveryService>();
+    private readonly IDiscoveryDecisionApplier _applier = Substitute.For<IDiscoveryDecisionApplier>();
+    private readonly IDiscoveryDecisionHandler _handler = Substitute.For<IDiscoveryDecisionHandler>();
     private readonly IChangeDetector _detector = Substitute.For<IChangeDetector>();
     private readonly IArchiveNameBuilder _nameBuilder = Substitute.For<IArchiveNameBuilder>();
     private readonly IArchiver _archiver = Substitute.For<IArchiver>();
@@ -50,7 +54,7 @@ public sealed class BackupOrchestratorTests
 
     /// <summary>
     /// Sets up a valid configuration with one standalone repository whose wiki feature is disabled, the tools, a token,
-    /// an empty state and an archiver that succeeds.
+    /// a discovery without findings, an empty state and an archiver that succeeds.
     /// </summary>
     public BackupOrchestratorTests()
     {
@@ -59,6 +63,8 @@ public sealed class BackupOrchestratorTests
         _toolLocator.LocateAsync(Arg.Any<CancellationToken>())
             .Returns(new ToolSet(new(_gitPath, "2.46.0"), "3.5.1", new(_sevenZipPath, "24.08")));
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken("secret-token", "test"));
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .Returns(DiscoveryResult.Empty);
         _stateStore.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
         _nameBuilder.Build(Arg.Any<string>(), Arg.Any<string>(), BackupTarget.Repository, Arg.Any<string>())
@@ -297,7 +303,7 @@ public sealed class BackupOrchestratorTests
             return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
         });
 
-        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(cancellation.Token));
+        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
 
         await _detector.ReceivedWithAnyArgs(1).DetectAsync(default!, CancellationToken);
     }
@@ -623,9 +629,331 @@ public sealed class BackupOrchestratorTests
             return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
         });
 
-        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(cancellation.Token));
+        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
 
         await _gitHubApi.DidNotReceive().GetRepositoryAsync("owner", "other", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_NoFilter_DiscoversAllAccountsAndAppliesWithHandlerAndGitPath()
+    {
+        var discovery = SetupApply(Applied(markedUnavailable: ["owner/repo"]));
+
+        var result = await RunAsync();
+
+        await _discovery.Received(1).DiscoverAsync(_config, null, CancellationToken);
+        await _applier.Received(1).ApplyAsync(_config, discovery, _handler, _gitPath, CancellationToken);
+        result.Discovery.ShouldNotBeNull().MarkedUnavailable.ShouldBe(["owner/repo"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoDiscoveryChanges_DoesNotApplyAndReturnsSuccess()
+    {
+        var result = await RunAsync();
+
+        result.Discovery.ShouldBeNull();
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_NewRepositoryAddedByApplier_IsBackedUpInSameRun()
+    {
+        SetupApply(
+            Applied(added: ["owner/fresh"]),
+            config => config.Repositories.Add(new() { Url = "https://github.com/owner/fresh", Id = 5 }));
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived),
+            ("owner/fresh", BackupItemStatus.Archived),
+        ]);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == "https://github.com/owner/fresh.git"), CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_EntryMarkedUnavailableByApplier_ReportsSkippedWithoutGit()
+    {
+        SetupApply(
+            Applied(markedUnavailable: ["owner/repo"]),
+            config => config.Repositories[0].Status = RepositoryStatus.Unavailable);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Skipped);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        await _stateStore.DidNotReceiveWithAnyArgs().LoadAsync(default!, default, default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_NewRepositoryNotConfirmed_ReportsSkippedWithoutProcessing()
+    {
+        SetupApply(Applied(skipped: ["owner/fresh"]));
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived),
+            ("owner/fresh", BackupItemStatus.Skipped),
+        ]);
+        result.Items[1].Message.ShouldNotBeNullOrWhiteSpace();
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
+        await _stateStore.DidNotReceive().LoadAsync(Arg.Any<string>(), Arg.Any<long>(), "owner/fresh", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilter_SkipsDiscoveryAndProcessesOnlyThatRepository()
+    {
+        AddRepository("other");
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("OWNER", "Other"));
+
+        result.Items.Select(item => item.Repository).ShouldBe(["owner/other"]);
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        _logger.Entries.ShouldContain(entry => entry.Message.Contains("Discovery skipped"));
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterNotInConfig_ReturnsCritical()
+    {
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "absent"));
+
+        result.CriticalErrors.ShouldBe(["The repository 'owner/absent' is not in backup-config.json."]);
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _tokenProvider.DidNotReceiveWithAnyArgs().GetTokenAsync(CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterMatchesExclusion_ProcessesNothing()
+    {
+        _config.Exclude.Add("owner/repo");
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_AccountFilter_DiscoversThatAccountAndProcessesOnlyItsRepositories()
+    {
+        _config.Accounts.Add(new() { Url = "https://github.com/octocat", Repositories = [new() { Name = "listed", Id = 10 }] });
+        _config.Accounts.Add(new() { Url = "https://github.com/other", Repositories = [new() { Name = "foreign", Id = 11 }] });
+        _config.Repositories.Add(new() { Url = "https://github.com/octocat/standalone", Id = 12 });
+
+        var result = await RunAsync(BackupRunFilter.ForAccount("OctoCat"));
+
+        result.Items.Select(item => item.Repository).ShouldBe(["octocat/listed"]);
+        await _discovery.Received(1).DiscoverAsync(_config, "OctoCat", CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_AccountNotTracked_ReturnsCritical()
+    {
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), "ghost", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new ArgumentException("The account 'ghost' is not tracked.", "accountLogin"));
+
+        var result = await RunAsync(BackupRunFilter.ForAccount("ghost"));
+
+        result.CriticalErrors.ShouldHaveSingleItem().ShouldStartWith("The account 'ghost' is not tracked.");
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData("rate-limit")]
+    [InlineData("unauthorized")]
+    [InlineData("server")]
+    public async Task RunAsync_DiscoveryFails_ReturnsCriticalWithoutApplyingOrProcessing(string kind)
+    {
+        var failure = DiscoveryFailure(kind);
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
+
+        var result = await RunAsync();
+
+        result.CriticalErrors.ShouldBe([failure.Message]);
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        _logger.Entries.ShouldContain((LogLevel.Error, $"The backup run stopped: {failure.Message}"));
+    }
+
+    [Theory]
+    [InlineData("invalid", "repositories[1].id is duplicated.")]
+    [InlineData("io", "The configuration file cannot be written.")]
+    [InlineData("access", "Access to the configuration file is denied.")]
+    public async Task RunAsync_ApplyFails_ReturnsCriticalWithoutProcessing(string kind, string expected)
+    {
+        SetupApply(Applied());
+        _applier.ApplyAsync(
+                Arg.Any<BackupConfig>(),
+                Arg.Any<DiscoveryResult>(),
+                Arg.Any<IDiscoveryDecisionHandler>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .ThrowsAsync(ApplyFailure(kind));
+
+        var result = await RunAsync();
+
+        result.CriticalErrors.ShouldBe([expected]);
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_CancelledDuringDiscoveryOrDecision_ThrowsWithoutProcessing(bool duringDiscovery)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        SetupApply(Applied());
+        Task<DiscoveryResult> CancelDiscovery()
+        {
+            cancellation.Cancel();
+            return Task.FromException<DiscoveryResult>(new OperationCanceledException(cancellation.Token));
+        }
+
+        Task<DiscoveryApplyResult> CancelDecision()
+        {
+            cancellation.Cancel();
+            return Task.FromException<DiscoveryApplyResult>(new OperationCanceledException(cancellation.Token));
+        }
+
+        if (duringDiscovery)
+        {
+            _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                .Returns(_ => CancelDiscovery());
+        }
+        else
+        {
+            _applier.ApplyAsync(
+                    Arg.Any<BackupConfig>(),
+                    Arg.Any<DiscoveryResult>(),
+                    Arg.Any<IDiscoveryDecisionHandler>(),
+                    Arg.Any<string>(),
+                    Arg.Any<CancellationToken>())
+                .Returns(_ => CancelDecision());
+        }
+
+        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
+
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        await _stateStore.DidNotReceiveWithAnyArgs().AppendAsync(default!, default, default!, default, default!, CancellationToken);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_InvalidConfigOrToolMissing_DoesNotDiscover(bool invalidConfig)
+    {
+        if (invalidConfig)
+        {
+            _configStore.LoadAsync(Arg.Any<CancellationToken>())
+                .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]));
+        }
+        else
+        {
+            _toolLocator.LocateAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new ToolUnavailableException("git was not found."));
+        }
+
+        var result = await RunAsync();
+
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_TemporaryFolderEmptiedBeforeDiscovery()
+    {
+        _fileSystem.AddFile(Path.Combine(_temporaryFolder, "left.zip"), new("partial"));
+        string[]? entriesAtDiscovery = null;
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            entriesAtDiscovery = _fileSystem.Directory.GetFileSystemEntries(_temporaryFolder);
+            return DiscoveryResult.Empty;
+        });
+
+        await RunAsync();
+
+        entriesAtDiscovery.ShouldNotBeNull().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("added", false, ExitCode.DiscoveryEvents)]
+    [InlineData("skipped", false, ExitCode.DiscoveryEvents)]
+    [InlineData("excluded", false, ExitCode.DiscoveryEvents)]
+    [InlineData("unavailable", false, ExitCode.DiscoveryEvents)]
+    [InlineData("renamed", false, ExitCode.DiscoveryEvents)]
+    [InlineData("reactivated", false, ExitCode.Success)]
+    [InlineData("added", true, ExitCode.RepositoriesFailed)]
+    public async Task RunAsync_DiscoveryEvents_ExitCode(string kind, bool repositoryFails, ExitCode expected)
+    {
+        SetupApply(kind switch
+        {
+            "added" => Applied(added: ["owner/new"]),
+            "skipped" => Applied(skipped: ["owner/new"]),
+            "excluded" => Applied(excluded: ["owner/new"]),
+            "unavailable" => Applied(markedUnavailable: ["owner/gone"]),
+            "renamed" => Applied(renamed:
+            [
+                new("owner/old", "owner/repo", RenameDecision.KeepArchiveFolder, RenameDecision.KeepArchiveFolder, CloneRelocationResult.Moved, CloneRelocationResult.NotPresent),
+            ]),
+            _ => Applied(reactivated: ["owner/repo"]),
+        });
+        if (repositoryFails)
+        {
+            _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>())
+                .ThrowsAsync(new InvalidOperationException("git exited with code 128."));
+        }
+
+        var result = await RunAsync();
+
+        result.ExitCode.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task RunAsync_DiscoveredRepository_WikiFlagFromDiscoveryWithoutApiCall()
+    {
+        SetupDiscovery(DiscoveryResult.Empty with
+        {
+            Repositories = new Dictionary<long, GitHubRepository> { [1] = Repository(1, "owner", "repo", hasWiki: true) },
+        });
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived),
+            ("owner/repo.wiki", BackupItemStatus.Archived),
+        ]);
+        await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilter_WikiFlagFromApi()
+    {
+        SetupWiki(hasWiki: true);
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.Items.Select(item => item.Repository).ShouldBe(["owner/repo", "owner/repo.wiki"]);
+        await _gitHubApi.Received(1).GetRepositoryAsync("owner", "repo", CancellationToken);
     }
 
     /// <summary>
@@ -692,6 +1020,8 @@ public sealed class BackupOrchestratorTests
         _tokenProvider,
         new RepositoryPathResolver(@"C:\app\sources"),
         new ExclusionMatcher(),
+        _discovery,
+        _applier,
         new GitHubRemoteUrlProvider(),
         _gitHubApi,
         _detector,
@@ -703,8 +1033,111 @@ public sealed class BackupOrchestratorTests
         _logger);
 
     /// <summary>
+    /// Creates the request of a run with the substitute decision handler.
+    /// </summary>
+    /// <param name="filter">The filter of the run, or <see langword="null"/> for <see cref="BackupRunFilter.All"/>.</param>
+    /// <returns>The request.</returns>
+    private BackupRunRequest Request(BackupRunFilter? filter = null) => new(filter ?? BackupRunFilter.All, _handler);
+
+    /// <summary>
     /// Runs the orchestrator with the test cancellation token.
     /// </summary>
+    /// <param name="filter">The filter of the run, or <see langword="null"/> for <see cref="BackupRunFilter.All"/>.</param>
     /// <returns>The result of the run.</returns>
-    private Task<BackupRunResult> RunAsync() => CreateOrchestrator().RunAsync(CancellationToken);
+    private Task<BackupRunResult> RunAsync(BackupRunFilter? filter = null) =>
+        CreateOrchestrator().RunAsync(Request(filter), CancellationToken);
+
+    /// <summary>
+    /// Makes discovery report <paramref name="result"/>.
+    /// </summary>
+    /// <param name="result">The classified repositories.</param>
+    private void SetupDiscovery(DiscoveryResult result) =>
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(result);
+
+    /// <summary>
+    /// Makes discovery report <c>owner/repo</c> as missing, so the applier is asked, and makes the applier run
+    /// <paramref name="apply"/> on the configuration and return <paramref name="result"/>.
+    /// </summary>
+    /// <param name="result">What the applier reports.</param>
+    /// <param name="apply">Changes the configuration as the decisions would, or <see langword="null"/>.</param>
+    /// <returns>The discovery result the applier receives.</returns>
+    private DiscoveryResult SetupApply(DiscoveryApplyResult result, Action<BackupConfig>? apply = null)
+    {
+        var discovery = MissingRepository();
+        SetupDiscovery(discovery);
+        _applier.ApplyAsync(
+                Arg.Any<BackupConfig>(),
+                Arg.Any<DiscoveryResult>(),
+                Arg.Any<IDiscoveryDecisionHandler>(),
+                Arg.Any<string>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                apply?.Invoke(call.Arg<BackupConfig>());
+                return result;
+            });
+        return discovery;
+    }
+
+    /// <summary>
+    /// Creates a discovery result that reports the standalone <c>owner/repo</c> as missing.
+    /// </summary>
+    /// <returns>The discovery result.</returns>
+    private static DiscoveryResult MissingRepository() =>
+        new([], [], [new("owner", "repo", 1, RepositoryStatus.Active, null)], [], []);
+
+    /// <summary>
+    /// Creates what the applier reports.
+    /// </summary>
+    /// <param name="added">The added repositories.</param>
+    /// <param name="skipped">The new repositories left out.</param>
+    /// <param name="excluded">The new repositories excluded.</param>
+    /// <param name="markedUnavailable">The entries marked unavailable.</param>
+    /// <param name="reactivated">The entries reactivated.</param>
+    /// <param name="renamed">The renamed repositories.</param>
+    /// <returns>The apply result.</returns>
+    private static DiscoveryApplyResult Applied(
+        string[]? added = null,
+        string[]? skipped = null,
+        string[]? excluded = null,
+        string[]? markedUnavailable = null,
+        string[]? reactivated = null,
+        RenameOutcome[]? renamed = null) =>
+        new(added ?? [], skipped ?? [], excluded ?? [], markedUnavailable ?? [], reactivated ?? [], renamed ?? [], ConfigSaved: true);
+
+    /// <summary>
+    /// Creates repository metadata as GitHub reports it.
+    /// </summary>
+    /// <param name="id">The id.</param>
+    /// <param name="owner">The owner.</param>
+    /// <param name="name">The name.</param>
+    /// <param name="hasWiki">Whether the wiki feature is enabled.</param>
+    /// <returns>The repository.</returns>
+    private static GitHubRepository Repository(long id, string owner, string name, bool hasWiki = false) =>
+        new(id, owner, name, false, false, false, hasWiki, "main", $"https://github.com/{owner}/{name}");
+
+    /// <summary>
+    /// Creates the exception of a failed discovery request.
+    /// </summary>
+    /// <param name="kind">The kind of failure: <c>rate-limit</c>, <c>unauthorized</c> or <c>server</c>.</param>
+    /// <returns>The exception.</returns>
+    private static GitHubApiException DiscoveryFailure(string kind) => kind switch
+    {
+        "rate-limit" => new GitHubRateLimitExceededException(
+            "The GitHub API rate limit is exhausted; it resets at 2026-11-11 13:00.", "user/repos", 403, _createdAt.AddHours(1), 60, 0),
+        "unauthorized" => new GitHubAuthenticationException("The GitHub API rejected the token (401).", "user/repos"),
+        _ => new GitHubApiException("The GitHub API answered 502.", "user/repos", 502),
+    };
+
+    /// <summary>
+    /// Creates the exception of a failed apply step.
+    /// </summary>
+    /// <param name="kind">The kind of failure: <c>invalid</c>, <c>io</c> or <c>access</c>.</param>
+    /// <returns>The exception.</returns>
+    private static Exception ApplyFailure(string kind) => kind switch
+    {
+        "invalid" => new BackupConfigException(@"C:\app\backup-config.json", ["repositories[1].id is duplicated."]),
+        "io" => new IOException("The configuration file cannot be written."),
+        _ => new UnauthorizedAccessException("Access to the configuration file is denied."),
+    };
 }

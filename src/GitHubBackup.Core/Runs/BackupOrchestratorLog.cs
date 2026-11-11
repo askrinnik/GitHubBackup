@@ -13,9 +13,9 @@ internal static partial class BackupOrchestratorLog
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="error">The error, one sentence.</param>
-    /// <param name="exception">The exception that reported the error.</param>
+    /// <param name="exception">The exception that reported the error, or <see langword="null"/>.</param>
     [LoggerMessage(EventId = 1, Level = LogLevel.Error, Message = "The backup run stopped: {Error}")]
-    public static partial void RunStopped(ILogger logger, string error, Exception exception);
+    public static partial void RunStopped(ILogger logger, string error, Exception? exception);
 
     /// <summary>
     /// Logs a file or folder left in the folder of temporary archives by an interrupted run and deleted.
@@ -149,4 +149,37 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Error,
         Message = "Cannot read from the GitHub API whether the wiki is enabled")]
     public static partial void WikiLookupFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that discovery is not run because the run is limited to one repository.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    [LoggerMessage(
+        EventId = 15,
+        Level = LogLevel.Information,
+        Message = "Discovery skipped: the run is limited to the repository {Repository}")]
+    public static partial void DiscoverySkipped(ILogger logger, string repository);
+
+    /// <summary>
+    /// Logs a repository of the configuration that the filter of the run leaves out.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    [LoggerMessage(
+        EventId = 16,
+        Level = LogLevel.Debug,
+        Message = "Repository {Repository} is outside the filter of the run and is not processed")]
+    public static partial void RepositoryFilteredOut(ILogger logger, string repository);
+
+    /// <summary>
+    /// Logs a new repository that the decision left out of the configuration, so it is reported as skipped.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    [LoggerMessage(
+        EventId = 17,
+        Level = LogLevel.Information,
+        Message = "New repository {Repository} is not confirmed and is not backed up")]
+    public static partial void NewRepositoryNotConfirmed(ILogger logger, string repository);
 }

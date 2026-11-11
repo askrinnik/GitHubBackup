@@ -228,6 +228,33 @@ public sealed class RepositoryDiscoveryServiceTests
     }
 
     [Fact]
+    public async Task DiscoverAsync_ListedAndLookedUpRepositories_AreInRepositoriesById()
+    {
+        var listed = Repo(2, "octo", "listed");
+        var lookedUp = Repo(1, "octo", "tool");
+        SetCurrentUser(Repo(3, "friend", "shared"));
+        SetAccount("octo", GitHubAccountType.User, listed);
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(lookedUp);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"), Active(2, "listed"))), null, Token);
+
+        result.Repositories.Keys.Order().ShouldBe([1L, 2L, 3L]);
+        result.Repositories[1].ShouldBe(lookedUp);
+        result.Repositories[2].ShouldBe(listed);
+        result.HasChanges.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_RecordNotFound_IsNotInRepositories()
+    {
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"))), null, Token);
+
+        result.Repositories.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task DiscoverAsync_UnavailableRecordStillNotFound_HasNoEvents()
     {
         SetAccount("octo", GitHubAccountType.User);

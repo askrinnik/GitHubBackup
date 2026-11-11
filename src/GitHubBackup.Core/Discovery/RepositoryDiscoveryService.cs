@@ -62,7 +62,13 @@ public sealed class RepositoryDiscoveryService(
                 continue;
             }
 
-            var current = collected.GetValueOrDefault(item.Id) ?? await FindAsync(item, cancellationToken);
+            var current = collected.GetValueOrDefault(item.Id);
+            if (current is null && await FindAsync(item, cancellationToken) is { } found)
+            {
+                current = found;
+                collected.TryAdd(found.Id, found);
+            }
+
             if (current is null)
             {
                 if (item.Status == RepositoryStatus.Active)
@@ -84,7 +90,10 @@ public sealed class RepositoryDiscoveryService(
             }
         }
 
-        var result = new DiscoveryResult(newInAccounts, newStandalone, missing, returned, renamed);
+        var result = new DiscoveryResult(newInAccounts, newStandalone, missing, returned, renamed)
+        {
+            Repositories = collected,
+        };
         RepositoryDiscoveryServiceLog.Classified(
             logger, newInAccounts.Count, newStandalone.Count, missing.Count, returned.Count, renamed.Count);
         return result;
