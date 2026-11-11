@@ -16,7 +16,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
     private const string _contentRoot = @"C:\app";
 
     private readonly IBackupOrchestrator _orchestrator = Substitute.For<IBackupOrchestrator>();
-    private readonly AutomaticDiscoveryDecisionHandler _decisionHandler = new();
+    private readonly AutomaticDiscoveryDecisionHandler _automaticHandler = new();
     private readonly TestConsole _output = TestCliConsole.CreateOutput();
     private readonly StringWriter _error = new();
     private readonly FakeTimeProvider _timeProvider = new(new DateTimeOffset(2026, 11, 11, 23, 30, 0, TimeSpan.Zero));
@@ -72,14 +72,68 @@ public sealed class BackupCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_Called_RunsAllRepositoriesWithAutomaticDecisions()
+    public async Task RunAsync_Silent_RunsAllRepositoriesWithAutomaticDecisions()
     {
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
 
-        await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
+        await CreateHandler().RunAsync(BackupCommandOptions.Default with { Silent = true }, TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(BackupRunFilter.All, _decisionHandler), TestContext.Current.CancellationToken);
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_NotSilent_RunsAllRepositoriesWithConsoleDecisions()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
+        var handler = CreateHandler(out var consoleHandler);
+
+        await handler.RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
+
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(BackupRunFilter.All, consoleHandler), TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_RedirectedInputNotSilent_ReturnsCriticalWithHintWithoutRunningOrchestrator(bool withFilter)
+    {
+        var options = BackupCommandOptions.Default;
+        if (withFilter)
+        {
+            options = options with { Filter = BackupRunFilter.ForRepository("octocat", "hello") };
+        }
+
+        var exitCode = await CreateHandler(isInputRedirected: true).RunAsync(options, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _error.ToString().ShouldStartWith("Error: " + BackupCommandHandler.RedirectedInputMessage);
+        BackupCommandHandler.RedirectedInputMessage.ShouldContain("--silent");
+        await _orchestrator.DidNotReceiveWithAnyArgs().RunAsync(default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RedirectedInputSilent_RunsOrchestrator()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
+
+        var exitCode = await CreateHandler(isInputRedirected: true).RunAsync(
+            BackupCommandOptions.Default with { Silent = true }, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Success);
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithRedirectedInput_ReportsDryRunNotRedirectedInput()
+    {
+        var exitCode = await CreateHandler(isInputRedirected: true).RunAsync(
+            BackupCommandOptions.Default with { DryRun = true }, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _error.ToString().ShouldStartWith("Error: " + BackupCommandHandler.DryRunNotImplementedMessage);
     }
 
     [Fact]
@@ -91,7 +145,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
         await CreateHandler().RunAsync(new(filter, DryRun: false, Silent: true), TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(filter, _decisionHandler), TestContext.Current.CancellationToken);
+            new BackupRunRequest(filter, _automaticHandler), TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -133,10 +187,21 @@ public sealed class BackupCommandHandlerTests : IDisposable
     /// Creates the handler over the substitute orchestrator, the test outputs and the fixed clock.
     /// </summary>
     /// <returns>The handler.</returns>
-    private BackupCommandHandler CreateHandler()
+    /// <param name="isInputRedirected">Whether the console reports redirected input.</param>
+    private BackupCommandHandler CreateHandler(bool isInputRedirected = false) => CreateHandler(out _, isInputRedirected);
+
+    /// <summary>
+    /// Creates the handler and exposes the console decision handler it uses.
+    /// </summary>
+    /// <param name="consoleHandler">The console decision handler.</param>
+    /// <param name="isInputRedirected">Whether the console reports redirected input.</param>
+    /// <returns>The handler.</returns>
+    private BackupCommandHandler CreateHandler(out ConsoleDiscoveryDecisionHandler consoleHandler, bool isInputRedirected = false)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(_contentRoot);
-        return new(_orchestrator, _decisionHandler, new(new(_output, _error)), environment, _timeProvider);
+        var console = new CliConsole(_output, _error, isInputRedirected);
+        consoleHandler = new(console);
+        return new(_orchestrator, _automaticHandler, consoleHandler, console, new(console), environment, _timeProvider);
     }
 }

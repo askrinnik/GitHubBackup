@@ -37,6 +37,32 @@ public sealed class CliApplicationTests : IDisposable
     private readonly StringWriter _standardError = new();
     private readonly TestConsole _output = TestCliConsole.CreateOutput();
     private readonly TemporaryContentRoot _contentRoot = new();
+    private bool _isInputRedirected;
+
+    [Fact]
+    public async Task RunAsync_BackupWithRedirectedInput_ReturnsCriticalWithHintBeforeReadingConfig()
+    {
+        _isInputRedirected = true;
+
+        var exitCode = await RunAsync(ValidAppSettings, "backup");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var lines = ErrorLines();
+        lines.Length.ShouldBe(2);
+        lines[0].ShouldBe(BackupSummaryRenderer.ErrorPrefix + BackupCommandHandler.RedirectedInputMessage);
+        lines[1].ShouldStartWith(BackupSummaryRenderer.LogPrefix);
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupSilentWithRedirectedInput_DoesNotStopForRedirectedInput()
+    {
+        _isInputRedirected = true;
+
+        var exitCode = await RunAsync(ValidAppSettings, "backup", "--silent");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines()[0].ShouldNotContain(BackupCommandHandler.RedirectedInputMessage);
+    }
 
     [Fact]
     public async Task RunAsync_ValidConfiguration_ReturnsSuccessAndWritesNothing()
@@ -496,7 +522,7 @@ public sealed class CliApplicationTests : IDisposable
     /// <param name="args">The command-line arguments.</param>
     /// <returns>The exit code.</returns>
     private Task<ExitCode> RunAsync(InMemoryFileProvider fileProvider, params string[] args) =>
-        new CliApplication(new CliConsole(_output, _standardError)).RunAsync(
+        new CliApplication(new CliConsole(_output, _standardError, _isInputRedirected)).RunAsync(
             args,
             CreateSettings(_contentRoot.FolderPath, fileProvider, []),
             TestContext.Current.CancellationToken);

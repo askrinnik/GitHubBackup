@@ -450,6 +450,28 @@ public sealed class BackupConfigValidatorTests
         ],
     };
 
+    [Theory]
+    [InlineData(@"C:\Backups", true)]
+    [InlineData(@"\\server\share", true)]
+    [InlineData(@"Backups", false)]
+    [InlineData(@"C:Backups", false)]
+    [InlineData(@"\\?\C:\Backups", false)]
+    [InlineData(@"\\.\C:\Backups", false)]
+    [InlineData(@"C:\Back|ups", false)]
+    [InlineData("   ", false)]
+    [InlineData("", false)]
+    public void IsAbsolutePath_Path_ReturnsWhetherFullyQualified(string path, bool expected) =>
+        BackupConfigValidator.IsAbsolutePath(path).ShouldBe(expected);
+
+    [Theory]
+    [InlineData("main", true)]
+    [InlineData("feature/x", true)]
+    [InlineData("", false)]
+    [InlineData("  ", false)]
+    [InlineData("-D", false)]
+    public void IsValidBranch_Branch_ReturnsWhetherAcceptable(string branch, bool expected) =>
+        BackupConfigValidator.IsValidBranch(branch).ShouldBe(expected);
+
     /// <summary>
     /// Validates <paramref name="config"/> with a default clone folder outside the archive tree.
     /// </summary>

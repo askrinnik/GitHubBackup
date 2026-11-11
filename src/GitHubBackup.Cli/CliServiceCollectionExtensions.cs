@@ -20,6 +20,7 @@ internal static class CliServiceCollectionExtensions
         {
             services.AddSingleton(console);
             services.AddSingleton<BackupSummaryRenderer>();
+            services.AddSingleton<ConsoleDiscoveryDecisionHandler>();
             services.AddSingleton<BackupCommandHandler>();
             services.AddSingleton<ValidateCommandHandler>();
             services.AddSingleton<SetTokenCommandHandler>();

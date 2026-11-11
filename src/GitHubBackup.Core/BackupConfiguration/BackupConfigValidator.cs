@@ -50,12 +50,21 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
     /// </remarks>
     /// <param name="path">The path to check.</param>
     /// <returns><see langword="true"/> for paths such as <c>C:\Backups</c> or <c>\\server\share</c>.</returns>
-    private static bool IsAbsolutePath(string path) =>
+    public static bool IsAbsolutePath(string path) =>
         !string.IsNullOrWhiteSpace(path)
         && !path.AsSpan().ContainsAny(_invalidPathCharacters)
         && path.LastIndexOf(':') is -1 or 1
         && !IsDeviceNamespacePath(path)
         && Path.IsPathFullyQualified(path);
+
+    /// <summary>
+    /// Returns whether <paramref name="branch"/> can be stored as the branch of a repository entry.
+    /// </summary>
+    /// <remarks>A branch is passed to git, where a leading <c>-</c> would be read as an option.</remarks>
+    /// <param name="branch">The branch name to check.</param>
+    /// <returns><see langword="true"/> when the name is not blank and does not start with <c>-</c>.</returns>
+    public static bool IsValidBranch(string branch) =>
+        !string.IsNullOrWhiteSpace(branch) && !branch.StartsWith('-');
 
     /// <summary>
     /// Returns whether <paramref name="path"/> starts with <c>\\.\</c> or <c>\\?\</c>, with either separator.
@@ -293,8 +302,7 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
                 Errors.Add($"{location}.id is the same as {_ids[id]}.id.");
             }
 
-            // A branch is passed to git, where a leading '-' would be read as an option.
-            if (branch is not null && (string.IsNullOrWhiteSpace(branch) || branch.StartsWith('-')))
+            if (branch is not null && !IsValidBranch(branch))
             {
                 Errors.Add($"{location}.branch must be null or a branch name that is not empty and does not start with '-'.");
             }
