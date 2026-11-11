@@ -1,0 +1,224 @@
+{
+  "schema": 1,
+  "profiler": "profile-session/7",
+  "session": "a7fa34aa-0da5-40c7-bee8-85465bc2b6e5",
+  "workItem": "23",
+  "lane": "Feature",
+  "branch": "23-discovery-decisions",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-11 15:57",
+  "started": "2026-11-11 14:59",
+  "ended": "2026-11-11 15:56",
+  "duration": {
+    "wall": 3451,
+    "active": 3014,
+    "waiting": 437,
+    "waits": 4
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 80,
+  "humanTurns": 5,
+  "subagents": 13,
+  "subagentCalls": 162,
+  "tokens": {
+    "input": 544,
+    "cacheRead": 22031895,
+    "cacheWrite": 771198,
+    "output": 202199
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 4178726,
+    "main": 1741429,
+    "subagents": 2437297
+  },
+  "cacheReadShare": 52.7,
+  "unitsPerCall": {
+    "first40": 19942,
+    "first70": 21337,
+    "whole": 21768
+  },
+  "context": {
+    "first": 81200,
+    "max": 218342,
+    "last": 218342,
+    "first40": 167565,
+    "first70": 206794
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 640411,
+  "diff": {
+    "files": 38,
+    "lines": 2512
+  },
+  "byActivity": [
+    {
+      "activity": "explore (read/search)",
+      "calls": 20,
+      "cost": 384733
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 16,
+      "cost": 313623
+    },
+    {
+      "activity": "implement",
+      "calls": 7,
+      "cost": 194123
+    },
+    {
+      "activity": "other tool",
+      "calls": 8,
+      "cost": 179060
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 9,
+      "cost": 173237
+    },
+    {
+      "activity": "e2e",
+      "calls": 6,
+      "cost": 137489
+    },
+    {
+      "activity": "ship",
+      "calls": 5,
+      "cost": 136019
+    },
+    {
+      "activity": "build/test",
+      "calls": 5,
+      "cost": 100592
+    },
+    {
+      "activity": "plan",
+      "calls": 2,
+      "cost": 75431
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 23655
+    },
+    {
+      "activity": "review",
+      "calls": 1,
+      "cost": 23467
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-developer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 47,
+      "cost": 1159229
+    },
+    {
+      "type": "issue-planner",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 18,
+      "cost": 367596
+    },
+    {
+      "type": "issue-developer",
+      "model": "claude-sonnet-5-5",
+      "agents": 1,
+      "calls": 22,
+      "cost": 308826
+    },
+    {
+      "type": "build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 5,
+      "calls": 41,
+      "cost": 272549
+    },
+    {
+      "type": "skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 3,
+      "calls": 22,
+      "cost": 165107
+    },
+    {
+      "type": "security-reviewer",
+      "model": "claude-opus-5-5",
+      "agents": 2,
+      "calls": 12,
+      "cost": 163991
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "(reply)",
+      "cost": 73908
+    },
+    {
+      "tools": "Write + mcp__ccd_turn__update_plan",
+      "cost": 57276
+    },
+    {
+      "tools": "Edit + Read",
+      "cost": 39778
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 451
+    },
+    {
+      "rule": "external-processes",
+      "tokens": 971
+    },
+    {
+      "rule": "github-actions",
+      "tokens": 536
+    },
+    {
+      "rule": "msbuild",
+      "tokens": 580
+    },
+    {
+      "rule": "security",
+      "tokens": 1085
+    },
+    {
+      "rule": "tests",
+      "tokens": 1188
+    }
+  ],
+  "rulesTokens": 7608,
+  "limit": {
+    "startPct": 47,
+    "startAt": "2026-11-11 15:56",
+    "endPct": null,
+    "usedPct": null,
+    "limitCost": null,
+    "unitsPerPct": null,
+    "reason": "one plan-usage reading only, no end reading"
+  }
+}

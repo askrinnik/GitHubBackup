@@ -27,14 +27,15 @@ jobs:
       - name: Restore
         run: dotnet restore src/GitHubBackup.slnx
 
+      # RunUITests=true includes the UI test project, which a plain solution build leaves out of test runs.
       - name: Build
-        run: dotnet build src/GitHubBackup.slnx --no-restore -clp:ErrorsOnly
+        run: dotnet build src/GitHubBackup.slnx --no-restore -clp:ErrorsOnly -p:RunUITests=true
 
       # Projects without tests of the chosen category report exit code 8 (zero tests ran).
       # No Smoke tests exist yet, so choosing Smoke currently runs nothing.
       - name: Test
         run: >
-          dotnet test --solution src/GitHubBackup.slnx --no-build
+          dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true
           --filter-trait "Category=${{ inputs.category }}"
           --ignore-exit-code 8
           --report-xunit-trx --results-directory TestResults

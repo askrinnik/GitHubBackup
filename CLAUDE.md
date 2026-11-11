@@ -50,7 +50,8 @@ Run from the repository root, each as a separate command:
 | Test the solution | `dotnet test --solution src/GitHubBackup.slnx --no-build` |
 | Test one project | `dotnet test --project src/<Project>/<Project>.csproj --no-build` |
 | Test one class | `dotnet test --project src/<Project>/<Project>.csproj --no-build --filter-class "*<Class>"` |
-| Test without UI and smoke (as CI does) | `dotnet test --solution src/GitHubBackup.slnx --no-build --filter-not-trait "Category=UI" --filter-not-trait "Category=Smoke" --ignore-exit-code 8` |
+| Test without smoke (as CI does) | `dotnet test --solution src/GitHubBackup.slnx --no-build --filter-not-trait "Category=Smoke"` |
+| UI tests (build and test both with the property) | `dotnet build src/GitHubBackup.slnx -p:RunUITests=true`, then `dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --filter-trait "Category=UI" --ignore-exit-code 8` |
 | Format check | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
 
 Tests run on Microsoft.Testing.Platform (`xunit.v3.mtp-v2`): the solution or project goes after `--solution`/`--project`, never as a positional argument, and filters are the xUnit MTP options (`--filter-class`, `--filter-method`, `--filter-trait`).
