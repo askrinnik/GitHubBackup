@@ -5,6 +5,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
@@ -13,6 +14,7 @@ using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
+using GitHubBackup.Infrastructure.GitHub;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
@@ -108,6 +110,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         client.ShouldBeOfType<GitClient>();
         provider.GetRequiredService<IGitClient>().ShouldBeSameAs(client);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_GitHubApi_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var api = provider.GetRequiredService<IGitHubApi>();
+
+        api.ShouldBeOfType<OctokitGitHubApi>();
+        provider.GetRequiredService<IGitHubApi>().ShouldBeSameAs(api);
     }
 
     [Fact]
