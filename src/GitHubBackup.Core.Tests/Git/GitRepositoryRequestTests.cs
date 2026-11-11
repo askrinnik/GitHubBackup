@@ -21,4 +21,18 @@ public sealed class GitRepositoryRequestTests
         request.ToString().ShouldBe(
             @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch = main }");
     }
+
+    [Fact]
+    public void Branch_NotSet_IsNullAndPrintsEmpty()
+    {
+        var request = new GitRepositoryRequest
+        {
+            GitPath = @"C:\Git\cmd\git.exe",
+            ClonePath = @"C:\backup\owner\repo",
+        };
+
+        request.Branch.ShouldBeNull();
+        request.ToString().ShouldBe(
+            @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch =  }");
+    }
 }

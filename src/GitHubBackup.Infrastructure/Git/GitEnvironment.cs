@@ -29,12 +29,20 @@ internal static class GitEnvironment
     /// Configuration entries set after <c>core.longpaths</c> and the empty <c>credential.helper</c>, and before the
     /// authorization header.
     /// </param>
+    /// <param name="ceilingDirectory">
+    /// The folder above which git does not search for a repository, or <see langword="null"/> for no ceiling; a path that contains <c>;</c> also gets none, because git
+    /// splits the variable at that character and would apply a wrong entry. Set
+    /// to the parent of a clone, it makes git fail in a clone folder without <c>.git</c> instead of operating on a
+    /// repository that contains the folder.
+    /// </param>
     /// <returns>
-    /// <c>GIT_TERMINAL_PROMPT</c>, <c>GCM_INTERACTIVE</c>, <c>GIT_CONFIG_COUNT</c> and a key and value per entry;
-    /// the value of the header is marked as a secret.
+    /// <c>GIT_TERMINAL_PROMPT</c>, <c>GCM_INTERACTIVE</c>, <c>GIT_CEILING_DIRECTORIES</c> when a ceiling is given,
+    /// <c>GIT_CONFIG_COUNT</c> and a key and value per entry; the value of the header is marked as a secret.
     /// </returns>
     public static IReadOnlyList<ProcessEnvironmentVariable> Create(
-        string? token, IReadOnlyList<KeyValuePair<string, string>> additionalConfiguration)
+        string? token,
+        IReadOnlyList<KeyValuePair<string, string>> additionalConfiguration,
+        string? ceilingDirectory)
     {
         // An empty credential.helper clears the helpers from the user's configuration, so a rejected or missing token
         // fails the command instead of letting a helper supply or store other credentials.
@@ -55,6 +63,11 @@ internal static class GitEnvironment
             new("GCM_INTERACTIVE", "never"),
             new("GIT_CONFIG_COUNT", entries.Count.ToString(CultureInfo.InvariantCulture)),
         ];
+
+        if (!string.IsNullOrEmpty(ceilingDirectory) && !ceilingDirectory.Contains(';', StringComparison.Ordinal))
+        {
+            variables.Add(new("GIT_CEILING_DIRECTORIES", ceilingDirectory));
+        }
 
         for (var index = 0; index < entries.Count; index++)
         {
