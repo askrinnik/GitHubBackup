@@ -1,4 +1,5 @@
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.History;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure.Hosting;
@@ -10,8 +11,9 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// Binding errors name the key and the target type (built by <c>BindSection</c> without the value), validator
 /// errors name the key, <see cref="ConfigurationFileException"/> errors name <c>appsettings.json</c> or the user
 /// secrets file and the position, or the <c>--config</c> option, and <see cref="BackupConfigException"/> errors name their location in
-/// <c>backup-config.json</c>. No message quotes a configuration value, and the token is never bound to an options
-/// object. Any other exception, including a <see cref="FileNotFoundException"/> or an
+/// <c>backup-config.json</c>. A <see cref="RunHistoryException"/> names the path of the run history database: a
+/// database that cannot be opened or migrated at startup needs the user's repair just like a broken setting. No other
+/// message quotes a configuration value, and the token is never bound to an options object. Any other exception, including a <see cref="FileNotFoundException"/> or an
 /// <see cref="InvalidDataException"/> from other code, is not a configuration error.
 /// </remarks>
 public static class ConfigurationErrorMessages
@@ -31,6 +33,7 @@ public static class ConfigurationErrorMessages
                 [.. aggregate.InnerExceptions.Cast<OptionsValidationException>().SelectMany(inner => inner.Failures)],
             BackupConfigException backupConfig => [.. backupConfig.Errors],
             ConfigurationFileException file => [file.Message],
+            RunHistoryException history => [history.Message],
             _ => [],
         };
 

@@ -238,6 +238,21 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_HistoryDatabaseCorrupt_ReturnsCriticalWithOneLineNamingDatabase()
+    {
+        var databasePath = Path.Combine(_contentRoot.FolderPath, "data", "history.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllText(databasePath, "This file is not an SQLite database, but it is long enough to have a header.");
+
+        var exitCode = await RunAsync(ValidAppSettings);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var line = ErrorLines().ShouldHaveSingleItem();
+        line.ShouldStartWith(CliApplication.ConfigurationErrorPrefix);
+        line.ShouldContain(databasePath);
+    }
+
+    [Fact]
     public async Task RunAsync_InvalidValueOnCommandLine_ReturnsCritical()
     {
         var exitCode = await RunAsync(ValidAppSettings, "--Backup:ShortHashLength=2");
@@ -445,7 +460,7 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_BackupDryRunWithoutBackupConfig_ReturnsCriticalAndCreatesNoFiles()
+    public async Task RunAsync_BackupDryRunWithoutBackupConfig_ReturnsCriticalAndCreatesOnlyLogsAndHistory()
     {
         _isInputRedirected = true;
 
@@ -456,7 +471,9 @@ public sealed class CliApplicationTests : IDisposable
         lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
         lines[0].ShouldContain("backup-config.json");
         lines[0].ShouldNotContain(BackupCommandHandler.RedirectedInputMessage);
-        Directory.GetFileSystemEntries(_contentRoot.FolderPath).Select(Path.GetFileName).ShouldBe([LogFiles.FolderName]);
+        Directory.GetFileSystemEntries(_contentRoot.FolderPath)
+            .Select(Path.GetFileName)
+            .ShouldBe([LogFiles.FolderName, "data"], ignoreOrder: true);
     }
 
     [Fact]

@@ -5,6 +5,7 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.History;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -17,14 +18,18 @@ using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.GitHub;
+using GitHubBackup.Infrastructure.History;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure;
@@ -40,7 +45,8 @@ public static class InfrastructureServiceCollectionExtensions
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
         /// token, the <see cref="ITokenStore"/> in Windows Credential Manager, the <see cref="ITokenProvider"/> with the
-        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/> and the
+        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/>, the <see cref="IRunHistoryStore"/> with the
+        /// hosted service that creates and migrates its database when the host starts, and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
@@ -76,6 +82,15 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<AtomicFileWriter>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
+            services.AddDbContextFactory<HistoryDbContext>((provider, builder) => builder
+                .UseSqlite(HistoryConnectionString.Create(
+                    provider.GetRequiredService<IOptions<HistoryOptions>>().Value.DatabasePath))
+
+                // Every statement would otherwise reach the Information log of each run; the history log entries
+                // that matter come from HistoryDatabaseInitializer.
+                .ConfigureWarnings(warnings => warnings.Log((RelationalEventId.CommandExecuted, LogLevel.Debug))));
+            services.TryAddSingleton<IRunHistoryStore, SqliteRunHistoryStore>();
+            services.AddHostedService<HistoryDatabaseInitializer>();
             services.TryAddSingleton<IRepositoryPathResolver>(provider => new RepositoryPathResolver(
                 Path.Combine(
                     provider.GetRequiredService<IHostEnvironment>().ContentRootPath,
