@@ -1,0 +1,97 @@
+{
+  "run": "2026-11-12-22-11_baseline-before-moving-the-issue-workflo",
+  "note": "Baseline before moving the issue workflow to the issue-kit plugin",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-12 22:11",
+  "commit": "9e3d625d",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "a3be94fc-43fc-4450-8dd2-1189502b6ddc",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "a2c2ef96-f436-43b7-96bb-a6fdd7c07d18",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "5ce27d9b-6eeb-419e-8d0f-7fe8a09aaad5",
+      "hash": "cdc276b0",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "295028f6-7a71-4f3c-8c0d-3971cb80459a",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "c504f57c-d2ec-4169-a748-6d147947d9ac",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "4906125d-d437-44cb-861c-57f42d3c36bd",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 1,
+      "session": "5932bb40-b48f-4d9a-9a3d-30c959199304",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 2,
+      "session": "00a0e95a-657f-437e-9f69-b59347b682be",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 3,
+      "session": "39f59e18-c72b-4e2a-bf83-feb85251fbd6",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 1,
+      "session": "3fb853b8-97b6-4787-95a8-1934519fac58",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 2,
+      "session": "27d2fa60-4823-4572-95c1-72287f7d8564",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 3,
+      "session": "1696c282-4d83-439a-9b2e-e5b901ae4955",
+      "hash": "4adcb057",
+      "judged": true
+    }
+  ]
+}
