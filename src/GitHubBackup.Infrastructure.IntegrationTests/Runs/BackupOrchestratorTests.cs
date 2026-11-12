@@ -261,6 +261,58 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.GetFiles(Path.Combine(_archiveRoot, _owner, "fresh"), "*.zip").ShouldHaveSingleItem();
     }
 
+    [Fact]
+    public async Task RunAsync_RenamedRepositorySilent_KeepsArchiveFolderAndMovesClone()
+    {
+        var remote = await AddRemoteAsync("old");
+        await SaveConfigAsync("old");
+        var first = await RunAsync();
+        _gitHubApi.AddRepository(1, _owner, "new", hasWiki: false);
+        _remoteUrls["new"] = remote.Url;
+        await remote.CommitAsync("change.txt", "changed", "Change", CancellationToken);
+
+        var second = await RunAsync();
+
+        var outcome = second.Discovery.ShouldNotBeNull().Renamed.ShouldHaveSingleItem();
+        (outcome.OldFullName, outcome.NewFullName, outcome.Applied).ShouldBe(
+            ("owner/old", "owner/new", RenameDecision.KeepArchiveFolder));
+        second.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/new", BackupItemStatus.Archived)]);
+        second.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+
+        var saved = await _configStore.LoadAsync(CancellationToken);
+        var entry = saved.Config.Repositories.ShouldHaveSingleItem();
+        entry.Url.ShouldBe($"https://github.com/{_owner}/new");
+        var oldFolder = Path.Combine(_archiveRoot, _owner, "old");
+        entry.Path.ShouldBe(oldFolder);
+        Directory.GetFiles(oldFolder, "*.zip").Select(Path.GetFileName).Order(StringComparer.Ordinal).ShouldBe(
+            new[] { first.Items[0].ArchiveFileName, second.Items[0].ArchiveFileName }.Order(StringComparer.Ordinal));
+        Directory.Exists(Path.Combine(_archiveRoot, _owner, "new")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "new", ".git")).ShouldBeTrue();
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "old")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_MissingRepositorySilent_MarksUnavailableAndKeepsFiles()
+    {
+        await AddRemoteAsync("gone");
+        await SaveConfigAsync("gone");
+        var first = await RunAsync();
+        _gitHubApi.RemoveRepository(1);
+
+        var second = await RunAsync();
+
+        second.Discovery.ShouldNotBeNull().MarkedUnavailable.ShouldBe(["owner/gone"]);
+        var item = second.Items.ShouldHaveSingleItem();
+        (item.Repository, item.Status).ShouldBe(("owner/gone", BackupItemStatus.Skipped));
+        second.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+
+        var saved = await _configStore.LoadAsync(CancellationToken);
+        saved.Config.Repositories.ShouldHaveSingleItem().Status.ShouldBe(RepositoryStatus.Unavailable);
+        var archiveFolder = Path.Combine(_archiveRoot, _owner, "gone");
+        File.Exists(Path.Combine(archiveFolder, first.Items[0].ArchiveFileName!)).ShouldBeTrue();
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "gone", ".git")).ShouldBeTrue();
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>

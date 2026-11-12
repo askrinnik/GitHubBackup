@@ -1,5 +1,7 @@
 using GitHubBackup.Core;
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Discovery;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Time.Testing;
@@ -174,6 +176,43 @@ public sealed class BackupCommandHandlerTests : IDisposable
         exitCode.ShouldBe(ExitCode.DiscoveryEvents);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_SilentWithDiscoveredRepositories_DecidesWithoutReadingConsoleInput(bool isInputRedirected)
+    {
+        using var interactiveOutput = TestCliConsole.CreateInteractiveOutput();
+        var fresh = new GitHubRepository(
+            7, "octocat", "fresh", IsPrivate: false, IsFork: false, IsArchived: false, HasWiki: false, "main", "https://github.com/octocat/fresh");
+        var renamed = new RenamedRepository(
+            new("octocat", "old", 8, RepositoryStatus.Active, null),
+            new(8, "octocat", "new", IsPrivate: false, IsFork: false, IsArchived: false, HasWiki: false, "main", "https://github.com/octocat/new"));
+        NewRepositoryDecision? newDecision = null;
+        RenameDecision? renameDecision = null;
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(async call =>
+        {
+            var request = call.Arg<BackupRunRequest>();
+            var cancellationToken = call.Arg<CancellationToken>();
+            newDecision = await request.DecisionHandler.DecideNewAsync(new(fresh, null, @"C:\backup\octocat\fresh"), cancellationToken);
+            renameDecision = await request.DecisionHandler.DecideRenameAsync(
+                new(renamed, @"C:\backup\octocat\old", @"C:\backup\octocat\new"), cancellationToken);
+            return new BackupRunResult([new("octocat/fresh", BackupItemStatus.Archived, null, TimeSpan.Zero, null)], [], [])
+            {
+                Discovery = new DiscoveryApplyResult(["octocat/fresh"], [], [], [], [], [], ConfigSaved: true),
+            };
+        });
+
+        var exitCode = await CreateHandler(out _, isInputRedirected, interactiveOutput).RunAsync(
+            BackupCommandOptions.Default with { Silent = true }, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        newDecision.ShouldBe(NewRepositoryDecision.Add());
+        renameDecision.ShouldBe(RenameDecision.KeepArchiveFolder);
+        var text = interactiveOutput.Output;
+        text.ShouldNotContain("?");
+        text.ShouldNotContain("Add ");
+    }
+
     /// <summary>
     /// Disposes the outputs.
     /// </summary>
@@ -195,12 +234,14 @@ public sealed class BackupCommandHandlerTests : IDisposable
     /// </summary>
     /// <param name="consoleHandler">The console decision handler.</param>
     /// <param name="isInputRedirected">Whether the console reports redirected input.</param>
+    /// <param name="output">The console to write to, or <see langword="null"/> for the default test output.</param>
     /// <returns>The handler.</returns>
-    private BackupCommandHandler CreateHandler(out ConsoleDiscoveryDecisionHandler consoleHandler, bool isInputRedirected = false)
+    private BackupCommandHandler CreateHandler(
+        out ConsoleDiscoveryDecisionHandler consoleHandler, bool isInputRedirected = false, TestConsole? output = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(_contentRoot);
-        var console = new CliConsole(_output, _error, isInputRedirected);
+        var console = new CliConsole(output ?? _output, _error, isInputRedirected);
         consoleHandler = new(console);
         return new(_orchestrator, _automaticHandler, consoleHandler, console, new(console), environment, _timeProvider);
     }

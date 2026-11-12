@@ -33,6 +33,12 @@ internal sealed class FakeGitHubApi : IGitHubApi
         _repositories[id] = new(
             id, owner, name, IsPrivate: false, IsFork: false, IsArchived: false, hasWiki, "main", $"https://github.com/{owner}/{name}");
 
+    /// <summary>
+    /// Unregisters a repository, as if it were deleted on GitHub.
+    /// </summary>
+    /// <param name="id">The GitHub id.</param>
+    public void RemoveRepository(long id) => _repositories.Remove(id);
+
     /// <inheritdoc />
     public Task<GitHubAccount> GetAccountAsync(string login, CancellationToken cancellationToken) =>
         _accounts.TryGetValue(login, out var type)
