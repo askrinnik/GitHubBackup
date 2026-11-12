@@ -1,5 +1,7 @@
+using System.Globalization;
 using System.IO.Abstractions;
 using System.IO.Compression;
+using System.Security.Cryptography;
 using GitHubBackup.Core;
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
@@ -313,6 +315,81 @@ public sealed class BackupOrchestratorTests : IDisposable
         Directory.Exists(Path.Combine(_sourcesRoot, _owner, "gone", ".git")).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task RunAsync_DryRun_ChangesNothingOnDisk()
+    {
+        var changed = await AddRemoteAsync("a");
+        await AddRemoteAsync("b");
+        _gitHubApi.AddAccount(_owner, GitHubAccountType.User);
+        _gitHubApi.AddRepository(1, _owner, "a", hasWiki: false);
+        await SaveAccountConfigAsync("a");
+        await RunAsync();
+        _gitHubApi.AddRepository(2, _owner, "b", hasWiki: false);
+        _gitHubApi.AddRepository(4, _owner, "fresh", hasWiki: false);
+        await SaveAccountConfigAsync("a", "b", "gone");
+        var head = await changed.CommitAsync("change.txt", "changed", "Change", CancellationToken);
+        var temporaryFolder = Path.Combine(_sourcesRoot, RepositoryPathResolver.TemporaryArchiveFolderName);
+        Directory.CreateDirectory(temporaryFolder);
+        await File.WriteAllTextAsync(Path.Combine(temporaryFolder, "leftover.zip"), "partial archive", CancellationToken);
+        var configPath = Path.Combine(_sandbox.RootPath, "backup-config.json");
+        var statePath = Path.Combine(_archiveRoot, _owner, "a", BackupState.FileName);
+        var configBefore = await File.ReadAllBytesAsync(configPath, CancellationToken);
+        var stateBefore = await File.ReadAllBytesAsync(statePath, CancellationToken);
+        var before = SnapshotTree();
+
+        var result = await RunAsync(dryRun: true);
+
+        SnapshotTree().ShouldBe(before);
+        (await File.ReadAllBytesAsync(configPath, CancellationToken)).ShouldBe(configBefore);
+        (await File.ReadAllBytesAsync(statePath, CancellationToken)).ShouldBe(stateBefore);
+        result.IsDryRun.ShouldBeTrue();
+        result.Items.Select(item => (item.Repository, item.Status, item.ArchiveFileName)).ShouldBe(
+        [
+            ("owner/a", BackupItemStatus.WouldArchive, $"owner_a_20261111-120100_{head[..10]}.zip"),
+            ("owner/b", BackupItemStatus.WouldClone, null),
+            ("owner/gone", BackupItemStatus.Skipped, null),
+        ]);
+        var planned = result.PlannedDiscovery.ShouldNotBeNull();
+        planned.NewInAccounts.Select(item => item.Repository.FullName).ShouldBe(["owner/fresh"]);
+        planned.Missing.Select(item => item.FullName).ShouldBe(["owner/gone"]);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunUnchanged_ReportsUpToDate()
+    {
+        await AddRemoteAsync("repo");
+        await SaveConfigAsync("repo");
+        await RunAsync();
+
+        var result = await RunAsync(dryRun: true);
+
+        result.Items.Select(item => (item.Repository, item.Status, item.ArchiveFileName)).ShouldBe(
+            [("owner/repo", BackupItemStatus.UpToDate, null)]);
+        result.PlannedDiscovery.ShouldBeNull();
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWiki_ReportsWikiStatus()
+    {
+        await AddRemoteAsync("repo");
+        var wiki = await AddWikiAsync("repo");
+        await SaveConfigAsync("repo");
+        await RunAsync();
+        var head = await wiki.CommitAsync("Home.md", "# Home", "Edit wiki", CancellationToken);
+        var before = SnapshotTree();
+
+        var result = await RunAsync(dryRun: true);
+
+        result.Items.Select(item => (item.Repository, item.Status, item.ArchiveFileName, item.Target)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.UpToDate, null, BackupTarget.Repository),
+            ("owner/repo.wiki", BackupItemStatus.WouldArchive, $"owner_repo.wiki_20261111-120100_{head[..10]}.zip", BackupTarget.Wiki),
+        ]);
+        SnapshotTree().ShouldBe(before);
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
@@ -383,11 +460,61 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     /// <summary>
+    /// Writes <c>backup-config.json</c> with the account <see cref="_owner"/> that lists one repository per name, ids
+    /// from 1.
+    /// </summary>
+    /// <param name="names">The repository names.</param>
+    /// <returns>A task that completes when the file is written.</returns>
+    private Task SaveAccountConfigAsync(params string[] names) =>
+        _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Accounts =
+                [
+                    new()
+                    {
+                        Url = $"https://github.com/{_owner}",
+                        Repositories = [.. names.Select((name, index) => new AccountRepositoryConfig { Name = name, Id = index + 1 })],
+                    },
+                ],
+            },
+            CancellationToken);
+
+    /// <summary>
+    /// Describes every folder and file of the sandbox: the last write time of each folder, and the size, the last
+    /// write time and a hash of the content of each file.
+    /// </summary>
+    /// <returns>The description of each entry, by path relative to the sandbox and in ordinal order.</returns>
+    private SortedDictionary<string, string> SnapshotTree()
+    {
+        var root = _sandbox.RootPath;
+        var entries = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var directory in Directory.EnumerateDirectories(root, "*", SearchOption.AllDirectories))
+        {
+            entries[Path.GetRelativePath(root, directory)] =
+                Directory.GetLastWriteTimeUtc(directory).Ticks.ToString(CultureInfo.InvariantCulture);
+        }
+
+        foreach (var file in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
+        {
+            var bytes = File.ReadAllBytes(file);
+            entries[Path.GetRelativePath(root, file)] = string.Create(
+                CultureInfo.InvariantCulture,
+                $"{bytes.Length} {File.GetLastWriteTimeUtc(file).Ticks} {Convert.ToHexString(SHA256.HashData(bytes))}");
+        }
+
+        return entries;
+    }
+
+    /// <summary>
     /// Runs the orchestrator over the real services, then moves the clock a minute on so the next run names its
     /// archive differently.
     /// </summary>
+    /// <param name="dryRun">Whether the run is a dry run.</param>
     /// <returns>The result of the run.</returns>
-    private async Task<BackupRunResult> RunAsync()
+    private async Task<BackupRunResult> RunAsync(bool dryRun = false)
     {
         var masker = new SecretMasker();
         var runner = new ProcessRunner(masker, _fileSystem, TimeProvider.System, NullLogger<ProcessRunner>.Instance);
@@ -434,7 +561,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             NullLogger<BackupOrchestrator>.Instance);
 
         var result = await orchestrator.RunAsync(
-            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()), CancellationToken);
+            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()) { DryRun = dryRun }, CancellationToken);
         _timeProvider.Advance(TimeSpan.FromMinutes(1));
         return result;
     }

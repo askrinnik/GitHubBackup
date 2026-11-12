@@ -22,4 +22,10 @@ public enum BackupItemStatus
 
     /// <summary>The repository was not processed, for example because it is marked unavailable.</summary>
     Skipped,
+
+    /// <summary>A dry run found that a backup run would create a new archive.</summary>
+    WouldArchive,
+
+    /// <summary>A dry run found no clone, so a backup run would clone the repository first.</summary>
+    WouldClone,
 }

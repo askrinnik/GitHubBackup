@@ -18,14 +18,11 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
     public async Task<ChangeDetection> DetectAsync(ChangeDetectionRequest request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!fileSystem.Path.IsPathFullyQualified(request.ArchiveFolder))
-        {
-            throw new ArgumentException("The archive folder must be a fully qualified path.", nameof(request));
-        }
+        ValidateArchiveFolder(request);
 
         var last = request.LastArchive;
-        var archiveMissing = last is null || !fileSystem.File.Exists(fileSystem.Path.Combine(request.ArchiveFolder, last.File));
-        var cloneExists = fileSystem.Directory.Exists(fileSystem.Path.Combine(request.Git.ClonePath, ".git"));
+        var archiveMissing = IsArchiveMissing(request);
+        var cloneExists = CloneExists(request);
 
         GitSyncResult sync;
         if (!cloneExists)
@@ -48,6 +45,87 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
 
         return Log(request, Decide(sync, last, archiveMissing));
     }
+
+    /// <inheritdoc />
+    public async Task<ChangeDetection> PreviewAsync(ChangeDetectionRequest request, CancellationToken cancellationToken)
+    {
+        ValidateArchiveFolder(request);
+
+        if (!CloneExists(request))
+        {
+            return Log(
+                request,
+                new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, RefSnapshot.Empty));
+        }
+
+        var git = request.Git;
+        var remote = await gitClient.GetRemoteRefsAsync(git, cancellationToken);
+        var sync = remote.HasBranches
+            ? await ChooseBranchAsync(git, remote, cancellationToken)
+            : new GitSyncResult(null, false, remote);
+        return Log(request, Decide(sync, request.LastArchive, IsArchiveMissing(request)));
+    }
+
+    /// <summary>
+    /// Chooses the branch an update would check out: the requested branch when the server has it, otherwise the
+    /// server's default branch.
+    /// </summary>
+    /// <param name="git">The clone and the requested branch.</param>
+    /// <param name="remote">The refs of the server, with at least one branch.</param>
+    /// <param name="cancellationToken">Cancels the git command.</param>
+    /// <returns>The state an update would leave the clone in.</returns>
+    /// <exception cref="GitBranchNotFoundException">Neither the requested branch nor the default branch exists.</exception>
+    private async Task<GitSyncResult> ChooseBranchAsync(
+        GitRepositoryRequest git, RefSnapshot remote, CancellationToken cancellationToken)
+    {
+        if (git.Branch is not null && remote.ContainsBranch(git.Branch))
+        {
+            return new(git.Branch, false, remote);
+        }
+
+        var defaultBranch = await gitClient.GetDefaultBranchAsync(git, cancellationToken);
+        if (defaultBranch is null || !remote.ContainsBranch(defaultBranch))
+        {
+            var requested = git.Branch is null ? "No branch was requested" : $"Branch '{git.Branch}' does not exist";
+            var serverDefault = defaultBranch is null
+                ? "the server's HEAD names no existing branch"
+                : $"the server's default branch '{defaultBranch}' does not exist";
+            throw new GitBranchNotFoundException(
+                $"{requested} on the server of '{git.ClonePath}', and {serverDefault}.", git.Branch, defaultBranch);
+        }
+
+        return new(defaultBranch, git.Branch is not null, remote);
+    }
+
+    /// <summary>
+    /// Rejects a request whose archive folder is not fully qualified.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <exception cref="ArgumentException">The archive folder is not fully qualified.</exception>
+    private void ValidateArchiveFolder(ChangeDetectionRequest request)
+    {
+        if (!fileSystem.Path.IsPathFullyQualified(request.ArchiveFolder))
+        {
+            throw new ArgumentException("The archive folder must be a fully qualified path.", nameof(request));
+        }
+    }
+
+    /// <summary>
+    /// Returns whether there is no last archive or its file is missing from the archive folder.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <returns><see langword="true"/> when no usable last archive exists.</returns>
+    private bool IsArchiveMissing(ChangeDetectionRequest request) =>
+        request.LastArchive is not { } last
+        || !fileSystem.File.Exists(fileSystem.Path.Combine(request.ArchiveFolder, last.File));
+
+    /// <summary>
+    /// Returns whether the clone folder holds a git repository.
+    /// </summary>
+    /// <param name="request">The request.</param>
+    /// <returns><see langword="true"/> when the clone has a <c>.git</c> folder.</returns>
+    private bool CloneExists(ChangeDetectionRequest request) =>
+        fileSystem.Directory.Exists(fileSystem.Path.Combine(request.Git.ClonePath, ".git"));
 
     /// <summary>
     /// Compares the refs of the server and the branch to check out with the last archive, without fetching.

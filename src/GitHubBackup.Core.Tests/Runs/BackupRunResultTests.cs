@@ -1,4 +1,6 @@
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Discovery;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 
 namespace GitHubBackup.Core.Tests.Runs;
@@ -62,6 +64,35 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(expected);
     }
 
+    [Theory]
+    [InlineData("newInAccount", ExitCode.DiscoveryEvents)]
+    [InlineData("newStandalone", ExitCode.DiscoveryEvents)]
+    [InlineData("missing", ExitCode.DiscoveryEvents)]
+    [InlineData("renamed", ExitCode.DiscoveryEvents)]
+    [InlineData("returned", ExitCode.Success)]
+    public void ExitCode_PlannedDiscoveryWithoutFailures_IsDiscoveryEventsForNewMissingOrRenamed(string kind, ExitCode expected)
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.WouldArchive)], [], [])
+        {
+            IsDryRun = true,
+            PlannedDiscovery = Planned(kind),
+        };
+
+        result.ExitCode.ShouldBe(expected);
+    }
+
+    [Fact]
+    public void ExitCode_PlannedDiscoveryAndFailedItem_IsRepositoriesFailed()
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Failed)], [], [])
+        {
+            IsDryRun = true,
+            PlannedDiscovery = Planned("missing"),
+        };
+
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+    }
+
     [Fact]
     public void Stopped_ErrorsAndWarnings_HasNoItemsAndIsCritical()
     {
@@ -90,6 +121,25 @@ public sealed class BackupRunResultTests
     /// <param name="status">The status.</param>
     /// <returns>The item.</returns>
     private static BackupItemResult Item(BackupItemStatus status) => new("owner/repo", status, null, TimeSpan.Zero, null);
+
+    /// <summary>
+    /// Creates what discovery found in a dry run, with one repository in the class named by <paramref name="kind"/>.
+    /// </summary>
+    /// <param name="kind">
+    /// <c>newInAccount</c>, <c>newStandalone</c>, <c>missing</c>, <c>renamed</c> or <c>returned</c>.
+    /// </param>
+    /// <returns>The discovery result.</returns>
+    private static DiscoveryResult Planned(string kind)
+    {
+        var repository = new GitHubRepository(1, "owner", "repo", false, false, false, false, "main", "https://github.com/owner/repo");
+        var tracked = new TrackedRepository("owner", "old", 1, RepositoryStatus.Active, "owner");
+        return new(
+            kind == "newInAccount" ? [new("owner", repository)] : [],
+            kind == "newStandalone" ? [repository] : [],
+            kind == "missing" ? [tracked] : [],
+            kind == "returned" ? [new(tracked with { Status = RepositoryStatus.Unavailable }, repository)] : [],
+            kind == "renamed" ? [new(tracked, repository)] : []);
+    }
 
     /// <summary>
     /// Creates what discovery changed, with one repository in the list named by <paramref name="kind"/>.

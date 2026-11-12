@@ -12,7 +12,7 @@ namespace GitHubBackup.Cli;
 /// <remarks>
 /// With <c>--silent</c>, discovered repositories are decided by <see cref="AutomaticDiscoveryDecisionHandler"/>;
 /// otherwise <see cref="ConsoleDiscoveryDecisionHandler"/> asks in the console, which needs a console whose input is
-/// not redirected.
+/// not redirected. With <c>--dry-run</c> nothing is decided, so nobody is asked and redirected input is fine.
 /// </remarks>
 /// <param name="orchestrator">Runs the backup.</param>
 /// <param name="automaticHandler">Decides about new and renamed repositories without asking.</param>
@@ -30,9 +30,6 @@ internal sealed class BackupCommandHandler(
     IHostEnvironment environment,
     TimeProvider timeProvider)
 {
-    /// <summary>The error that stops a run with <c>--dry-run</c>, which is not available yet.</summary>
-    public const string DryRunNotImplementedMessage = "The --dry-run option is not implemented yet; nothing was changed.";
-
     /// <summary>The error that stops an interactive run whose input is redirected.</summary>
     public const string RedirectedInputMessage =
         "Input is redirected, so the backup cannot ask questions. Run it again with --silent to decide automatically.";
@@ -41,9 +38,9 @@ internal sealed class BackupCommandHandler(
     /// Runs the backup and shows its summary.
     /// </summary>
     /// <remarks>
-    /// With <see cref="BackupCommandOptions.DryRun"/> the run stops before the orchestrator, so nothing is changed.
-    /// Without <see cref="BackupCommandOptions.Silent"/> and with redirected input it stops there too, before
-    /// discovery or any write, because no one can answer.
+    /// Without <see cref="BackupCommandOptions.Silent"/> or <see cref="BackupCommandOptions.DryRun"/> and with
+    /// redirected input the run stops before the orchestrator, before discovery or any write, because no one can
+    /// answer.
     /// </remarks>
     /// <param name="options">The options of the command.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
@@ -51,11 +48,10 @@ internal sealed class BackupCommandHandler(
     public async Task<ExitCode> RunAsync(BackupCommandOptions options, CancellationToken cancellationToken)
     {
         IDiscoveryDecisionHandler decisionHandler = options.Silent ? automaticHandler : consoleHandler;
-        var result = options.DryRun
-            ? BackupRunResult.Stopped([DryRunNotImplementedMessage], [])
-            : !options.Silent && console.IsInputRedirected
-                ? BackupRunResult.Stopped([RedirectedInputMessage], [])
-                : await orchestrator.RunAsync(new(options.Filter, decisionHandler), cancellationToken);
+        var result = !options.Silent && !options.DryRun && console.IsInputRedirected
+            ? BackupRunResult.Stopped([RedirectedInputMessage], [])
+            : await orchestrator.RunAsync(
+                new(options.Filter, decisionHandler) { DryRun = options.DryRun }, cancellationToken);
         await renderer.RenderAsync(result, CliLogPath.Get(environment, timeProvider));
         return result.ExitCode;
     }

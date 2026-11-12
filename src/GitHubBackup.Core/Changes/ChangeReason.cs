@@ -22,4 +22,7 @@ public enum ChangeReason
 
     /// <summary>The server repository has no branch.</summary>
     EmptyRepository,
+
+    /// <summary>There is no clone, so a preview cannot compare anything without cloning.</summary>
+    NoClone,
 }

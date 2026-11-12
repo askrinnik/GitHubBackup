@@ -182,4 +182,35 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Information,
         Message = "New repository {Repository} is not confirmed and is not backed up")]
     public static partial void NewRepositoryNotConfirmed(ILogger logger, string repository);
+
+    /// <summary>
+    /// Logs that the run is a dry run, which shows what a backup run would do and changes nothing.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    [LoggerMessage(
+        EventId = 18,
+        Level = LogLevel.Information,
+        Message = "Dry run started: nothing is cloned, updated, archived or saved")]
+    public static partial void DryRunStarted(ILogger logger);
+
+    /// <summary>
+    /// Logs that a dry run leaves the folder of temporary archives as it is.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="path">The folder.</param>
+    [LoggerMessage(
+        EventId = 19,
+        Level = LogLevel.Information,
+        Message = "Dry run: the temporary archive folder {Path} is left untouched")]
+    public static partial void TemporaryFolderLeftUntouched(ILogger logger, string path);
+
+    /// <summary>
+    /// Logs a repository that a dry run finds missing on GitHub; a backup run would mark it unavailable.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    [LoggerMessage(
+        EventId = 20,
+        Level = LogLevel.Information,
+        Message = "Dry run: the repository is missing on GitHub and a backup run would mark it Unavailable")]
+    public static partial void RepositoryMissing(ILogger logger);
 }

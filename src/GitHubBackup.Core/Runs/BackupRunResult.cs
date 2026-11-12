@@ -18,10 +18,20 @@ public sealed record BackupRunResult(
     /// </summary>
     public DiscoveryApplyResult? Discovery { get; init; }
 
+    /// <summary>Gets whether the run was a dry run, which changed nothing.</summary>
+    public bool IsDryRun { get; init; }
+
+    /// <summary>
+    /// Gets what discovery found in a dry run, which shows the findings without deciding or saving anything, or
+    /// <see langword="null"/> when the run was not a dry run or discovery was skipped.
+    /// </summary>
+    public DiscoveryResult? PlannedDiscovery { get; init; }
+
     /// <summary>
     /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped,
     /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>,
-    /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, and
+    /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, in a dry run
+    /// too, and
     /// <see cref="ExitCode.Success"/> otherwise.
     /// </summary>
     /// <remarks>
@@ -30,7 +40,7 @@ public sealed record BackupRunResult(
     public ExitCode ExitCode =>
         CriticalErrors.Count > 0 ? ExitCode.Critical
         : Items.Any(item => item.Status == BackupItemStatus.Failed) ? ExitCode.RepositoriesFailed
-        : HasDiscoveryEvents(Discovery) ? ExitCode.DiscoveryEvents
+        : HasDiscoveryEvents(Discovery) || HasDiscoveryEvents(PlannedDiscovery) ? ExitCode.DiscoveryEvents
         : ExitCode.Success;
 
     /// <summary>
@@ -60,5 +70,17 @@ public sealed record BackupRunResult(
             || discovery.Skipped.Count > 0
             || discovery.Excluded.Count > 0
             || discovery.MarkedUnavailable.Count > 0
+            || discovery.Renamed.Count > 0);
+
+    /// <summary>
+    /// Returns whether a dry run's discovery found a new, missing or renamed repository.
+    /// </summary>
+    /// <param name="discovery">What discovery found, or <see langword="null"/>.</param>
+    /// <returns><see langword="true"/> when there was at least one such repository.</returns>
+    private static bool HasDiscoveryEvents(DiscoveryResult? discovery) =>
+        discovery is not null
+        && (discovery.NewInAccounts.Count > 0
+            || discovery.NewStandalone.Count > 0
+            || discovery.Missing.Count > 0
             || discovery.Renamed.Count > 0);
 }
