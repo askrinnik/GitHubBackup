@@ -25,6 +25,7 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="configStore">Reads <c>backup-config.json</c>.</param>
 /// <param name="toolLocator">Locates git and 7-Zip.</param>
 /// <param name="tokenProvider">Supplies the GitHub token, or anonymous access.</param>
+/// <param name="runLock">Keeps a second run from starting while this one works.</param>
 /// <param name="pathResolver">Resolves the archive, clone and temporary folders.</param>
 /// <param name="exclusionMatcher">Finds the repositories of the list that an exclusion mask removes from the run.</param>
 /// <param name="discoveryService">Finds new, missing and renamed repositories.</param>
@@ -44,6 +45,7 @@ public sealed class BackupOrchestrator(
     IBackupConfigStore configStore,
     IToolLocator toolLocator,
     ITokenProvider tokenProvider,
+    IRunLock runLock,
     IRepositoryPathResolver pathResolver,
     IExclusionMatcher exclusionMatcher,
     IRepositoryDiscoveryService discoveryService,
@@ -58,6 +60,15 @@ public sealed class BackupOrchestrator(
     TimeProvider timeProvider,
     ILogger<BackupOrchestrator> logger) : IBackupOrchestrator
 {
+    /// <summary>The error that stops a run while another run holds the lock.</summary>
+    public const string RunLockHeldMessage = "A backup is already running.";
+
+    /// <summary>The message of the repository or wiki that was being processed when the run was cancelled.</summary>
+    public const string CancelledMessage = "The run was cancelled while this item was being processed.";
+
+    /// <summary>The message of each repository that a cancelled run did not start.</summary>
+    public const string NotProcessedMessage = "Not processed: the run was cancelled.";
+
     /// <inheritdoc />
     public async Task<BackupRunResult> RunAsync(BackupRunRequest request, CancellationToken cancellationToken)
     {
@@ -91,6 +102,50 @@ public sealed class BackupOrchestrator(
         }
 
         var token = await tokenProvider.GetTokenAsync(cancellationToken);
+
+        // The lock is taken before the folder of temporary archives is emptied, because that folder may hold the
+        // archive another run is building right now.
+        using var runLockHandle = await runLock.TryAcquireAsync(cancellationToken);
+        if (runLockHandle is null)
+        {
+            return Stop([RunLockHeldMessage], loaded.Warnings, null);
+        }
+
+        try
+        {
+            return await RunLockedAsync(request, loaded, tools, items, token, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            BackupOrchestratorLog.RunCancelled(logger, 0, 0);
+            return new([], loaded.Warnings, []) { IsCancelled = true, IsDryRun = request.DryRun };
+        }
+    }
+
+    /// <summary>
+    /// Runs the part of the backup that needs the lock: empties the folder of temporary archives, discovers, applies the
+    /// decisions and processes the repositories.
+    /// </summary>
+    /// <param name="request">The repositories the run covers, the handler of discovery decisions and the mode.</param>
+    /// <param name="loaded">The configuration and its warnings.</param>
+    /// <param name="tools">The located tools.</param>
+    /// <param name="items">The repositories of the configuration.</param>
+    /// <param name="token">The token passed to git.</param>
+    /// <param name="cancellationToken">
+    /// Cancels the run; a cancellation during a repository is reported in the result, one before the first repository
+    /// is thrown.
+    /// </param>
+    /// <returns>The result of the run.</returns>
+    private async Task<BackupRunResult> RunLockedAsync(
+        BackupRunRequest request,
+        BackupConfigLoadResult loaded,
+        ToolSet tools,
+        IReadOnlyList<BackupWorkItem> items,
+        GitHubToken token,
+        CancellationToken cancellationToken)
+    {
+        var config = loaded.Config;
+        var filter = request.Filter;
         var temporaryFolder = pathResolver.GetTemporaryArchiveFolder(config);
         var dryRun = request.DryRun;
         if (dryRun)
@@ -139,22 +194,7 @@ public sealed class BackupOrchestrator(
         var settings = new RunSettings(tools, token, temporaryFolder, dryRun);
         var work = ExcludeMatching(config, SelectIncluded(items, filter));
         var results = new List<BackupItemResult>(work.Count);
-        foreach (var item in work)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (missing.Contains(item.Id))
-            {
-                results.Add(SkipMissing(item));
-                continue;
-            }
-
-            results.Add(await ProcessAsync(item, settings, cancellationToken));
-            var wiki = await ProcessWikiAsync(item, discovery.Repositories, settings, cancellationToken);
-            if (wiki is not null)
-            {
-                results.Add(wiki);
-            }
-        }
+        var cancelled = await ProcessAllAsync(work, missing, discovery.Repositories, settings, results, cancellationToken);
 
         foreach (var repository in applied?.Skipped ?? [])
         {
@@ -167,8 +207,90 @@ public sealed class BackupOrchestrator(
             {
                 IsDryRun = true,
                 PlannedDiscovery = discovery.HasChanges ? discovery : null,
+                IsCancelled = cancelled,
             }
-            : new(results, loaded.Warnings, []) { Discovery = applied };
+            : new(results, loaded.Warnings, []) { Discovery = applied, IsCancelled = cancelled };
+    }
+
+    /// <summary>
+    /// Processes the repositories and their wikis in order until the work is done or the run is cancelled.
+    /// </summary>
+    /// <remarks>
+    /// On cancellation the repository or wiki being processed is reported as <see cref="BackupItemStatus.Cancelled"/>
+    /// and every repository not yet started as <see cref="BackupItemStatus.Skipped"/>, so the summary still accounts for
+    /// the whole run.
+    /// </remarks>
+    /// <param name="work">The repositories to process.</param>
+    /// <param name="missing">The ids of the repositories a dry run finds missing on GitHub.</param>
+    /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
+    /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
+    /// <param name="results">Receives the result of each repository and wiki.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns><see langword="true"/> when the run was cancelled before all the work was done.</returns>
+    private async Task<bool> ProcessAllAsync(
+        List<BackupWorkItem> work,
+        HashSet<long> missing,
+        IReadOnlyDictionary<long, GitHubRepository> discovered,
+        RunSettings settings,
+        List<BackupItemResult> results,
+        CancellationToken cancellationToken)
+    {
+        for (var index = 0; index < work.Count; index++)
+        {
+            var item = work[index];
+            if (cancellationToken.IsCancellationRequested)
+            {
+                BackupOrchestratorLog.RunCancelled(logger, results.Count, work.Count - index);
+                SkipNotProcessed(work, index, results);
+                return true;
+            }
+
+            if (missing.Contains(item.Id))
+            {
+                results.Add(SkipMissing(item));
+                continue;
+            }
+
+            var started = timeProvider.GetTimestamp();
+            var (current, target) = (item.FullName, BackupTarget.Repository);
+            try
+            {
+                results.Add(await ProcessAsync(item, settings, cancellationToken));
+                started = timeProvider.GetTimestamp();
+                (current, target) = (item.WikiFullName, BackupTarget.Wiki);
+                var wiki = await ProcessWikiAsync(item, discovered, settings, cancellationToken);
+                if (wiki is not null)
+                {
+                    results.Add(wiki);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                BackupOrchestratorLog.RunCancelled(logger, results.Count, work.Count - index - 1);
+                results.Add(new(current, BackupItemStatus.Cancelled, null, timeProvider.GetElapsedTime(started), CancelledMessage)
+                {
+                    Target = target,
+                });
+                SkipNotProcessed(work, index + 1, results);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Reports the repositories that the cancelled run did not start as skipped.
+    /// </summary>
+    /// <param name="work">The repositories of the run.</param>
+    /// <param name="first">The index of the first repository not started.</param>
+    /// <param name="results">Receives a result for each repository not started.</param>
+    private static void SkipNotProcessed(List<BackupWorkItem> work, int first, List<BackupItemResult> results)
+    {
+        for (var index = first; index < work.Count; index++)
+        {
+            results.Add(new(work[index].FullName, BackupItemStatus.Skipped, null, TimeSpan.Zero, NotProcessedMessage));
+        }
     }
 
     /// <summary>
@@ -579,7 +701,8 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <remarks>
     /// The state is written only after the archive is in its final place, so a failed archive never appears in the
-    /// state file.
+    /// state file. From then on the archive exists, so its record is written even when the run is cancelled: without
+    /// the record the next run would not know the archive and would create the same one again.
     /// </remarks>
     /// <param name="item">The repository, which supplies the archive folder and the state file.</param>
     /// <param name="source">The repository or its wiki.</param>
@@ -609,7 +732,7 @@ public sealed class BackupOrchestrator(
             cancellationToken);
 
         var record = new ArchiveRecord(name.FileName, name.CreatedAt, branch, headCommit, result.SizeBytes, detection.Refs);
-        await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, cancellationToken);
+        await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, CancellationToken.None);
         return name.FileName;
     }
 

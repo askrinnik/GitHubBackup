@@ -11,7 +11,8 @@ namespace GitHubBackup.Cli;
 /// </summary>
 /// <remarks>
 /// A dry run adds a line that says nothing was changed before the table, lists what discovery found after it and
-/// counts the statuses a dry run reports.
+/// counts the statuses a dry run reports. A cancelled run adds a line that says so after the items and counts the
+/// <see cref="BackupItemStatus.Cancelled"/> item too.
 /// </remarks>
 /// <param name="console">The outputs of the console application.</param>
 internal sealed class BackupSummaryRenderer(CliConsole console)
@@ -27,6 +28,9 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
 
     /// <summary>The line that opens the summary of a dry run.</summary>
     public const string DryRunHeader = "Dry run: nothing was cloned, updated, archived or saved.";
+
+    /// <summary>The line that follows the items of a cancelled run.</summary>
+    public const string CancelledLine = "Cancelled: the run was stopped before it finished.";
 
     /// <summary>The statuses listed in the totals line of a normal run, in output order.</summary>
     private static readonly BackupItemStatus[] _runStatuses =
@@ -79,13 +83,13 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
             output.WriteLine(DryRunHeader);
         }
 
-        if (result.Items.Count == 0)
-        {
-            output.WriteLine("No repositories to back up.");
-        }
-        else
+        if (result.Items.Count > 0)
         {
             output.Write(CreateTable(result.Items));
+        }
+        else if (!result.IsCancelled)
+        {
+            output.WriteLine("No repositories to back up.");
         }
 
         if (result.PlannedDiscovery is { } discovery)
@@ -96,9 +100,15 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
             }
         }
 
-        output.WriteLine(string.Join(
-            ", ",
-            (result.IsDryRun ? _dryRunStatuses : _runStatuses).Select(status => $"{status}: {result.Count(status)}")));
+        if (result.IsCancelled)
+        {
+            output.MarkupLine($"[yellow]{Markup.Escape(CancelledLine)}[/]");
+        }
+
+        // A cancelled run adds its own status to the totals; a run that went through has no item with it.
+        var listed = result.IsDryRun ? _dryRunStatuses : _runStatuses;
+        var statuses = result.IsCancelled ? [.. listed, BackupItemStatus.Cancelled] : listed;
+        output.WriteLine(string.Join(", ", statuses.Select(status => $"{status}: {result.Count(status)}")));
         output.WriteLine(LogPrefix + logPath);
     }
 
@@ -148,6 +158,7 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
         BackupItemStatus.Skipped => new(Color.Grey),
         BackupItemStatus.WouldArchive => new(Color.Green),
         BackupItemStatus.WouldClone => new(Color.Aqua),
+        BackupItemStatus.Cancelled => new(Color.Yellow),
         _ => Style.Plain,
     };
 

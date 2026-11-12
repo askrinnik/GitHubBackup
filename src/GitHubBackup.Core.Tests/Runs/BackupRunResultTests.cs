@@ -93,6 +93,30 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExitCode_Cancelled_IsCriticalOverFailedItemsAndDiscoveryEvents(bool dryRun)
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Failed), Item(BackupItemStatus.Cancelled)], [], [])
+        {
+            IsCancelled = true,
+            IsDryRun = dryRun,
+            Discovery = dryRun ? null : Discovery("added"),
+            PlannedDiscovery = dryRun ? Planned("missing") : null,
+        };
+
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+    }
+
+    [Fact]
+    public void ExitCode_CancelledWithoutItems_IsCritical()
+    {
+        var result = new BackupRunResult([], [], []) { IsCancelled = true };
+
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+    }
+
     [Fact]
     public void Stopped_ErrorsAndWarnings_HasNoItemsAndIsCritical()
     {
