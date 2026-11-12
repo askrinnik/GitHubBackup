@@ -18,4 +18,10 @@ public sealed record BackupRunRequest(BackupRunFilter Filter, IDiscoveryDecision
     /// folder of temporary archives is not emptied and <see cref="DecisionHandler"/> is not asked.
     /// </summary>
     public bool DryRun { get; init; }
+
+    /// <summary>
+    /// Gets how the run was started, which the run history keeps and which tells whether the user or the automatic
+    /// strategy decided about the discovered repositories.
+    /// </summary>
+    public RunMode Mode { get; init; } = RunMode.Interactive;
 }

@@ -103,7 +103,7 @@ public sealed class BackupOrchestratorTests
     {
         var result = await RunAsync();
 
-        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)]);
+        result.Items.ShouldBe([Reached(new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null))]);
         result.ExitCode.ShouldBe(ExitCode.Success);
         _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Repository, _headCommit);
         await _archiver.Received(1).CreateAsync(
@@ -166,7 +166,8 @@ public sealed class BackupOrchestratorTests
 
         var result = await RunAsync();
 
-        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(5), null)]);
+        var expected = new BackupItemResult("owner/repo", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(5), null);
+        result.Items.ShouldBe([decision == ChangeDecision.UpToDate ? Reached(expected, archived: false) : expected]);
         await _archiver.DidNotReceiveWithAnyArgs().CreateAsync(default!, CancellationToken);
         await _stateStore.DidNotReceiveWithAnyArgs().AppendAsync(default!, default, default!, default, default!, CancellationToken);
     }
@@ -627,11 +628,11 @@ public sealed class BackupOrchestratorTests
 
         result.Items.ShouldBe(
         [
-            new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null),
-            new("owner/repo.wiki", BackupItemStatus.Archived, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
+            Reached(new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)),
+            Reached(new("owner/repo.wiki", BackupItemStatus.Archived, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
             {
                 Target = BackupTarget.Wiki,
-            },
+            }),
         ]);
         await _detector.Received(1).DetectAsync(
             new ChangeDetectionRequest
@@ -683,7 +684,7 @@ public sealed class BackupOrchestratorTests
 
         var result = await RunAsync();
 
-        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)]);
+        result.Items.ShouldBe([Reached(new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null))]);
         result.ExitCode.ShouldBe(ExitCode.Success);
         SingleRecord(_wikiNotFoundEventId).Level.ShouldBe(LogLevel.Information);
         _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Level == LogLevel.Error);
@@ -1240,7 +1241,7 @@ public sealed class BackupOrchestratorTests
 
         var result = await DryRunAsync();
 
-        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null)]);
+        result.Items.ShouldBe([Reached(new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null))]);
         result.ExitCode.ShouldBe(ExitCode.Success);
         _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Repository, _headCommit);
         await _detector.Received(1).PreviewAsync(
@@ -1274,7 +1275,8 @@ public sealed class BackupOrchestratorTests
 
         var result = await DryRunAsync();
 
-        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(5), null)]);
+        var expected = new BackupItemResult("owner/repo", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(5), null);
+        result.Items.ShouldBe([decision == ChangeDecision.UpToDate ? Reached(expected, archived: false) : expected]);
     }
 
     [Fact]
@@ -1332,14 +1334,87 @@ public sealed class BackupOrchestratorTests
 
         result.Items.ShouldBe(
         [
-            new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null),
-            new("owner/repo.wiki", BackupItemStatus.WouldArchive, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
+            Reached(new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null)),
+            Reached(new("owner/repo.wiki", BackupItemStatus.WouldArchive, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
             {
                 Target = BackupTarget.Wiki,
-            },
+            }),
         ]);
         await _detector.Received(1).PreviewAsync(WikiRequest(), CancellationToken);
     }
+
+    [Fact]
+    public async Task RunAsync_ArchiveNeededAfterEarlierArchive_ReportsOnlyChangedRefs()
+    {
+        var last = new ArchiveRecord("old.zip", _createdAt, "main", _headCommit, 1, new([new("heads/main", _headCommit), new("heads/old", "def")]));
+        _stateStore.LoadAsync(@"C:\backup\owner\repo", 1, "owner/repo", Arg.Any<CancellationToken>())
+            .Returns(BackupState.CreateEmpty(1, "owner/repo").WithArchive(BackupTarget.Repository, last, "owner/repo"));
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Branch.ShouldBe("main");
+        item.HeadCommit.ShouldBe(_headCommit);
+        item.ChangedRefs.ShouldBe(["heads/old", "tags/v1"]);
+    }
+
+    [Theory]
+    [InlineData(ChangeDecision.ArchiveNeeded, false)]
+    [InlineData(ChangeDecision.UpToDate, false)]
+    [InlineData(ChangeDecision.ArchiveNeeded, true)]
+    [InlineData(ChangeDecision.UpToDate, true)]
+    public async Task RunAsync_BranchFallback_ReportsDefaultBranchAndChangedRefsOnlyWithArchive(ChangeDecision decision, bool dryRun)
+    {
+        _config.Repositories[0].Branch = "feature";
+        SetupDetection(decision, branchFallback: true);
+        SetupPreview(decision, branchFallback: true);
+
+        var result = dryRun ? await DryRunAsync() : await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Warning);
+        item.Branch.ShouldBe("main");
+        item.HeadCommit.ShouldBe(_headCommit);
+        item.ChangedRefs.ShouldBe(decision == ChangeDecision.ArchiveNeeded ? ["heads/main", "tags/v1"] : []);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunCloneNeeded_ReportsNoBranchOrRefs()
+    {
+        SetupPreview(ChangeDecision.CloneNeeded);
+
+        var result = await DryRunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Branch.ShouldBeNull();
+        item.HeadCommit.ShouldBeNull();
+        item.ChangedRefs.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFails_ReportsNoBranchOrRefs()
+    {
+        _archiver.CreateAsync(Arg.Any<ArchiveRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new IOException("The archive cannot be moved."));
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Branch.ShouldBeNull();
+        item.HeadCommit.ShouldBeNull();
+        item.ChangedRefs.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Adds the branch <c>main</c> and its commit from <see cref="_refs"/> to an expected result, and every ref of
+    /// <see cref="_refs"/> as changed when the item has its first archive.
+    /// </summary>
+    /// <param name="item">The expected result without branch data.</param>
+    /// <param name="archived">Whether the item has an archive in the run.</param>
+    /// <returns>The expected result.</returns>
+    private static BackupItemResult Reached(BackupItemResult item, bool archived = true) =>
+        item with { Branch = "main", HeadCommit = _headCommit, ChangedRefs = archived ? ["heads/main", "tags/v1"] : [] };
 
     /// <summary>
     /// Creates a detection result for the branch <c>main</c> with <see cref="_refs"/>.

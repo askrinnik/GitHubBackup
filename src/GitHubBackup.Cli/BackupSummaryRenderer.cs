@@ -20,7 +20,10 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
     /// <summary>The prefix of each line that reports an error that stopped the run.</summary>
     public const string ErrorPrefix = "Error: ";
 
-    /// <summary>The prefix of each line that reports a warning about <c>backup-config.json</c>.</summary>
+    /// <summary>
+    /// The prefix of each line that reports a warning about <c>backup-config.json</c> or a run not recorded in the run
+    /// history.
+    /// </summary>
     public const string WarningPrefix = "Warning: ";
 
     /// <summary>The prefix of the line that names the log file.</summary>
@@ -65,6 +68,11 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
         foreach (var warning in result.ConfigWarnings)
         {
             output.MarkupLine($"[yellow]{Markup.Escape(WarningPrefix + warning)}[/]");
+        }
+
+        if (result.HistoryWarning is { } historyWarning)
+        {
+            output.MarkupLine($"[yellow]{Markup.Escape(WarningPrefix + historyWarning)}[/]");
         }
 
         if (result.CriticalErrors.Count > 0)

@@ -13,6 +13,9 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" />
     <PackageReference Include="Spectre.Console.Testing" />
+    <PackageReference Include="WireMock.Net" />
+    <!-- Direct reference so the patched version from Directory.Packages.props replaces the one WireMock.Net resolves. -->
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" />
   </ItemGroup>
 
 </Project>

@@ -115,6 +115,22 @@ public sealed class BackupCommandHandlerTests : IDisposable
         _error.ToString().ShouldBeEmpty();
     }
 
+    [Theory]
+    [MemberData(nameof(ExitCodes))]
+    public async Task RunAsync_RunNotRecordedInHistory_KeepsExitCodeAndWritesWarning(BackupItemStatus status, ExitCode expected)
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(
+            new BackupRunResult([new("octocat/hello", status, null, TimeSpan.Zero, null)], [], [])
+            {
+                HistoryWarning = "The run was not recorded in the run history.",
+            });
+
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(expected);
+        _output.Output.ShouldContain("Warning: The run was not recorded in the run history.");
+    }
+
     [Fact]
     public async Task RunAsync_Silent_RunsAllRepositoriesWithAutomaticDecisions()
     {
@@ -123,7 +139,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
         await CreateHandler().RunAsync(BackupCommandOptions.Default with { Silent = true }, TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(BackupRunFilter.All, _automaticHandler), TestContext.Current.CancellationToken);
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler) { Mode = RunMode.Silent }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -167,7 +183,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
 
         exitCode.ShouldBe(ExitCode.Success);
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(BackupRunFilter.All, _automaticHandler), TestContext.Current.CancellationToken);
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler) { Mode = RunMode.Silent }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -195,7 +211,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
         await CreateHandler().RunAsync(new(filter, DryRun: false, Silent: true), TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(filter, _automaticHandler), TestContext.Current.CancellationToken);
+            new BackupRunRequest(filter, _automaticHandler) { Mode = RunMode.Silent }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -227,7 +243,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
             BackupCommandOptions.Default with { DryRun = true, Silent = true }, TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(BackupRunFilter.All, _automaticHandler) { DryRun = true }, TestContext.Current.CancellationToken);
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler) { DryRun = true, Mode = RunMode.Silent }, TestContext.Current.CancellationToken);
     }
 
     [Theory]
@@ -242,7 +258,7 @@ public sealed class BackupCommandHandlerTests : IDisposable
         await CreateHandler().RunAsync(new(filter, DryRun: true, Silent: true), TestContext.Current.CancellationToken);
 
         await _orchestrator.Received(1).RunAsync(
-            new BackupRunRequest(filter, _automaticHandler) { DryRun = true }, TestContext.Current.CancellationToken);
+            new BackupRunRequest(filter, _automaticHandler) { DryRun = true, Mode = RunMode.Silent }, TestContext.Current.CancellationToken);
     }
 
     [Fact]

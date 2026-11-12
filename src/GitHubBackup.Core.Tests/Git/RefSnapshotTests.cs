@@ -92,6 +92,43 @@ public sealed class RefSnapshotTests
         Should.Throw<ArgumentException>(() => Snapshot(("heads/main", _commit), ("heads/main", _otherCommit)));
 
     [Fact]
+    public void GetChangedRefs_NoPrevious_ReturnsEveryRefSortedOrdinally()
+    {
+        var snapshot = Snapshot(("tags/v1", _commit), ("heads/main", _commit), ("heads/Main", _otherCommit));
+
+        snapshot.GetChangedRefs(null).ShouldBe(["heads/Main", "heads/main", "tags/v1"]);
+    }
+
+    [Fact]
+    public void GetChangedRefs_EqualSnapshot_ReturnsEmpty()
+    {
+        var snapshot = Snapshot(("heads/main", _commit), ("tags/v1", _otherCommit));
+
+        snapshot.GetChangedRefs(Snapshot(("tags/v1", _otherCommit), ("heads/main", _commit))).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("heads/main")]
+    [InlineData("tags/v1")]
+    public void GetChangedRefs_MovedRef_ReturnsIt(string name)
+    {
+        var previous = Snapshot(("heads/main", _commit), ("tags/v1", _commit));
+        var current = Snapshot(
+            [.. previous.Refs.Select(entry => (entry.Key, entry.Key == name ? _otherCommit : entry.Value))]);
+
+        current.GetChangedRefs(previous).ShouldBe([name]);
+    }
+
+    [Fact]
+    public void GetChangedRefs_AddedAndDeletedRefs_ReturnsBothSortedOrdinally()
+    {
+        var previous = Snapshot(("heads/main", _commit), ("heads/old", _commit));
+        var current = Snapshot(("heads/main", _commit), ("tags/v2", _commit), ("heads/feature", _otherCommit));
+
+        current.GetChangedRefs(previous).ShouldBe(["heads/feature", "heads/old", "tags/v2"]);
+    }
+
+    [Fact]
     public void ToString_Refs_ListsThemSortedByName()
     {
         var snapshot = Snapshot(("tags/v1", "b"), ("heads/main", "a"));
