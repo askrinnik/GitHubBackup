@@ -69,6 +69,29 @@ public sealed class RefSnapshot : IEquatable<RefSnapshot>
     /// <returns><see langword="true"/> when <c>heads/<paramref name="name"/></c> is in the snapshot.</returns>
     public bool ContainsBranch(string name) => _refs.ContainsKey(BranchPrefix + name);
 
+    /// <summary>
+    /// Returns the names of the refs that differ from <paramref name="previous"/>: added, deleted or pointing at
+    /// another object.
+    /// </summary>
+    /// <param name="previous">
+    /// The earlier snapshot, or <see langword="null"/> when there is none, in which case every ref counts as changed.
+    /// </param>
+    /// <returns>The ref names, sorted ordinally.</returns>
+    public IReadOnlyList<string> GetChangedRefs(RefSnapshot? previous)
+    {
+        if (previous is null)
+        {
+            return [.. _refs.Keys.Order(StringComparer.Ordinal)];
+        }
+
+        var changed = _refs
+            .Where(entry => !previous._refs.TryGetValue(entry.Key, out var objectId)
+                || !string.Equals(entry.Value, objectId, StringComparison.Ordinal))
+            .Select(entry => entry.Key)
+            .Concat(previous._refs.Keys.Where(name => !_refs.ContainsKey(name)));
+        return [.. changed.Order(StringComparer.Ordinal)];
+    }
+
     /// <inheritdoc />
     public bool Equals(RefSnapshot? other)
     {

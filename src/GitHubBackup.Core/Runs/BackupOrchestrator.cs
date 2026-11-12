@@ -487,14 +487,11 @@ public sealed class BackupOrchestrator(
     {
         using var scope = logger.BeginRepositoryScope(item.FullName);
         var started = timeProvider.GetTimestamp();
-        BackupItemStatus status;
-        string? archive = null;
-        string? message;
+        BackupOutcome outcome;
         if (!item.IsActive)
         {
             BackupOrchestratorLog.RepositorySkipped(logger);
-            status = BackupItemStatus.Skipped;
-            message = "The repository is marked Unavailable in backup-config.json.";
+            outcome = new(BackupItemStatus.Skipped, null, "The repository is marked Unavailable in backup-config.json.");
         }
         else
         {
@@ -507,21 +504,20 @@ public sealed class BackupOrchestrator(
                     item.CloneFolder,
                     remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
                     item.Branch);
-                (status, archive, message) = await BackupAsync(item, source, settings, cancellationToken);
+                outcome = await BackupAsync(item, source, settings, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // The failure of one repository must not stop the run, so every exception except the requested
                 // cancellation becomes the result of this repository.
                 BackupOrchestratorLog.RepositoryFailed(logger, exception);
-                status = BackupItemStatus.Failed;
-                message = exception.Message;
+                outcome = new(BackupItemStatus.Failed, null, exception.Message);
             }
         }
 
         var duration = timeProvider.GetElapsedTime(started);
-        BackupOrchestratorLog.RepositoryFinished(logger, status, archive, duration);
-        return new(item.FullName, status, archive, duration, message);
+        BackupOrchestratorLog.RepositoryFinished(logger, outcome.Status, outcome.Archive, duration);
+        return outcome.ToResult(item.FullName, BackupTarget.Repository, duration);
     }
 
     /// <summary>
@@ -567,13 +563,11 @@ public sealed class BackupOrchestrator(
             // Without the answer the wiki may go unprotected, so the failed lookup is the failure of the wiki; the
             // repository keeps its own result.
             BackupOrchestratorLog.WikiLookupFailed(logger, exception);
-            return FinishWiki(item, started, BackupItemStatus.Failed, null, exception.Message);
+            return FinishWiki(item, started, new(BackupItemStatus.Failed, null, exception.Message));
         }
 
         BackupOrchestratorLog.RepositoryStarted(logger, item.WikiCloneFolder, item.ArchiveFolder);
-        BackupItemStatus status;
-        string? archive = null;
-        string? message;
+        BackupOutcome outcome;
         try
         {
             var source = new BackupSource(
@@ -582,7 +576,7 @@ public sealed class BackupOrchestrator(
                 item.WikiCloneFolder,
                 remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
                 Branch: null);
-            (status, archive, message) = await BackupAsync(item, source, settings, cancellationToken);
+            outcome = await BackupAsync(item, source, settings, cancellationToken);
         }
         catch (GitRepositoryNotFoundException)
         {
@@ -592,11 +586,10 @@ public sealed class BackupOrchestrator(
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             BackupOrchestratorLog.RepositoryFailed(logger, exception);
-            status = BackupItemStatus.Failed;
-            message = exception.Message;
+            outcome = new(BackupItemStatus.Failed, null, exception.Message);
         }
 
-        return FinishWiki(item, started, status, archive, message);
+        return FinishWiki(item, started, outcome);
     }
 
     /// <summary>
@@ -604,16 +597,13 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <param name="item">The repository that owns the wiki.</param>
     /// <param name="started">The timestamp taken when the wiki was started.</param>
-    /// <param name="status">The outcome.</param>
-    /// <param name="archive">The archive created, or <see langword="null"/>.</param>
-    /// <param name="message">The error or the warning, or <see langword="null"/>.</param>
+    /// <param name="outcome">What the backup of the wiki did.</param>
     /// <returns>The result of the wiki.</returns>
-    private BackupItemResult FinishWiki(
-        BackupWorkItem item, long started, BackupItemStatus status, string? archive, string? message)
+    private BackupItemResult FinishWiki(BackupWorkItem item, long started, BackupOutcome outcome)
     {
         var duration = timeProvider.GetElapsedTime(started);
-        BackupOrchestratorLog.RepositoryFinished(logger, status, archive, duration);
-        return new(item.WikiFullName, status, archive, duration, message) { Target = BackupTarget.Wiki };
+        BackupOrchestratorLog.RepositoryFinished(logger, outcome.Status, outcome.Archive, duration);
+        return outcome.ToResult(item.WikiFullName, BackupTarget.Wiki, duration);
     }
 
     /// <summary>
@@ -647,10 +637,10 @@ public sealed class BackupOrchestrator(
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>
-    /// The status; the archive created, the archive a dry run predicts, or <see langword="null"/>; and the warning or
-    /// <see langword="null"/>.
+    /// The status, the archive created or the archive a dry run predicts, the warning, the branch and its commit, and
+    /// the refs that changed since the last archive when there is an archive.
     /// </returns>
-    private async Task<(BackupItemStatus Status, string? Archive, string? Warning)> BackupAsync(
+    private async Task<BackupOutcome> BackupAsync(
         BackupWorkItem item, BackupSource source, RunSettings settings, CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
@@ -672,7 +662,7 @@ public sealed class BackupOrchestrator(
             : await changeDetector.DetectAsync(request, cancellationToken);
         if (detection.Decision == ChangeDecision.CloneNeeded)
         {
-            return (BackupItemStatus.WouldClone, null, null);
+            return new(BackupItemStatus.WouldClone, null, null);
         }
 
         string? archive = null;
@@ -683,17 +673,29 @@ public sealed class BackupOrchestrator(
                 : await ArchiveAsync(item, source, settings, detection, cancellationToken);
         }
 
+        string? warning = null;
+        BackupItemStatus status;
         if (detection.BranchFallback)
         {
-            var warning = $"The branch '{source.Branch}' does not exist on the server; the default branch '{detection.Branch}' is used.";
+            warning = $"The branch '{source.Branch}' does not exist on the server; the default branch '{detection.Branch}' is used.";
             BackupOrchestratorLog.RepositoryWarning(logger, warning);
-            return (BackupItemStatus.Warning, archive, warning);
+            status = BackupItemStatus.Warning;
+        }
+        else
+        {
+            status = archive is null ? BackupItemStatus.UpToDate
+                : settings.DryRun ? BackupItemStatus.WouldArchive
+                : BackupItemStatus.Archived;
         }
 
-        var status = archive is null ? BackupItemStatus.UpToDate
-            : settings.DryRun ? BackupItemStatus.WouldArchive
-            : BackupItemStatus.Archived;
-        return (status, archive, null);
+        // Only a new archive captures refs, so an item without one reports no changed refs even when the server moved.
+        return new(status, archive, warning)
+        {
+            Branch = detection.Branch,
+            HeadCommit = detection.Branch is { } branch
+                && detection.Refs.Refs.TryGetValue(RefSnapshot.BranchPrefix + branch, out var commit) ? commit : null,
+            ChangedRefs = archive is null ? [] : detection.Refs.GetChangedRefs(request.LastArchive?.Refs),
+        };
     }
 
     /// <summary>
@@ -763,6 +765,40 @@ public sealed class BackupOrchestrator(
     /// <param name="TemporaryFolder">The folder in which archives are built.</param>
     /// <param name="DryRun">Whether the run only shows what a backup run would do.</param>
     private readonly record struct RunSettings(ToolSet Tools, GitHubToken Token, string TemporaryFolder, bool DryRun);
+
+    /// <summary>
+    /// Holds what the backup of one repository or wiki did, before its duration is known.
+    /// </summary>
+    /// <param name="Status">The outcome.</param>
+    /// <param name="Archive">The archive created or the archive a dry run predicts, or <see langword="null"/>.</param>
+    /// <param name="Message">The error, the warning or the reason for skipping, or <see langword="null"/>.</param>
+    private sealed record BackupOutcome(BackupItemStatus Status, string? Archive, string? Message)
+    {
+        /// <summary>Gets the branch of the clone, or <see langword="null"/> when the item did not reach one.</summary>
+        public string? Branch { get; init; }
+
+        /// <summary>Gets the commit <see cref="Branch"/> points at, or <see langword="null"/>.</summary>
+        public string? HeadCommit { get; init; }
+
+        /// <summary>Gets the refs that changed since the last archive, empty without a new archive.</summary>
+        public IReadOnlyList<string> ChangedRefs { get; init; } = [];
+
+        /// <summary>
+        /// Creates the result of the item.
+        /// </summary>
+        /// <param name="fullName">The repository as <c>owner/name</c> or its wiki as <c>owner/name.wiki</c>.</param>
+        /// <param name="target">Whether the item is the repository or its wiki.</param>
+        /// <param name="duration">The time spent on the item.</param>
+        /// <returns>The result.</returns>
+        public BackupItemResult ToResult(string fullName, BackupTarget target, TimeSpan duration) =>
+            new(fullName, Status, Archive, duration, Message)
+            {
+                Target = target,
+                Branch = Branch,
+                HeadCommit = HeadCommit,
+                ChangedRefs = ChangedRefs,
+            };
+    }
 
     /// <summary>
     /// Describes what one backup step works on: a repository or its wiki.

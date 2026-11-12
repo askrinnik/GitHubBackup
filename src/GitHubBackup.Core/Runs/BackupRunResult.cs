@@ -34,6 +34,15 @@ public sealed record BackupRunResult(
     public bool IsCancelled { get; init; }
 
     /// <summary>
+    /// Gets the warning that the run was not recorded in the run history, or <see langword="null"/> when it was.
+    /// </summary>
+    /// <remarks>
+    /// The archives and the state files are what the backup protects, so a run that is not recorded keeps its
+    /// <see cref="ExitCode"/>.
+    /// </remarks>
+    public string? HistoryWarning { get; init; }
+
+    /// <summary>
     /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped or cancelled,
     /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>,
     /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, in a dry run

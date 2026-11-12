@@ -8,6 +8,7 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
@@ -103,7 +104,7 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public void AddGitHubBackupCore_BackupOrchestrator_IsResolved()
+    public void AddGitHubBackupCore_BackupOrchestrator_IsRecordingDecoratorAsSingleton()
     {
         using var provider = new ServiceCollection()
             .AddSingleton(typeof(ILogger<>), typeof(NullLogger<>))
@@ -117,10 +118,15 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IArchiver>())
             .AddSingleton(Substitute.For<IBackupStateStore>())
             .AddSingleton(Substitute.For<IGitHubApi>())
+            .AddSingleton(Substitute.For<IRunHistoryStore>())
             .AddGitHubBackupCore()
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true });
 
-        provider.GetRequiredService<IBackupOrchestrator>().ShouldBeOfType<BackupOrchestrator>();
+        var orchestrator = provider.GetRequiredService<IBackupOrchestrator>();
+
+        orchestrator.ShouldBeOfType<RecordingBackupOrchestrator>();
+        provider.GetRequiredService<IBackupOrchestrator>().ShouldBeSameAs(orchestrator);
+        provider.GetRequiredService<BackupOrchestrator>().ShouldNotBeNull();
     }
 
     [Fact]

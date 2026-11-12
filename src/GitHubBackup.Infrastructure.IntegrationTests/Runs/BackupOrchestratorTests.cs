@@ -10,6 +10,7 @@ using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
@@ -19,6 +20,7 @@ using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
+using GitHubBackup.Infrastructure.IntegrationTests.History;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
@@ -34,7 +36,8 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Runs;
 
 /// <summary>
 /// Tests <see cref="BackupOrchestrator"/> with the real git client, 7-Zip archiver, JSON stores and discovery services
-/// against local bare repositories and a <see cref="FakeGitHubApi"/>.
+/// against local bare repositories and a <see cref="FakeGitHubApi"/>, alone and wrapped in a
+/// <see cref="RecordingBackupOrchestrator"/> over a SQLite run history.
 /// </summary>
 public sealed class BackupOrchestratorTests : IDisposable
 {
@@ -391,6 +394,44 @@ public sealed class BackupOrchestratorTests : IDisposable
         SnapshotTree().ShouldBe(before);
     }
 
+    [Fact]
+    public async Task RunAsync_Recorded_StoresItemsWithBranchHeadChangedRefsAndAutomaticDecision()
+    {
+        var remote = await AddRemoteAsync("fresh");
+        _gitHubApi.AddAccount(_owner, GitHubAccountType.User);
+        _gitHubApi.AddRepository(7, _owner, "fresh", hasWiki: false);
+        await SaveAccountConfigAsync();
+        using var database = new TemporaryHistoryDatabase();
+        var store = await database.CreateMigratedStoreAsync(CancellationToken);
+        var firstRunId = Guid.NewGuid();
+        var secondRunId = Guid.NewGuid();
+
+        var first = await RunRecordedAsync(store, firstRunId);
+        await remote.CreateTagAsync("v1", null, annotated: false, force: false, CancellationToken);
+        var head = await remote.CommitAsync("change.txt", "changed", "Change", CancellationToken);
+        var second = await RunRecordedAsync(store, secondRunId);
+
+        var firstEntry = (await store.GetAsync(firstRunId, CancellationToken)).ShouldNotBeNull();
+        firstEntry.Mode.ShouldBe(RunMode.Silent);
+        firstEntry.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        var firstItem = firstEntry.Items.ShouldHaveSingleItem();
+        (firstItem.Repository, firstItem.Status, firstItem.Branch).ShouldBe(("owner/fresh", BackupItemStatus.Archived, "main"));
+        firstItem.ArchiveFileName.ShouldBe(first.Items[0].ArchiveFileName);
+        firstItem.HeadCommit.ShouldNotBeNullOrWhiteSpace();
+        firstItem.ChangedRefs.ShouldBe(["heads/main"]);
+        var discoveryEvent = firstEntry.DiscoveryEvents.ShouldHaveSingleItem();
+        (discoveryEvent.Repository, discoveryEvent.Kind, discoveryEvent.Decision, discoveryEvent.DecidedBy).ShouldBe(
+            ("owner/fresh", DiscoveryEventKind.New, DiscoveryEventDecision.Added, DecisionMaker.Automatic));
+
+        var secondEntry = (await store.GetAsync(secondRunId, CancellationToken)).ShouldNotBeNull();
+        secondEntry.ExitCode.ShouldBe(ExitCode.Success);
+        secondEntry.DiscoveryEvents.ShouldBeEmpty();
+        var secondItem = secondEntry.Items.ShouldHaveSingleItem();
+        secondItem.ArchiveFileName.ShouldBe(second.Items[0].ArchiveFileName);
+        secondItem.HeadCommit.ShouldBe(head);
+        secondItem.ChangedRefs.ShouldBe(["heads/main", "tags/v1"]);
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
@@ -517,6 +558,37 @@ public sealed class BackupOrchestratorTests : IDisposable
     /// <returns>The result of the run.</returns>
     private async Task<BackupRunResult> RunAsync(bool dryRun = false)
     {
+        var result = await CreateOrchestrator().RunAsync(
+            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()) { DryRun = dryRun }, CancellationToken);
+        _timeProvider.Advance(TimeSpan.FromMinutes(1));
+        return result;
+    }
+
+    /// <summary>
+    /// Runs the orchestrator in silent mode through a <see cref="RecordingBackupOrchestrator"/> that writes to
+    /// <paramref name="historyStore"/>, then moves the clock a minute on.
+    /// </summary>
+    /// <param name="historyStore">The run history.</param>
+    /// <param name="runId">The identifier of the run.</param>
+    /// <returns>The result of the run.</returns>
+    private async Task<BackupRunResult> RunRecordedAsync(IRunHistoryStore historyStore, Guid runId)
+    {
+        var runContext = Substitute.For<IRunContext>();
+        runContext.RunId.Returns(runId);
+        var recording = new RecordingBackupOrchestrator(
+            CreateOrchestrator(), historyStore, runContext, _timeProvider, NullLogger<RecordingBackupOrchestrator>.Instance);
+        var result = await recording.RunAsync(
+            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()) { Mode = RunMode.Silent }, CancellationToken);
+        _timeProvider.Advance(TimeSpan.FromMinutes(1));
+        return result;
+    }
+
+    /// <summary>
+    /// Creates the orchestrator over the real services.
+    /// </summary>
+    /// <returns>The orchestrator.</returns>
+    private BackupOrchestrator CreateOrchestrator()
+    {
         var masker = new SecretMasker();
         var runner = new ProcessRunner(masker, _fileSystem, TimeProvider.System, NullLogger<ProcessRunner>.Instance);
         var gitClient = new GitClient(runner, _fileSystem, masker, NullLogger<GitClient>.Instance);
@@ -543,7 +615,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             _fileSystem,
             NullLogger<DiscoveryDecisionApplier>.Instance);
 
-        var orchestrator = new BackupOrchestrator(
+        return new BackupOrchestrator(
             _configStore,
             toolLocator,
             tokenProvider,
@@ -561,10 +633,5 @@ public sealed class BackupOrchestratorTests : IDisposable
             _fileSystem,
             _timeProvider,
             NullLogger<BackupOrchestrator>.Instance);
-
-        var result = await orchestrator.RunAsync(
-            new(BackupRunFilter.All, new AutomaticDiscoveryDecisionHandler()) { DryRun = dryRun }, CancellationToken);
-        _timeProvider.Advance(TimeSpan.FromMinutes(1));
-        return result;
     }
 }

@@ -51,7 +51,12 @@ internal sealed class BackupCommandHandler(
         var result = !options.Silent && !options.DryRun && console.IsInputRedirected
             ? BackupRunResult.Stopped([RedirectedInputMessage], [])
             : await orchestrator.RunAsync(
-                new(options.Filter, decisionHandler) { DryRun = options.DryRun }, cancellationToken);
+                new(options.Filter, decisionHandler)
+                {
+                    DryRun = options.DryRun,
+                    Mode = options.Silent ? RunMode.Silent : RunMode.Interactive,
+                },
+                cancellationToken);
         await renderer.RenderAsync(result, CliLogPath.Get(environment, timeProvider));
         return result.ExitCode;
     }

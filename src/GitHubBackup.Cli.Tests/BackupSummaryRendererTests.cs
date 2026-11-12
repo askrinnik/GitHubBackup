@@ -256,6 +256,38 @@ public sealed class BackupSummaryRendererTests : IDisposable
             """));
     }
 
+    [Fact]
+    public async Task RenderAsync_RunNotRecordedInHistory_WritesWarningAfterConfigWarningsAndFullSummary()
+    {
+        await Render(new([], ["First warning [x]."], []) { HistoryWarning = "Not recorded: 'C:\\app\\data\\history.db' [x]." });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Warning: First warning [x].
+            Warning: Not recorded: 'C:\app\data\history.db' [x].
+            No repositories to back up.
+            Archived: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
+    [Fact]
+    public async Task RenderAsync_StoppedRunNotRecordedInHistory_WritesWarningToOutputAndErrorsToErrorOutput()
+    {
+        await Render(BackupRunResult.Stopped([BackupOrchestrator.RunLockHeldMessage], []) with
+        {
+            HistoryWarning = "Not recorded.",
+        });
+
+        Normalize(_output.Output).ShouldBe("Warning: Not recorded.");
+        _error.ToString().ShouldBe(
+            """
+            Error: A backup is already running.
+            Log: C:\app\logs\githubbackup-20261111.log
+
+            """.ReplaceLineEndings());
+    }
+
     /// <summary>
     /// Disposes the outputs.
     /// </summary>

@@ -4,9 +4,11 @@ using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Core;
@@ -24,7 +26,8 @@ public static class CoreServiceCollectionExtensions
         /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/>,
         /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="ICloneRelocator"/>, the
         /// <see cref="IDiscoveryDecisionApplier"/>, the <see cref="AutomaticDiscoveryDecisionHandler"/> that hosts pass
-        /// to a run in silent mode, the <see cref="IBackupOrchestrator"/> and
+        /// to a run in silent mode, the <see cref="IBackupOrchestrator"/> as a <see cref="RecordingBackupOrchestrator"/>
+        /// that adds each run of the <see cref="BackupOrchestrator"/> to the <see cref="IRunHistoryStore"/>, and
         /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
         /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
@@ -46,7 +49,13 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton<ICloneRelocator, CloneRelocator>();
             services.TryAddSingleton<IDiscoveryDecisionApplier, DiscoveryDecisionApplier>();
             services.TryAddSingleton<AutomaticDiscoveryDecisionHandler>();
-            services.TryAddSingleton<IBackupOrchestrator, BackupOrchestrator>();
+            services.TryAddSingleton<BackupOrchestrator>();
+            services.TryAddSingleton<IBackupOrchestrator>(provider => new RecordingBackupOrchestrator(
+                provider.GetRequiredService<BackupOrchestrator>(),
+                provider.GetRequiredService<IRunHistoryStore>(),
+                provider.GetRequiredService<IRunContext>(),
+                provider.GetRequiredService<TimeProvider>(),
+                provider.GetRequiredService<ILogger<RecordingBackupOrchestrator>>()));
 
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BackupOptions>, BackupOptionsValidator>());
             services.AddOptions<BackupOptions>().ValidateOnStart();
