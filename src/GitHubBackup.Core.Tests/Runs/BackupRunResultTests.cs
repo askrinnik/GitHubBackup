@@ -19,14 +19,6 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(expected);
     }
 
-    [Fact]
-    public void ExitCode_StoppedWithFailedItems_IsCritical()
-    {
-        var result = new BackupRunResult([Item(BackupItemStatus.Failed)], [], ["git was not found."]);
-
-        result.ExitCode.ShouldBe(ExitCode.Critical);
-    }
-
     [Theory]
     [InlineData("added", ExitCode.DiscoveryEvents)]
     [InlineData("skipped", ExitCode.DiscoveryEvents)]
@@ -42,20 +34,32 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(expected);
     }
 
-    [Fact]
-    public void ExitCode_DiscoveryEventsWithFailedItem_IsRepositoriesFailed()
+    public static TheoryData<bool, bool, bool, ExitCode> ConditionCombinations => new()
     {
-        var result = new BackupRunResult([Item(BackupItemStatus.Failed)], [], []) { Discovery = Discovery("added") };
+        { false, false, false, ExitCode.Success },
+        { false, false, true, ExitCode.DiscoveryEvents },
+        { false, true, false, ExitCode.RepositoriesFailed },
+        { false, true, true, ExitCode.RepositoriesFailed },
+        { true, false, false, ExitCode.Critical },
+        { true, false, true, ExitCode.Critical },
+        { true, true, false, ExitCode.Critical },
+        { true, true, true, ExitCode.Critical },
+    };
 
-        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
-    }
-
-    [Fact]
-    public void ExitCode_DiscoveryEventsAndStopped_IsCritical()
+    [Theory]
+    [MemberData(nameof(ConditionCombinations))]
+    public void ExitCode_AllConditionCombinations_FirstMatchingFromTopWins(
+        bool critical, bool failed, bool discoveryEvents, ExitCode expected)
     {
-        var result = new BackupRunResult([], [], ["error"]) { Discovery = Discovery("added") };
+        var result = new BackupRunResult(
+            failed ? [Item(BackupItemStatus.Failed)] : [Item(BackupItemStatus.Archived)],
+            [],
+            critical ? ["error"] : [])
+        {
+            Discovery = Discovery(discoveryEvents ? "added" : "none"),
+        };
 
-        result.ExitCode.ShouldBe(ExitCode.Critical);
+        result.ExitCode.ShouldBe(expected);
     }
 
     [Fact]

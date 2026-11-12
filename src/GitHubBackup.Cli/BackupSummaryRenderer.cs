@@ -20,6 +20,16 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
     /// <summary>The prefix of the line that names the log file.</summary>
     public const string LogPrefix = "Log: ";
 
+    /// <summary>The statuses listed in the totals line of a normal run, in output order.</summary>
+    private static readonly BackupItemStatus[] _runStatuses =
+    [
+        BackupItemStatus.Archived,
+        BackupItemStatus.UpToDate,
+        BackupItemStatus.Warning,
+        BackupItemStatus.Failed,
+        BackupItemStatus.Skipped,
+    ];
+
     /// <summary>
     /// Writes the summary of <paramref name="result"/>.
     /// </summary>
@@ -56,7 +66,7 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
 
         output.WriteLine(string.Join(
             ", ",
-            Enum.GetValues<BackupItemStatus>().Select(status => $"{status}: {result.Count(status)}")));
+            _runStatuses.Select(status => $"{status}: {result.Count(status)}")));
         output.WriteLine(LogPrefix + logPath);
     }
 

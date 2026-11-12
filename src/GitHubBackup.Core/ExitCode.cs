@@ -15,7 +15,7 @@ public enum ExitCode
     /// <summary>At least one repository finished with a failure.</summary>
     RepositoriesFailed = 1,
 
-    /// <summary>The run could not proceed: settings, tools, token, lock or an API failure during discovery.</summary>
+    /// <summary>The run could not proceed: settings, tools, token, lock, invalid command-line arguments or an API failure during discovery.</summary>
     Critical = 2,
 
     /// <summary>No failures, but new, missing or renamed repositories were discovered.</summary>
