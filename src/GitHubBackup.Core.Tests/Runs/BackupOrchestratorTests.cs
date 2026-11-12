@@ -43,6 +43,9 @@ public sealed class BackupOrchestratorTests
     private const int _wikiNotFoundEventId = 13;
     private const int _wikiLookupFailedEventId = 14;
     private const int _discoverySkippedEventId = 15;
+    private const int _dryRunStartedEventId = 18;
+    private const int _temporaryFolderLeftUntouchedEventId = 19;
+    private const int _repositoryMissingEventId = 20;
 
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
@@ -982,6 +985,192 @@ public sealed class BackupOrchestratorTests
         await _gitHubApi.Received(1).GetRepositoryAsync("owner", "repo", CancellationToken);
     }
 
+    [Fact]
+    public async Task RunAsync_DryRun_DoesNotApplyDetectArchiveRecordOrSave()
+    {
+        var discovery = new DiscoveryResult(
+            [new("owner", Repository(5, "owner", "fresh"))], [], [], [], []);
+        SetupDiscovery(discovery);
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+
+        var result = await DryRunAsync();
+
+        result.IsDryRun.ShouldBeTrue();
+        result.Discovery.ShouldBeNull();
+        result.PlannedDiscovery.ShouldBe(discovery);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        await _archiver.DidNotReceiveWithAnyArgs().CreateAsync(default!, CancellationToken);
+        await _stateStore.DidNotReceiveWithAnyArgs().AppendAsync(default!, default, default!, default, default!, CancellationToken);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+        _handler.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunNoDiscoveryFindings_HasNoPlannedDiscoveryAndSucceeds()
+    {
+        SetupPreview(ChangeDecision.UpToDate);
+
+        var result = await DryRunAsync();
+
+        result.PlannedDiscovery.ShouldBeNull();
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRun_LeavesTemporaryFolderUntouched()
+    {
+        var leftover = Path.Combine(_temporaryFolder, "a.zip");
+        _fileSystem.AddFile(leftover, new("partial"));
+        SetupPreview(ChangeDecision.UpToDate);
+
+        await DryRunAsync();
+
+        _fileSystem.File.ReadAllText(leftover).ShouldBe("partial");
+        Records(_temporaryEntryDeletedEventId).ShouldBeEmpty();
+        var record = SingleRecord(_temporaryFolderLeftUntouchedEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_temporaryFolder);
+        SingleRecord(_dryRunStartedEventId).Level.ShouldBe(LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunMissingAndReturned_SkipsMissingAndProcessesReturned()
+    {
+        AddRepository("other");
+        _config.Repositories[1].Status = RepositoryStatus.Unavailable;
+        SetupWiki(hasWiki: true);
+        SetupDiscovery(new(
+            [],
+            [],
+            [new("owner", "repo", 1, RepositoryStatus.Active, null)],
+            [new(new("owner", "other", 2, RepositoryStatus.Unavailable, null), Repository(2, "owner", "other"))],
+            []));
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+
+        var result = await DryRunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Skipped, "The repository is missing on GitHub; a backup run marks it Unavailable."),
+            ("owner/other", BackupItemStatus.WouldArchive, null),
+            ("owner/other.wiki", BackupItemStatus.WouldArchive, null),
+        ]);
+        await _detector.DidNotReceive().PreviewAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl.Contains("/repo.")), Arg.Any<CancellationToken>());
+        SingleRecord(_repositoryMissingEventId).Level.ShouldBe(LogLevel.Information);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunArchiveNeeded_ReportsWouldArchiveWithFutureName()
+    {
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+
+        var result = await DryRunAsync();
+
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null)]);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Repository, _headCommit);
+        await _detector.Received(1).PreviewAsync(
+            new ChangeDetectionRequest
+            {
+                Git = new() { GitPath = _gitPath, ClonePath = @"C:\sources\owner\repo", Branch = "main", Token = "secret-token" },
+                RemoteUrl = _repositoryUrl,
+                ArchiveFolder = @"C:\backup\owner\repo",
+                LastArchive = null,
+            },
+            CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunCloneNeeded_ReportsWouldCloneWithoutName()
+    {
+        SetupPreview(ChangeDecision.CloneNeeded);
+
+        var result = await DryRunAsync();
+
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.WouldClone, null, TimeSpan.FromSeconds(5), null)]);
+        _nameBuilder.DidNotReceiveWithAnyArgs().Build(default!, default!, default, default!);
+    }
+
+    [Theory]
+    [InlineData(ChangeDecision.UpToDate)]
+    [InlineData(ChangeDecision.NothingToArchive)]
+    public async Task RunAsync_DryRunNoArchiveNeeded_ReportsUpToDate(ChangeDecision decision)
+    {
+        SetupPreview(decision);
+
+        var result = await DryRunAsync();
+
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(5), null)]);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunBranchFallback_ReportsWarningWithFutureArchive()
+    {
+        _config.Repositories[0].Branch = "feature";
+        SetupPreview(ChangeDecision.ArchiveNeeded, branchFallback: true);
+
+        var result = await DryRunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Warning);
+        item.ArchiveFileName.ShouldBe(_archiveFile);
+        item.Message.ShouldBe("The branch 'feature' does not exist on the server; the default branch 'main' is used.");
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunPreviewFails_ReportsFailedAndProcessesNext()
+    {
+        AddRepository("other");
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+        _detector.PreviewAsync(Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl.Contains("/repo.git")), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitCommandException("git ls-remote exited with code 128.", "git ls-remote", 128));
+
+        var result = await DryRunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Failed),
+            ("owner/other", BackupItemStatus.WouldArchive),
+        ]);
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunRepositoryFilter_SkipsDiscovery()
+    {
+        SetupPreview(ChangeDecision.UpToDate);
+
+        var result = await CreateOrchestrator().RunAsync(
+            Request(BackupRunFilter.ForRepository("owner", "repo")) with { DryRun = true }, CancellationToken);
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.UpToDate);
+        result.PlannedDiscovery.ShouldBeNull();
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWikiEnabled_PreviewsWiki()
+    {
+        SetupWiki(hasWiki: true);
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+
+        var result = await DryRunAsync();
+
+        result.Items.ShouldBe(
+        [
+            new("owner/repo", BackupItemStatus.WouldArchive, _archiveFile, TimeSpan.FromSeconds(5), null),
+            new("owner/repo.wiki", BackupItemStatus.WouldArchive, _wikiArchiveFile, TimeSpan.FromSeconds(5), null)
+            {
+                Target = BackupTarget.Wiki,
+            },
+        ]);
+        await _detector.Received(1).PreviewAsync(WikiRequest(), CancellationToken);
+    }
+
     /// <summary>
     /// Creates a detection result for the branch <c>main</c> with <see cref="_refs"/>.
     /// </summary>
@@ -1004,6 +1193,27 @@ public sealed class BackupOrchestratorTests
             _timeProvider.Advance(TimeSpan.FromSeconds(5));
             return Detection(decision, branchFallback);
         });
+
+    /// <summary>
+    /// Makes the preview of the detector return <paramref name="decision"/> after five seconds of the fake clock.
+    /// </summary>
+    /// <param name="decision">The decision.</param>
+    /// <param name="branchFallback">Whether the default branch replaced the requested one.</param>
+    private void SetupPreview(ChangeDecision decision, bool branchFallback = false) =>
+        _detector.PreviewAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            _timeProvider.Advance(TimeSpan.FromSeconds(5));
+            return decision == ChangeDecision.CloneNeeded
+                ? new ChangeDetection(decision, ChangeReason.NoClone, null, false, RefSnapshot.Empty)
+                : Detection(decision, branchFallback);
+        });
+
+    /// <summary>
+    /// Runs the orchestrator as a dry run over every repository with the test cancellation token.
+    /// </summary>
+    /// <returns>The result of the run.</returns>
+    private Task<BackupRunResult> DryRunAsync() =>
+        CreateOrchestrator().RunAsync(Request() with { DryRun = true }, CancellationToken);
 
     /// <summary>
     /// Makes the GitHub API report for every repository whether its wiki feature is enabled.

@@ -10,6 +10,14 @@ namespace GitHubBackup.Core.Runs;
 /// backed up in this run. A failure of one repository is recorded in its result and the run goes on; an invalid
 /// configuration, a missing tool or a failure of discovery stops the run before any repository is processed and is
 /// reported in <see cref="BackupRunResult.CriticalErrors"/>, not thrown.
+/// <para>
+/// A dry run (<see cref="BackupRunRequest.DryRun"/>) takes the same steps up to the decisions but changes nothing: it
+/// leaves the folder of temporary archives as it is, reports what discovery found in
+/// <see cref="BackupRunResult.PlannedDiscovery"/> without deciding about it, skips the repositories missing on GitHub,
+/// treats the returned ones as active, and for each repository and wiki only reads the refs of the server to report
+/// <see cref="BackupItemStatus.WouldClone"/>, <see cref="BackupItemStatus.WouldArchive"/> with the name of the
+/// archive a backup run would create, or <see cref="BackupItemStatus.UpToDate"/>.
+/// </para>
 /// </remarks>
 public interface IBackupOrchestrator
 {

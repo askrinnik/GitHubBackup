@@ -129,13 +129,19 @@ public sealed class BackupCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_DryRunWithRedirectedInput_ReportsDryRunNotRedirectedInput()
+    public async Task RunAsync_DryRunWithRedirectedInput_RunsOrchestrator()
     {
-        var exitCode = await CreateHandler(isInputRedirected: true).RunAsync(
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult([], [], []) { IsDryRun = true });
+        var handler = CreateHandler(out var consoleHandler, isInputRedirected: true);
+
+        var exitCode = await handler.RunAsync(
             BackupCommandOptions.Default with { DryRun = true }, TestContext.Current.CancellationToken);
 
-        exitCode.ShouldBe(ExitCode.Critical);
-        _error.ToString().ShouldStartWith("Error: " + BackupCommandHandler.DryRunNotImplementedMessage);
+        exitCode.ShouldBe(ExitCode.Success);
+        _error.ToString().ShouldBeEmpty();
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(BackupRunFilter.All, consoleHandler) { DryRun = true }, TestContext.Current.CancellationToken);
     }
 
     [Fact]
@@ -151,14 +157,67 @@ public sealed class BackupCommandHandlerTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_DryRun_ReturnsCriticalWithoutRunningOrchestrator()
+    public async Task RunAsync_DryRun_RunsOrchestratorWithDryRunRequest()
     {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(
+            new BackupRunResult([new("octocat/hello", BackupItemStatus.WouldArchive, "octocat_hello.zip", TimeSpan.Zero, null)], [], [])
+            {
+                IsDryRun = true,
+            });
+        var handler = CreateHandler(out var consoleHandler);
+
+        var exitCode = await handler.RunAsync(
+            BackupCommandOptions.Default with { DryRun = true }, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Success);
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(BackupRunFilter.All, consoleHandler) { DryRun = true }, TestContext.Current.CancellationToken);
+        _output.Output.ShouldStartWith(BackupSummaryRenderer.DryRunHeader);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunSilent_RunsDryRun()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult([], [], []) { IsDryRun = true });
+
+        await CreateHandler().RunAsync(
+            BackupCommandOptions.Default with { DryRun = true, Silent = true }, TestContext.Current.CancellationToken);
+
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(BackupRunFilter.All, _automaticHandler) { DryRun = true }, TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_DryRunWithFilter_PassesFilter(bool account)
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult([], [], []) { IsDryRun = true });
+        var filter = account ? BackupRunFilter.ForAccount("octocat") : BackupRunFilter.ForRepository("octocat", "hello");
+
+        await CreateHandler().RunAsync(new(filter, DryRun: true, Silent: true), TestContext.Current.CancellationToken);
+
+        await _orchestrator.Received(1).RunAsync(
+            new BackupRunRequest(filter, _automaticHandler) { DryRun = true }, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunDiscovery_ReturnsDiscoveryEvents()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(
+            new BackupRunResult([], [], [])
+            {
+                IsDryRun = true,
+                PlannedDiscovery = new([], [], [new("octocat", "gone", 3, RepositoryStatus.Active, null)], [], []),
+            });
+
         var exitCode = await CreateHandler().RunAsync(
             BackupCommandOptions.Default with { DryRun = true }, TestContext.Current.CancellationToken);
 
-        exitCode.ShouldBe(ExitCode.Critical);
-        _error.ToString().ShouldStartWith("Error: " + BackupCommandHandler.DryRunNotImplementedMessage);
-        await _orchestrator.DidNotReceiveWithAnyArgs().RunAsync(default!, TestContext.Current.CancellationToken);
+        exitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        _output.Output.ShouldContain("Missing: octocat/gone");
     }
 
     [Fact]

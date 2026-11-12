@@ -1,4 +1,6 @@
 using System.Globalization;
+using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using Spectre.Console.Testing;
 
@@ -45,6 +47,70 @@ public sealed class BackupSummaryRendererTests : IDisposable
             Log: C:\app\logs\githubbackup-20261111.log
             """));
         _error.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RenderAsync_DryRun_WritesHeaderTableDiscoveryAndTotals()
+    {
+        var result = new BackupRunResult(
+            [
+                new("octocat/hello", BackupItemStatus.WouldArchive, "octocat_hello_20261111-120000_0123456789.zip", TimeSpan.FromSeconds(2), null),
+                new("octocat/hello.wiki", BackupItemStatus.WouldClone, null, TimeSpan.Zero, null),
+                new("octocat/same", BackupItemStatus.UpToDate, null, TimeSpan.FromMilliseconds(420), null),
+                new("octocat/branch", BackupItemStatus.Warning, "octocat_branch_20261111-120000_abcdef0123.zip", TimeSpan.FromSeconds(1), "Default branch 'main' is used."),
+                new("octocat/broken", BackupItemStatus.Failed, null, TimeSpan.FromSeconds(3), "git exited with code 128."),
+                new("octocat/gone", BackupItemStatus.Skipped, null, TimeSpan.Zero, "Missing on GitHub."),
+            ],
+            [],
+            [])
+        {
+            IsDryRun = true,
+            PlannedDiscovery = new(
+                [new("octocat", Repository(7, "octocat", "fresh"))],
+                [Repository(8, "other", "shared")],
+                [new("octocat", "gone", 3, RepositoryStatus.Active, "octocat")],
+                [new(new("octocat", "back", 4, RepositoryStatus.Unavailable, "octocat"), Repository(4, "octocat", "back"))],
+                [new(new("octocat", "old", 5, RepositoryStatus.Active, "octocat"), Repository(5, "octocat", "new"))]),
+        };
+
+        await Render(result);
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Dry run: nothing was cloned, updated, archived or saved.
+            ┌────────────────────┬──────────────┬───────────────────────────────────────────────┬──────────┬────────────────────────────────┐
+            │ Repository         │ Status       │ Archive                                       │ Duration │ Error                          │
+            ├────────────────────┼──────────────┼───────────────────────────────────────────────┼──────────┼────────────────────────────────┤
+            │ octocat/hello      │ WouldArchive │ octocat_hello_20261111-120000_0123456789.zip  │ 0:02.0   │                                │
+            │ octocat/hello.wiki │ WouldClone   │                                               │ 0:00.0   │                                │
+            │ octocat/same       │ UpToDate     │                                               │ 0:00.4   │                                │
+            │ octocat/branch     │ Warning      │ octocat_branch_20261111-120000_abcdef0123.zip │ 0:01.0   │ Default branch 'main' is used. │
+            │ octocat/broken     │ Failed       │                                               │ 0:03.0   │ git exited with code 128.      │
+            │ octocat/gone       │ Skipped      │                                               │ 0:00.0   │ Missing on GitHub.             │
+            └────────────────────┴──────────────┴───────────────────────────────────────────────┴──────────┴────────────────────────────────┘
+            New: octocat/fresh
+            New: other/shared
+            Missing: octocat/gone
+            Renamed: octocat/old -> octocat/new
+            Returned: octocat/back
+            WouldClone: 1, WouldArchive: 1, UpToDate: 1, Warning: 1, Failed: 1, Skipped: 1
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+        _error.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RenderAsync_DryRunNoRepositories_WritesHeaderMessageAndDryRunTotals()
+    {
+        await Render(new([], [], []) { IsDryRun = true });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Dry run: nothing was cloned, updated, archived or saved.
+            No repositories to back up.
+            WouldClone: 0, WouldArchive: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
     }
 
     [Theory]
@@ -146,6 +212,16 @@ public sealed class BackupSummaryRendererTests : IDisposable
     /// <returns>The normalized text.</returns>
     private static string Normalize(string text) =>
         string.Join('\n', text.ReplaceLineEndings("\n").TrimEnd('\n').Split('\n').Select(line => line.TrimEnd()));
+
+    /// <summary>
+    /// Creates repository metadata as GitHub reports it.
+    /// </summary>
+    /// <param name="id">The id.</param>
+    /// <param name="owner">The owner.</param>
+    /// <param name="name">The name.</param>
+    /// <returns>The repository.</returns>
+    private static GitHubRepository Repository(long id, string owner, string name) =>
+        new(id, owner, name, false, false, false, false, "main", $"https://github.com/{owner}/{name}");
 
     /// <summary>
     /// Renders <paramref name="result"/> with the log path of the tests.

@@ -354,6 +354,186 @@ public sealed class ChangeDetectorTests
             .DetectAsync(request, CancellationToken));
     }
 
+    [Fact]
+    public async Task PreviewAsync_NoClone_ReturnsCloneNeededWithoutGit()
+    {
+        AddArchiveFile();
+
+        var result = await PreviewAsync(Archive("main", BaseRefs));
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, RefSnapshot.Empty));
+        _git.ReceivedCalls().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RefsUnchanged_ReturnsUpToDate()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+
+        var result = await PreviewAsync(Archive("main", BaseRefs));
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, "main", false, BaseRefs));
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RefsChanged_ReturnsArchiveNeeded()
+    {
+        AddClone();
+        AddArchiveFile();
+        var changed = Snapshot(("heads/main", "a2"), ("heads/develop", "b"), ("tags/v1", "t1"));
+        SetupRemote(changed);
+
+        var result = await PreviewAsync(Archive("main", BaseRefs));
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.ArchiveNeeded, ChangeReason.RefsChanged, "main", false, changed));
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_ArchiveFileMissing_ReturnsArchiveNeeded()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+
+        var result = await PreviewAsync(Archive("main", BaseRefs));
+
+        result.Decision.ShouldBe(ChangeDecision.ArchiveNeeded);
+        result.Reason.ShouldBe(ChangeReason.ArchiveFileMissing);
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoLastArchive_ReturnsArchiveNeeded()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+
+        var result = await PreviewAsync(last: null);
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.ArchiveNeeded, ChangeReason.NoArchive, "main", false, BaseRefs));
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_BranchChanged_ReturnsArchiveNeeded()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+
+        var result = await PreviewAsync(Archive("main", BaseRefs), branch: "develop");
+
+        result.Decision.ShouldBe(ChangeDecision.ArchiveNeeded);
+        result.Reason.ShouldBe(ChangeReason.BranchChanged);
+        result.Branch.ShouldBe("develop");
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_EmptyRemote_ReturnsNothingToArchive()
+    {
+        AddClone();
+        SetupRemote(RefSnapshot.Empty);
+
+        var result = await PreviewAsync(last: null);
+
+        result.ShouldBe(new ChangeDetection(
+            ChangeDecision.NothingToArchive, ChangeReason.EmptyRepository, null, false, RefSnapshot.Empty));
+        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_BranchMissing_FallsBackToDefault()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch("main");
+
+        var result = await PreviewAsync(Archive("main", BaseRefs), branch: "gone");
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, "main", true, BaseRefs));
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_BranchNotSet_UsesDefaultWithoutFallback()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch("develop");
+
+        var result = await PreviewAsync(Archive("main", BaseRefs), branch: null);
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.ArchiveNeeded, ChangeReason.BranchChanged, "develop", false, BaseRefs));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("gone")]
+    public async Task PreviewAsync_NoBranchAtAll_ThrowsGitBranchNotFound(string? defaultBranch)
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch(defaultBranch);
+
+        var exception = await Should.ThrowAsync<GitBranchNotFoundException>(() => PreviewAsync(last: null, branch: "missing"));
+
+        exception.RequestedBranch.ShouldBe("missing");
+        exception.DefaultBranch.ShouldBe(defaultBranch);
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RequestedBranchStartsWithDash_ThrowsArgumentException()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+
+        await Should.ThrowAsync<ArgumentException>(() => PreviewAsync(last: null, branch: "-main"));
+
+        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
+        await NoCloneOrUpdate();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("gone")]
+    public async Task PreviewAsync_DefaultBranchStartsWithDash_ThrowsArgumentException(string? requested)
+    {
+        AddClone();
+        SetupRemote(Snapshot(("heads/-main", "a")));
+        SetupDefaultBranch("-main");
+
+        await Should.ThrowAsync<ArgumentException>(() => PreviewAsync(last: null, branch: requested));
+
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RemoteReadFails_Propagates()
+    {
+        AddClone();
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken)
+            .Returns(Task.FromException<RefSnapshot>(new GitCommandException("failed", "git ls-remote", 128)));
+
+        await Should.ThrowAsync<GitCommandException>(() => PreviewAsync(last: null));
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RelativeArchiveFolder_ThrowsArgumentException()
+    {
+        var request = CreateRequest(last: null, "main") with { ArchiveFolder = @"archives\repo" };
+
+        await Should.ThrowAsync<ArgumentException>(() => new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+            .PreviewAsync(request, CancellationToken));
+    }
+
     private static RefSnapshot Snapshot(params (string Name, string Id)[] refs) =>
         new(refs.Select(entry => KeyValuePair.Create(entry.Name, entry.Id)));
 
@@ -373,6 +553,10 @@ public sealed class ChangeDetectorTests
     private Task<ChangeDetection> DetectAsync(ArchiveRecord? last, string? branch = "main") =>
         new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(CreateRequest(last, branch), CancellationToken);
+
+    private Task<ChangeDetection> PreviewAsync(ArchiveRecord? last, string? branch = "main") =>
+        new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+            .PreviewAsync(CreateRequest(last, branch), CancellationToken);
 
     private void AddClone() => _fileSystem.AddDirectory(Path.Combine(_clonePath, ".git"));
 
@@ -394,5 +578,11 @@ public sealed class ChangeDetectorTests
     {
         await _git.DidNotReceive().UpdateAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
         await _git.DidNotReceive().GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
+    }
+
+    private async Task NoCloneOrUpdate()
+    {
+        await _git.DidNotReceive().CloneAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+        await _git.DidNotReceive().UpdateAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>());
     }
 }

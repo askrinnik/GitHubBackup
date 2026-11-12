@@ -431,12 +431,18 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_BackupDryRun_ReturnsCriticalAndChangesNothing()
+    public async Task RunAsync_BackupDryRunWithoutBackupConfig_ReturnsCriticalAndCreatesNoFiles()
     {
+        _isInputRedirected = true;
+
         var exitCode = await RunAsync(ValidAppSettings, "backup", "--dry-run");
 
         exitCode.ShouldBe(ExitCode.Critical);
-        ErrorLines()[0].ShouldBe(BackupSummaryRenderer.ErrorPrefix + BackupCommandHandler.DryRunNotImplementedMessage);
+        var lines = ErrorLines();
+        lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
+        lines[0].ShouldContain("backup-config.json");
+        lines[0].ShouldNotContain(BackupCommandHandler.RedirectedInputMessage);
+        Directory.GetFileSystemEntries(_contentRoot.FolderPath).Select(Path.GetFileName).ShouldBe([LogFiles.FolderName]);
     }
 
     [Fact]

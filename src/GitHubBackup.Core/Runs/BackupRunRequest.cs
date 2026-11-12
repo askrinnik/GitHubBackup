@@ -11,4 +11,11 @@ namespace GitHubBackup.Core.Runs;
 /// </remarks>
 /// <param name="Filter">The repositories the run covers.</param>
 /// <param name="DecisionHandler">Decides about new and renamed repositories.</param>
-public sealed record BackupRunRequest(BackupRunFilter Filter, IDiscoveryDecisionHandler DecisionHandler);
+public sealed record BackupRunRequest(BackupRunFilter Filter, IDiscoveryDecisionHandler DecisionHandler)
+{
+    /// <summary>
+    /// Gets whether the run only shows what a backup run would do: nothing is cloned, updated, archived or saved, the
+    /// folder of temporary archives is not emptied and <see cref="DecisionHandler"/> is not asked.
+    /// </summary>
+    public bool DryRun { get; init; }
+}

@@ -92,14 +92,26 @@ public sealed class BackupOrchestrator(
 
         var token = await tokenProvider.GetTokenAsync(cancellationToken);
         var temporaryFolder = pathResolver.GetTemporaryArchiveFolder(config);
-        EmptyTemporaryFolder(temporaryFolder);
+        var dryRun = request.DryRun;
+        if (dryRun)
+        {
+            BackupOrchestratorLog.DryRunStarted(logger);
+            BackupOrchestratorLog.TemporaryFolderLeftUntouched(logger, temporaryFolder);
+        }
+        else
+        {
+            EmptyTemporaryFolder(temporaryFolder);
+        }
 
         DiscoveryResult discovery;
         DiscoveryApplyResult? applied = null;
         try
         {
             discovery = await DiscoverAsync(config, filter, cancellationToken);
-            if (discovery.HasChanges)
+
+            // The applier always saves the configuration and may move folders, so a dry run only shows what
+            // discovery found and leaves the decisions to a backup run.
+            if (discovery.HasChanges && !dryRun)
             {
                 applied = await decisionApplier.ApplyAsync(
                     config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
@@ -118,13 +130,26 @@ public sealed class BackupOrchestrator(
             return Stop([exception.Message], loaded.Warnings, exception);
         }
 
+        if (dryRun)
+        {
+            items = ReactivateReturned(items, discovery);
+        }
+
+        var missing = dryRun ? discovery.Missing.Select(repository => repository.Id).ToHashSet() : [];
+        var settings = new RunSettings(tools, token, temporaryFolder, dryRun);
         var work = ExcludeMatching(config, SelectIncluded(items, filter));
         var results = new List<BackupItemResult>(work.Count);
         foreach (var item in work)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            results.Add(await ProcessAsync(item, tools, token, temporaryFolder, cancellationToken));
-            var wiki = await ProcessWikiAsync(item, discovery.Repositories, tools, token, temporaryFolder, cancellationToken);
+            if (missing.Contains(item.Id))
+            {
+                results.Add(SkipMissing(item));
+                continue;
+            }
+
+            results.Add(await ProcessAsync(item, settings, cancellationToken));
+            var wiki = await ProcessWikiAsync(item, discovery.Repositories, settings, cancellationToken);
             if (wiki is not null)
             {
                 results.Add(wiki);
@@ -137,7 +162,49 @@ public sealed class BackupOrchestrator(
             results.Add(new(repository, BackupItemStatus.Skipped, null, TimeSpan.Zero, "The new repository is not confirmed for backup."));
         }
 
-        return new(results, loaded.Warnings, []) { Discovery = applied };
+        return dryRun
+            ? new(results, loaded.Warnings, [])
+            {
+                IsDryRun = true,
+                PlannedDiscovery = discovery.HasChanges ? discovery : null,
+            }
+            : new(results, loaded.Warnings, []) { Discovery = applied };
+    }
+
+    /// <summary>
+    /// Treats the unavailable entries that GitHub reports again as active, as a backup run would after reactivating
+    /// them.
+    /// </summary>
+    /// <param name="items">The repositories of the configuration.</param>
+    /// <param name="discovery">What discovery found.</param>
+    /// <returns>The repositories, with each returned entry active.</returns>
+    private static IReadOnlyList<BackupWorkItem> ReactivateReturned(
+        IReadOnlyList<BackupWorkItem> items, DiscoveryResult discovery)
+    {
+        if (discovery.Returned.Count == 0)
+        {
+            return items;
+        }
+
+        var returned = discovery.Returned.Select(repository => repository.Tracked.Id).ToHashSet();
+        return [.. items.Select(item => returned.Contains(item.Id) ? item with { IsActive = true } : item)];
+    }
+
+    /// <summary>
+    /// Reports a repository that a dry run finds missing on GitHub as skipped; its wiki is not processed either.
+    /// </summary>
+    /// <param name="item">The repository.</param>
+    /// <returns>The result of the repository.</returns>
+    private BackupItemResult SkipMissing(BackupWorkItem item)
+    {
+        using var scope = logger.BeginRepositoryScope(item.FullName);
+        BackupOrchestratorLog.RepositoryMissing(logger);
+        return new(
+            item.FullName,
+            BackupItemStatus.Skipped,
+            null,
+            TimeSpan.Zero,
+            "The repository is missing on GitHub; a backup run marks it Unavailable.");
     }
 
     /// <summary>
@@ -290,13 +357,11 @@ public sealed class BackupOrchestrator(
     /// Backs up one repository and turns any failure into a <see cref="BackupItemStatus.Failed"/> result.
     /// </summary>
     /// <param name="item">The repository.</param>
-    /// <param name="tools">The located tools.</param>
-    /// <param name="token">The token passed to git.</param>
-    /// <param name="temporaryFolder">The folder in which archives are built.</param>
+    /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>The result of the repository.</returns>
     private async Task<BackupItemResult> ProcessAsync(
-        BackupWorkItem item, ToolSet tools, GitHubToken token, string temporaryFolder, CancellationToken cancellationToken)
+        BackupWorkItem item, RunSettings settings, CancellationToken cancellationToken)
     {
         using var scope = logger.BeginRepositoryScope(item.FullName);
         var started = timeProvider.GetTimestamp();
@@ -320,7 +385,7 @@ public sealed class BackupOrchestrator(
                     item.CloneFolder,
                     remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
                     item.Branch);
-                (status, archive, message) = await BackupAsync(item, source, tools, token, temporaryFolder, cancellationToken);
+                (status, archive, message) = await BackupAsync(item, source, settings, cancellationToken);
             }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
@@ -348,9 +413,7 @@ public sealed class BackupOrchestrator(
     /// </remarks>
     /// <param name="item">The repository that owns the wiki.</param>
     /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
-    /// <param name="tools">The located tools.</param>
-    /// <param name="token">The token passed to git.</param>
-    /// <param name="temporaryFolder">The folder in which archives are built.</param>
+    /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>
     /// The result of the wiki, or <see langword="null"/> when the repository is not active, the wiki feature is
@@ -359,9 +422,7 @@ public sealed class BackupOrchestrator(
     private async Task<BackupItemResult?> ProcessWikiAsync(
         BackupWorkItem item,
         IReadOnlyDictionary<long, GitHubRepository> discovered,
-        ToolSet tools,
-        GitHubToken token,
-        string temporaryFolder,
+        RunSettings settings,
         CancellationToken cancellationToken)
     {
         if (!item.IsActive)
@@ -399,7 +460,7 @@ public sealed class BackupOrchestrator(
                 item.WikiCloneFolder,
                 remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
                 Branch: null);
-            (status, archive, message) = await BackupAsync(item, source, tools, token, temporaryFolder, cancellationToken);
+            (status, archive, message) = await BackupAsync(item, source, settings, cancellationToken);
         }
         catch (GitRepositoryNotFoundException)
         {
@@ -456,42 +517,49 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Brings the clone of a repository or wiki up to date, archives it when it changed and records the archive.
+    /// Brings the clone of a repository or wiki up to date, archives it when it changed and records the archive; in a
+    /// dry run, only decides what a backup run would do and names the archive it would create.
     /// </summary>
     /// <param name="item">The active repository, which supplies the archive folder and the state file.</param>
     /// <param name="source">The repository or its wiki.</param>
-    /// <param name="tools">The located tools.</param>
-    /// <param name="token">The token passed to git.</param>
-    /// <param name="temporaryFolder">The folder in which archives are built.</param>
+    /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
-    /// <returns>The status, the archive created or <see langword="null"/>, and the warning or <see langword="null"/>.</returns>
+    /// <returns>
+    /// The status; the archive created, the archive a dry run predicts, or <see langword="null"/>; and the warning or
+    /// <see langword="null"/>.
+    /// </returns>
     private async Task<(BackupItemStatus Status, string? Archive, string? Warning)> BackupAsync(
-        BackupWorkItem item,
-        BackupSource source,
-        ToolSet tools,
-        GitHubToken token,
-        string temporaryFolder,
-        CancellationToken cancellationToken)
+        BackupWorkItem item, BackupSource source, RunSettings settings, CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
         var request = new ChangeDetectionRequest
         {
             Git = new()
             {
-                GitPath = tools.Git.Path,
+                GitPath = settings.Tools.Git.Path,
                 ClonePath = source.CloneFolder,
                 Branch = source.Branch,
-                Token = token.Value,
+                Token = settings.Token.Value,
             },
             RemoteUrl = source.RemoteUrl,
             ArchiveFolder = item.ArchiveFolder,
             LastArchive = state.GetLastArchive(source.Target),
         };
-        var detection = await changeDetector.DetectAsync(request, cancellationToken);
+        var detection = settings.DryRun
+            ? await changeDetector.PreviewAsync(request, cancellationToken)
+            : await changeDetector.DetectAsync(request, cancellationToken);
+        if (detection.Decision == ChangeDecision.CloneNeeded)
+        {
+            return (BackupItemStatus.WouldClone, null, null);
+        }
 
-        var archive = detection.Decision == ChangeDecision.ArchiveNeeded
-            ? await ArchiveAsync(item, source, tools, detection, temporaryFolder, cancellationToken)
-            : null;
+        string? archive = null;
+        if (detection.Decision == ChangeDecision.ArchiveNeeded)
+        {
+            archive = settings.DryRun
+                ? nameBuilder.Build(item.Owner, item.Name, source.Target, GetHeadCommit(source, detection).Commit).FileName
+                : await ArchiveAsync(item, source, settings, detection, cancellationToken);
+        }
 
         if (detection.BranchFallback)
         {
@@ -500,7 +568,10 @@ public sealed class BackupOrchestrator(
             return (BackupItemStatus.Warning, archive, warning);
         }
 
-        return (archive is null ? BackupItemStatus.UpToDate : BackupItemStatus.Archived, archive, null);
+        var status = archive is null ? BackupItemStatus.UpToDate
+            : settings.DryRun ? BackupItemStatus.WouldArchive
+            : BackupItemStatus.Archived;
+        return (status, archive, null);
     }
 
     /// <summary>
@@ -512,34 +583,26 @@ public sealed class BackupOrchestrator(
     /// </remarks>
     /// <param name="item">The repository, which supplies the archive folder and the state file.</param>
     /// <param name="source">The repository or its wiki.</param>
-    /// <param name="tools">The located tools.</param>
+    /// <param name="settings">The located tools and the folder in which the archive is built.</param>
     /// <param name="detection">The result of the change detection, with the branch and the refs of the clone.</param>
-    /// <param name="temporaryFolder">The folder in which the archive is built.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The file name of the new archive.</returns>
     /// <exception cref="InvalidOperationException">The refs of the clone hold no commit for the checked-out branch.</exception>
     private async Task<string> ArchiveAsync(
         BackupWorkItem item,
         BackupSource source,
-        ToolSet tools,
+        RunSettings settings,
         ChangeDetection detection,
-        string temporaryFolder,
         CancellationToken cancellationToken)
     {
-        var branch = detection.Branch;
-        if (branch is null || !detection.Refs.Refs.TryGetValue(RefSnapshot.BranchPrefix + branch, out var headCommit))
-        {
-            throw new InvalidOperationException(
-                $"The clone of {source.FullName} has no commit for its checked-out branch '{branch}'.");
-        }
-
+        var (branch, headCommit) = GetHeadCommit(source, detection);
         var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
         var result = await archiver.CreateAsync(
             new()
             {
-                SevenZipPath = tools.SevenZip.Path,
+                SevenZipPath = settings.Tools.SevenZip.Path,
                 SourceFolder = source.CloneFolder,
-                TemporaryFolder = temporaryFolder,
+                TemporaryFolder = settings.TemporaryFolder,
                 DestinationFolder = item.ArchiveFolder,
                 FileName = name.FileName,
             },
@@ -549,6 +612,34 @@ public sealed class BackupOrchestrator(
         await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, cancellationToken);
         return name.FileName;
     }
+
+    /// <summary>
+    /// Returns the branch to archive and the commit it points at.
+    /// </summary>
+    /// <param name="source">The repository or its wiki, named in the error.</param>
+    /// <param name="detection">The result of the change detection, with the branch and the refs.</param>
+    /// <returns>The branch and the commit id.</returns>
+    /// <exception cref="InvalidOperationException">The refs hold no commit for the branch.</exception>
+    private static (string Branch, string Commit) GetHeadCommit(BackupSource source, ChangeDetection detection)
+    {
+        var branch = detection.Branch;
+        if (branch is null || !detection.Refs.Refs.TryGetValue(RefSnapshot.BranchPrefix + branch, out var headCommit))
+        {
+            throw new InvalidOperationException(
+                $"The clone of {source.FullName} has no commit for its checked-out branch '{branch}'.");
+        }
+
+        return (branch, headCommit);
+    }
+
+    /// <summary>
+    /// Holds what every repository of one run shares.
+    /// </summary>
+    /// <param name="Tools">The located tools.</param>
+    /// <param name="Token">The token passed to git.</param>
+    /// <param name="TemporaryFolder">The folder in which archives are built.</param>
+    /// <param name="DryRun">Whether the run only shows what a backup run would do.</param>
+    private readonly record struct RunSettings(ToolSet Tools, GitHubToken Token, string TemporaryFolder, bool DryRun);
 
     /// <summary>
     /// Describes what one backup step works on: a repository or its wiki.
