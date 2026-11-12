@@ -28,7 +28,13 @@ public sealed record BackupRunResult(
     public DiscoveryResult? PlannedDiscovery { get; init; }
 
     /// <summary>
-    /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped,
+    /// Gets whether the run was cancelled before it finished; <see cref="Items"/> then holds what was processed before
+    /// the cancellation, the interrupted item and the items not started.
+    /// </summary>
+    public bool IsCancelled { get; init; }
+
+    /// <summary>
+    /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped or cancelled,
     /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>,
     /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, in a dry run
     /// too, and
@@ -38,7 +44,7 @@ public sealed record BackupRunResult(
     /// An unavailable entry that GitHub reports again is not an event: it only returns the run to its normal state.
     /// </remarks>
     public ExitCode ExitCode =>
-        CriticalErrors.Count > 0 ? ExitCode.Critical
+        CriticalErrors.Count > 0 || IsCancelled ? ExitCode.Critical
         : Items.Any(item => item.Status == BackupItemStatus.Failed) ? ExitCode.RepositoriesFailed
         : HasDiscoveryEvents(Discovery) || HasDiscoveryEvents(PlannedDiscovery) ? ExitCode.DiscoveryEvents
         : ExitCode.Success;

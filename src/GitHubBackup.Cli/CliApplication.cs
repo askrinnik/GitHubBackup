@@ -20,6 +20,9 @@ internal sealed class CliApplication(CliConsole console)
     /// <summary>The prefix of every line that reports an error in the command line.</summary>
     public const string CommandLineErrorPrefix = "Command-line error: ";
 
+    /// <summary>The error written when a command other than <c>backup</c> is cancelled.</summary>
+    public const string CancelledMessage = "The operation was cancelled.";
+
     /// <summary>The version of the executable, written to the log when a run starts.</summary>
     private static readonly string? _version = typeof(CliApplication).Assembly.GetName().Version?.ToString();
 
@@ -86,7 +89,10 @@ internal sealed class CliApplication(CliConsole console)
             var environment = host.Services.GetRequiredService<IHostEnvironment>();
             CliLog.RunStarted(logger, _version, environment.EnvironmentName);
 
-            var exitCode = await RunCommandAsync(host.Services, arguments, cancellationToken);
+            var exitCode = await RunCancellableAsync(
+                host.Services.GetRequiredService<IHostApplicationLifetime>(),
+                commandToken => RunCommandAsync(host.Services, arguments, commandToken),
+                cancellationToken);
 
             await host.StopAsync(cancellationToken);
 
@@ -106,6 +112,37 @@ internal sealed class CliApplication(CliConsole console)
         var builder = GitHubBackupHostBuilder.Create(settings);
         builder.Services.AddGitHubBackupCli(console);
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Runs a command with a token that is cancelled when <paramref name="cancellationToken"/> is cancelled or the host
+    /// begins to stop, which Ctrl+C triggers through the console lifetime of the host.
+    /// </summary>
+    /// <remarks>
+    /// A command that ends with <see cref="OperationCanceledException"/> after its token was cancelled produces one
+    /// line on the error output and <see cref="ExitCode.Critical"/>, without a stack trace. The <c>backup</c> command
+    /// reports a cancellation that comes after its run took the run lock in its summary and returns normally.
+    /// </remarks>
+    /// <param name="lifetime">The lifetime of the host, whose <see cref="IHostApplicationLifetime.ApplicationStopping"/> cancels the command.</param>
+    /// <param name="command">Runs the command with the token it receives.</param>
+    /// <param name="cancellationToken">Cancels the command.</param>
+    /// <returns>The exit code of the command.</returns>
+    internal async Task<ExitCode> RunCancellableAsync(
+        IHostApplicationLifetime lifetime,
+        Func<CancellationToken, Task<ExitCode>> command,
+        CancellationToken cancellationToken)
+    {
+        using var commandCancellation =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, lifetime.ApplicationStopping);
+        try
+        {
+            return await command(commandCancellation.Token);
+        }
+        catch (OperationCanceledException) when (commandCancellation.IsCancellationRequested)
+        {
+            await console.Error.WriteLineAsync(BackupSummaryRenderer.ErrorPrefix + CancelledMessage);
+            return ExitCode.Critical;
+        }
     }
 
     /// <summary>

@@ -8,6 +8,8 @@ using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Hosting.Internal;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Spectre.Console.Testing;
 
@@ -458,6 +460,55 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
+    public async Task RunCancellableAsync_StopApplication_CancelsCommandAndReturnsCriticalWithOneLine()
+    {
+        var lifetime = new ApplicationLifetime(NullLogger<ApplicationLifetime>.Instance);
+        var commandToken = CancellationToken.None;
+        var started = new TaskCompletionSource();
+
+        var running = CreateApplication().RunCancellableAsync(
+            lifetime,
+            async token =>
+            {
+                commandToken = token;
+                started.SetResult();
+                await Task.Delay(Timeout.Infinite, token);
+                return ExitCode.Success;
+            },
+            TestContext.Current.CancellationToken);
+        await started.Task;
+        lifetime.StopApplication();
+        var exitCode = await running;
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        commandToken.IsCancellationRequested.ShouldBeTrue();
+        ErrorLines().ShouldBe([BackupSummaryRenderer.ErrorPrefix + CliApplication.CancelledMessage]);
+    }
+
+    [Fact]
+    public async Task RunCancellableAsync_CommandCompletes_ReturnsItsExitCodeAndWritesNothing()
+    {
+        var lifetime = new ApplicationLifetime(NullLogger<ApplicationLifetime>.Instance);
+
+        var exitCode = await CreateApplication().RunCancellableAsync(
+            lifetime, _ => Task.FromResult(ExitCode.DiscoveryEvents), TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        _standardError.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunCancellableAsync_OperationCanceledWithoutCancellation_Propagates()
+    {
+        var lifetime = new ApplicationLifetime(NullLogger<ApplicationLifetime>.Instance);
+
+        await Should.ThrowAsync<OperationCanceledException>(() => CreateApplication().RunCancellableAsync(
+            lifetime,
+            _ => Task.FromException<ExitCode>(new OperationCanceledException()),
+            TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void BuildHost_ProductionEnvironment_UsesSettingsEnvironment()
     {
         using var host = CliApplication.BuildHost(CreateSettings(_contentRoot.FolderPath, ValidAppSettings), TestCliConsole.Create());
@@ -540,10 +591,17 @@ public sealed class CliApplicationTests : IDisposable
     /// <param name="args">The command-line arguments.</param>
     /// <returns>The exit code.</returns>
     private Task<ExitCode> RunAsync(InMemoryFileProvider fileProvider, params string[] args) =>
-        new CliApplication(new CliConsole(_output, _standardError, _isInputRedirected)).RunAsync(
+        CreateApplication().RunAsync(
             args,
             CreateSettings(_contentRoot.FolderPath, fileProvider, []),
             TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// Creates the application over the test outputs.
+    /// </summary>
+    /// <returns>The application.</returns>
+    private CliApplication CreateApplication() =>
+        new(new CliConsole(_output, _standardError, _isInputRedirected));
 
     /// <summary>
     /// Returns the path of the only log file with <paramref name="extension"/>.

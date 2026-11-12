@@ -4,8 +4,8 @@ namespace GitHubBackup.Core.Runs;
 /// Runs a backup of the repositories listed in <c>backup-config.json</c>.
 /// </summary>
 /// <remarks>
-/// The run loads the configuration, checks the tools, obtains the token and empties the folder of temporary archives.
-/// It then discovers new, missing and renamed repositories, applies the decisions about them to the configuration,
+/// The run loads the configuration, checks the tools, obtains the token, takes the <see cref="IRunLock"/> and empties
+/// the folder of temporary archives; when another run holds the lock, the run stops there. It then discovers new, missing and renamed repositories, applies the decisions about them to the configuration,
 /// and processes the repositories of the updated configuration one by one, so a repository confirmed in this run is
 /// backed up in this run. A failure of one repository is recorded in its result and the run goes on; an invalid
 /// configuration, a missing tool or a failure of discovery stops the run before any repository is processed and is
@@ -18,6 +18,11 @@ namespace GitHubBackup.Core.Runs;
 /// <see cref="BackupItemStatus.WouldClone"/>, <see cref="BackupItemStatus.WouldArchive"/> with the name of the
 /// archive a backup run would create, or <see cref="BackupItemStatus.UpToDate"/>.
 /// </para>
+/// <para>
+/// Cancellation after the lock is taken is reported, not thrown: the result has
+/// <see cref="BackupRunResult.IsCancelled"/> set, the repository being processed is
+/// <see cref="BackupItemStatus.Cancelled"/> and those not yet started are <see cref="BackupItemStatus.Skipped"/>.
+/// </para>
 /// </remarks>
 public interface IBackupOrchestrator
 {
@@ -28,7 +33,8 @@ public interface IBackupOrchestrator
     /// <param name="cancellationToken">Cancels the run; the repository being processed is stopped and no further one is started.</param>
     /// <returns>The results of the repositories, the changes made by discovery and the errors that stopped the run.</returns>
     /// <exception cref="OperationCanceledException">
-    /// <paramref name="cancellationToken"/> was cancelled, or the decision handler cancelled.
+    /// <paramref name="cancellationToken"/> was cancelled before the lock was taken, or the decision handler cancelled
+    /// on its own.
     /// </exception>
     Task<BackupRunResult> RunAsync(BackupRunRequest request, CancellationToken cancellationToken);
 }

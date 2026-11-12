@@ -46,6 +46,7 @@ public sealed class BackupOrchestratorTests
     private const int _dryRunStartedEventId = 18;
     private const int _temporaryFolderLeftUntouchedEventId = 19;
     private const int _repositoryMissingEventId = 20;
+    private const int _runCancelledEventId = 21;
 
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
@@ -53,6 +54,8 @@ public sealed class BackupOrchestratorTests
     private readonly IBackupConfigStore _configStore = Substitute.For<IBackupConfigStore>();
     private readonly IToolLocator _toolLocator = Substitute.For<IToolLocator>();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
+    private readonly IRunLock _runLock = Substitute.For<IRunLock>();
+    private readonly IDisposable _runLockHandle = Substitute.For<IDisposable>();
     private readonly IGitHubApi _gitHubApi = Substitute.For<IGitHubApi>();
     private readonly IRepositoryDiscoveryService _discovery = Substitute.For<IRepositoryDiscoveryService>();
     private readonly IDiscoveryDecisionApplier _applier = Substitute.For<IDiscoveryDecisionApplier>();
@@ -68,7 +71,7 @@ public sealed class BackupOrchestratorTests
 
     /// <summary>
     /// Sets up a valid configuration with one standalone repository whose wiki feature is disabled, the tools, a token,
-    /// a discovery without findings, an empty state and an archiver that succeeds.
+    /// a free run lock, a discovery without findings, an empty state and an archiver that succeeds.
     /// </summary>
     public BackupOrchestratorTests()
     {
@@ -77,6 +80,7 @@ public sealed class BackupOrchestratorTests
         _toolLocator.LocateAsync(Arg.Any<CancellationToken>())
             .Returns(new ToolSet(new(_gitPath, "2.46.0"), "3.5.1", new(_sevenZipPath, "24.08")));
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken("secret-token", "test"));
+        _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns(_runLockHandle);
         _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(DiscoveryResult.Empty);
         _stateStore.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
@@ -118,7 +122,7 @@ public sealed class BackupOrchestratorTests
             "owner/repo",
             BackupTarget.Repository,
             new ArchiveRecord(_archiveFile, _createdAt, "main", _headCommit, 1234, _refs),
-            CancellationToken);
+            CancellationToken.None);
     }
 
     [Fact]
@@ -313,19 +317,173 @@ public sealed class BackupOrchestratorTests
     }
 
     [Fact]
-    public async Task RunAsync_Cancelled_ThrowsAndStopsProcessing()
+    public async Task RunAsync_Cancelled_ReturnsCancelledResult()
+    {
+        AddRepository("other");
+        AddRepository("third");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            _timeProvider.Advance(TimeSpan.FromSeconds(3));
+            cancellation.Cancel();
+            return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+        });
+
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
+
+        result.Items.ShouldBe(
+        [
+            new("owner/repo", BackupItemStatus.Cancelled, null, TimeSpan.FromSeconds(3), BackupOrchestrator.CancelledMessage),
+            new("owner/other", BackupItemStatus.Skipped, null, TimeSpan.Zero, BackupOrchestrator.NotProcessedMessage),
+            new("owner/third", BackupItemStatus.Skipped, null, TimeSpan.Zero, BackupOrchestrator.NotProcessedMessage),
+        ]);
+        result.IsCancelled.ShouldBeTrue();
+        result.CriticalErrors.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _detector.ReceivedWithAnyArgs(1).DetectAsync(default!, CancellationToken);
+        var record = SingleRecord(_runCancelledEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Processed").ShouldBe("0");
+        record.GetStructuredStateValue("NotProcessed").ShouldBe("2");
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledBetweenRepositories_ReportsFinishedAndSkipsRest()
     {
         AddRepository("other");
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
         _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
         {
             cancellation.Cancel();
-            return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+            return Detection(ChangeDecision.UpToDate, branchFallback: false);
         });
 
-        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
 
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.UpToDate),
+            ("owner/other", BackupItemStatus.Skipped),
+        ]);
+        result.IsCancelled.ShouldBeTrue();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
         await _detector.ReceivedWithAnyArgs(1).DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledAfterArchiveMoved_StillRecordsState()
+    {
+        AddRepository("other");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        _archiver.CreateAsync(Arg.Any<ArchiveRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            cancellation.Cancel();
+            return new ArchiveResult(Path.Combine(call.Arg<ArchiveRequest>().DestinationFolder, call.Arg<ArchiveRequest>().FileName), 1234);
+        });
+
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
+
+        result.Items.Select(item => (item.Repository, item.Status, item.ArchiveFileName)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, _archiveFile),
+            ("owner/other", BackupItemStatus.Skipped, null),
+        ]);
+        result.IsCancelled.ShouldBeTrue();
+        await _stateStore.Received(1).AppendAsync(
+            @"C:\backup\owner\repo",
+            1,
+            "owner/repo",
+            BackupTarget.Repository,
+            Arg.Any<ArchiveRecord>(),
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunAsync_LockHeld_ReturnsCriticalWithoutTemporaryFolderCleanupOrDiscovery()
+    {
+        _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns((IDisposable?)null);
+        _fileSystem.AddFile(Path.Combine(_temporaryFolder, "left.zip"), new("partial"));
+
+        var result = await RunAsync();
+
+        result.CriticalErrors.ShouldBe([BackupOrchestrator.RunLockHeldMessage]);
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        _fileSystem.File.Exists(Path.Combine(_temporaryFolder, "left.zip")).ShouldBeTrue();
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        SingleRecord(_runStoppedEventId).GetStructuredStateValue("Error").ShouldBe(BackupOrchestrator.RunLockHeldMessage);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_LockTakenAfterTokenAndBeforeTemporaryFolderCleanup(bool dryRun)
+    {
+        _fileSystem.AddFile(Path.Combine(_temporaryFolder, "left.zip"), new("partial"));
+        var leftoverAtLock = false;
+        _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            leftoverAtLock = _fileSystem.File.Exists(Path.Combine(_temporaryFolder, "left.zip"));
+            return _runLockHandle;
+        });
+
+        await CreateOrchestrator().RunAsync(Request() with { DryRun = dryRun }, CancellationToken);
+
+        leftoverAtLock.ShouldBeTrue();
+        Received.InOrder(() =>
+        {
+            _ = _tokenProvider.GetTokenAsync(CancellationToken);
+            _ = _runLock.TryAcquireAsync(CancellationToken);
+            _ = _discovery.DiscoverAsync(_config, null, CancellationToken);
+        });
+    }
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("stopped")]
+    [InlineData("cancelled")]
+    public async Task RunAsync_AnyOutcome_ReleasesLock(string outcome)
+    {
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        if (outcome == "stopped")
+        {
+            _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                .ThrowsAsync(DiscoveryFailure("server"));
+        }
+        else if (outcome == "cancelled")
+        {
+            _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                cancellation.Cancel();
+                return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+            });
+        }
+
+        await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
+
+        _runLockHandle.Received(1).Dispose();
+    }
+
+    [Fact]
+    public async Task RunAsync_UnexpectedException_ReleasesLock()
+    {
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Unexpected."));
+
+        await Should.ThrowAsync<InvalidOperationException>(RunAsync());
+
+        _runLockHandle.Received(1).Dispose();
+    }
+
+    [Fact]
+    public async Task RunAsync_ToolMissing_DoesNotTakeLock()
+    {
+        _toolLocator.LocateAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new ToolUnavailableException("git was not found."));
+
+        await RunAsync();
+
+        await _runLock.DidNotReceiveWithAnyArgs().TryAcquireAsync(CancellationToken);
     }
 
     [Fact]
@@ -501,7 +659,7 @@ public sealed class BackupOrchestratorTests
             "owner/repo",
             BackupTarget.Wiki,
             new ArchiveRecord(_wikiArchiveFile, _createdAt, "main", _headCommit, 1234, _refs),
-            CancellationToken);
+            CancellationToken.None);
     }
 
     [Fact]
@@ -645,7 +803,7 @@ public sealed class BackupOrchestratorTests
     }
 
     [Fact]
-    public async Task RunAsync_CancelledDuringWiki_Throws()
+    public async Task RunAsync_CancelledDuringWiki_ReturnsCancelledResult()
     {
         SetupWiki(hasWiki: true);
         AddRepository("other");
@@ -656,8 +814,15 @@ public sealed class BackupOrchestratorTests
             return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
         });
 
-        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
 
+        result.Items.Select(item => (item.Repository, item.Status, item.Target)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository),
+            ("owner/repo.wiki", BackupItemStatus.Cancelled, BackupTarget.Wiki),
+            ("owner/other", BackupItemStatus.Skipped, BackupTarget.Repository),
+        ]);
+        result.IsCancelled.ShouldBeTrue();
         await _gitHubApi.DidNotReceive().GetRepositoryAsync("owner", "other", Arg.Any<CancellationToken>());
     }
 
@@ -847,7 +1012,7 @@ public sealed class BackupOrchestratorTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task RunAsync_CancelledDuringDiscoveryOrDecision_ThrowsWithoutProcessing(bool duringDiscovery)
+    public async Task RunAsync_CancelledDuringDiscoveryOrDecision_ReturnsCancelledResultWithoutProcessing(bool duringDiscovery)
     {
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
         SetupApply(Applied());
@@ -879,8 +1044,13 @@ public sealed class BackupOrchestratorTests
                 .Returns(_ => CancelDecision());
         }
 
-        await Should.ThrowAsync<OperationCanceledException>(() => CreateOrchestrator().RunAsync(Request(), cancellation.Token));
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
 
+        result.Items.ShouldBeEmpty();
+        result.IsCancelled.ShouldBeTrue();
+        result.CriticalErrors.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        _runLockHandle.Received(1).Dispose();
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
         await _stateStore.DidNotReceiveWithAnyArgs().AppendAsync(default!, default, default!, default, default!, CancellationToken);
         await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
@@ -1254,6 +1424,7 @@ public sealed class BackupOrchestratorTests
         _configStore,
         _toolLocator,
         _tokenProvider,
+        _runLock,
         new RepositoryPathResolver(@"C:\app\sources"),
         new ExclusionMatcher(),
         _discovery,

@@ -20,6 +20,7 @@ using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
@@ -546,6 +547,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             _configStore,
             toolLocator,
             tokenProvider,
+            new NamedMutexRunLock($@"Local\GitHubBackup.Tests.{Guid.NewGuid():N}", NullLogger<NamedMutexRunLock>.Instance),
             pathResolver,
             exclusionMatcher,
             discoveryService,

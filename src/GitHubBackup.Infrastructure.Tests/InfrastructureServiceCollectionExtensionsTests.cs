@@ -7,6 +7,7 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Processes;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
@@ -17,6 +18,7 @@ using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.GitHub;
 using GitHubBackup.Infrastructure.Processes;
+using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
 using Microsoft.Extensions.Configuration;
@@ -133,6 +135,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         archiver.ShouldBeOfType<SevenZipArchiver>();
         provider.GetRequiredService<IArchiver>().ShouldBeSameAs(archiver);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_RunLock_IsOneNamedMutexInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var runLock = provider.GetRequiredService<IRunLock>();
+
+        runLock.ShouldBeOfType<NamedMutexRunLock>();
+        provider.GetRequiredService<IRunLock>().ShouldBeSameAs(runLock);
     }
 
     [Fact]

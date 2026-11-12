@@ -20,7 +20,10 @@ public enum BackupItemStatus
     /// <summary>The repository could not be backed up.</summary>
     Failed,
 
-    /// <summary>The repository was not processed, for example because it is marked unavailable.</summary>
+    /// <summary>
+    /// The repository was not processed, for example because it is marked unavailable or the run was cancelled before
+    /// it.
+    /// </summary>
     Skipped,
 
     /// <summary>A dry run found that a backup run would create a new archive.</summary>
@@ -28,4 +31,7 @@ public enum BackupItemStatus
 
     /// <summary>A dry run found no clone, so a backup run would clone the repository first.</summary>
     WouldClone,
+
+    /// <summary>The run was cancelled while the repository was being processed.</summary>
+    Cancelled,
 }

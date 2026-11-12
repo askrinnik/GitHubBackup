@@ -112,6 +112,7 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IBackupConfigStore>())
             .AddSingleton(Substitute.For<IToolLocator>())
             .AddSingleton(Substitute.For<ITokenProvider>())
+            .AddSingleton(Substitute.For<IRunLock>())
             .AddSingleton(Substitute.For<IRepositoryPathResolver>())
             .AddSingleton(Substitute.For<IArchiver>())
             .AddSingleton(Substitute.For<IBackupStateStore>())

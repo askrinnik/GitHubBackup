@@ -113,6 +113,67 @@ public sealed class BackupSummaryRendererTests : IDisposable
             """));
     }
 
+    [Fact]
+    public async Task RenderAsync_Cancelled_WritesTableCancelledLineAndTotalsWithCancelled()
+    {
+        var result = new BackupRunResult(
+            [
+                new("owner/repo", BackupItemStatus.Archived, "a.zip", TimeSpan.FromSeconds(2), null),
+                new("owner/next", BackupItemStatus.Cancelled, null, TimeSpan.FromSeconds(1), "Cancelled."),
+                new("owner/last", BackupItemStatus.Skipped, null, TimeSpan.Zero, "Not processed."),
+            ],
+            [],
+            [])
+        {
+            IsCancelled = true,
+        };
+
+        await Render(result);
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            ┌────────────┬───────────┬─────────┬──────────┬────────────────┐
+            │ Repository │ Status    │ Archive │ Duration │ Error          │
+            ├────────────┼───────────┼─────────┼──────────┼────────────────┤
+            │ owner/repo │ Archived  │ a.zip   │ 0:02.0   │                │
+            │ owner/next │ Cancelled │         │ 0:01.0   │ Cancelled.     │
+            │ owner/last │ Skipped   │         │ 0:00.0   │ Not processed. │
+            └────────────┴───────────┴─────────┴──────────┴────────────────┘
+            Cancelled: the run was stopped before it finished.
+            Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 1, Cancelled: 1
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+        _error.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RenderAsync_CancelledWithoutItems_WritesCancelledLineAndTotals()
+    {
+        await Render(new([], [], []) { IsCancelled = true });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Cancelled: the run was stopped before it finished.
+            Archived: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Cancelled: 0
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+        _error.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RenderAsync_DryRunCancelled_WritesHeaderCancelledLineAndDryRunTotalsWithCancelled()
+    {
+        await Render(new([], [], []) { IsDryRun = true, IsCancelled = true });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Dry run: nothing was cloned, updated, archived or saved.
+            Cancelled: the run was stopped before it finished.
+            WouldClone: 0, WouldArchive: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Cancelled: 0
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
     [Theory]
     [InlineData(0, "0:00.0")]
     [InlineData(999, "0:00.9")]

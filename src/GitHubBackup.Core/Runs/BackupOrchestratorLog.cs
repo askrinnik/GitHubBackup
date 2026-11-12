@@ -213,4 +213,16 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Information,
         Message = "Dry run: the repository is missing on GitHub and a backup run would mark it Unavailable")]
     public static partial void RepositoryMissing(ILogger logger);
+
+    /// <summary>
+    /// Logs that the run was cancelled before it finished.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="processed">The number of repositories and wikis finished before the cancellation.</param>
+    /// <param name="notProcessed">The number of repositories not started.</param>
+    [LoggerMessage(
+        EventId = 21,
+        Level = LogLevel.Warning,
+        Message = "The backup run was cancelled: {Processed} items finished, {NotProcessed} repositories not processed")]
+    public static partial void RunCancelled(ILogger logger, int processed, int notProcessed);
 }

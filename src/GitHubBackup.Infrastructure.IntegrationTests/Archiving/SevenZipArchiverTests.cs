@@ -95,6 +95,36 @@ public sealed class SevenZipArchiverTests : IDisposable
         File.Exists(Path.Combine(extracted, "-repo", "README.md")).ShouldBeTrue();
     }
 
+    [Fact]
+    public async Task CreateAsync_CancelledWhileSevenZipRuns_LeavesNoArchiveOrTemporaryFile()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        var clone = await CloneAsync(remote, "repo");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        var collector = FakeLogCollector.Create(new FakeLogCollectorOptions
+        {
+            // The first line 7-Zip writes shows that the process runs, so the cancellation reaches a live process.
+            OutputSink = line =>
+            {
+                if (line.Contains("7z stdout:", StringComparison.Ordinal))
+                {
+                    cancellation.Cancel();
+                }
+            },
+        });
+        var archiver = new SevenZipArchiver(
+            CreateRunner(new FakeLogger<ProcessRunner>(collector)),
+            new FileSystem(),
+            Options.Create(new BackupOptions()),
+            NullLogger<SevenZipArchiver>.Instance);
+
+        await Should.ThrowAsync<OperationCanceledException>(() => archiver.CreateAsync(Request(clone), cancellation.Token));
+
+        cancellation.IsCancellationRequested.ShouldBeTrue();
+        Directory.GetFileSystemEntries(_temporaryFolder).ShouldBeEmpty();
+        Directory.GetFileSystemEntries(_archiveFolder).ShouldBeEmpty();
+    }
+
     /// <inheritdoc />
     public void Dispose() => _sandbox.Dispose();
 

@@ -74,6 +74,48 @@ public sealed class BackupCommandHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_LockHeld_ReturnsCriticalWithOneErrorAndLogPath()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>())
+            .Returns(BackupRunResult.Stopped([BackupOrchestrator.RunLockHeldMessage], []));
+
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _error.ToString().ShouldBe(
+            """
+            Error: A backup is already running.
+            Log: C:\app\logs\githubbackup-20261112.log
+
+            """.ReplaceLineEndings());
+        _output.Output.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_Cancelled_ReturnsCriticalAndWritesSummaryWithCancelledLine()
+    {
+        _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(
+            new BackupRunResult(
+                [
+                    new("octocat/hello", BackupItemStatus.Archived, "octocat_hello.zip", TimeSpan.Zero, null),
+                    new("octocat/next", BackupItemStatus.Cancelled, null, TimeSpan.Zero, BackupOrchestrator.CancelledMessage),
+                    new("octocat/last", BackupItemStatus.Skipped, null, TimeSpan.Zero, BackupOrchestrator.NotProcessedMessage),
+                ],
+                [],
+                [])
+            {
+                IsCancelled = true,
+            });
+
+        var exitCode = await CreateHandler().RunAsync(BackupCommandOptions.Default, TestContext.Current.CancellationToken);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        _output.Output.ShouldContain(BackupSummaryRenderer.CancelledLine);
+        _output.Output.ShouldContain("Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 1, Cancelled: 1");
+        _error.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task RunAsync_Silent_RunsAllRepositoriesWithAutomaticDecisions()
     {
         _orchestrator.RunAsync(Arg.Any<BackupRunRequest>(), Arg.Any<CancellationToken>()).Returns(new BackupRunResult([], [], []));
