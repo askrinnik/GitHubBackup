@@ -490,6 +490,32 @@ public sealed class ChangeDetectorTests
     }
 
     [Fact]
+    public async Task PreviewAsync_RequestedBranchStartsWithDash_ThrowsArgumentException()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+
+        await Should.ThrowAsync<ArgumentException>(() => PreviewAsync(last: null, branch: "-main"));
+
+        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
+        await NoCloneOrUpdate();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("gone")]
+    public async Task PreviewAsync_DefaultBranchStartsWithDash_ThrowsArgumentException(string? requested)
+    {
+        AddClone();
+        SetupRemote(Snapshot(("heads/-main", "a")));
+        SetupDefaultBranch("-main");
+
+        await Should.ThrowAsync<ArgumentException>(() => PreviewAsync(last: null, branch: requested));
+
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
     public async Task PreviewAsync_RemoteReadFails_Propagates()
     {
         AddClone();

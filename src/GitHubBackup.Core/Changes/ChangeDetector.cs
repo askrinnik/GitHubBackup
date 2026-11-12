@@ -74,10 +74,16 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
     /// <param name="remote">The refs of the server, with at least one branch.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The state an update would leave the clone in.</returns>
+    /// <exception cref="ArgumentException">The requested or the default branch is not a valid branch name.</exception>
     /// <exception cref="GitBranchNotFoundException">Neither the requested branch nor the default branch exists.</exception>
     private async Task<GitSyncResult> ChooseBranchAsync(
         GitRepositoryRequest git, RefSnapshot remote, CancellationToken cancellationToken)
     {
+        if (git.Branch is not null)
+        {
+            ValidateBranch(git.Branch, git);
+        }
+
         if (git.Branch is not null && remote.ContainsBranch(git.Branch))
         {
             return new(git.Branch, false, remote);
@@ -94,7 +100,28 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
                 $"{requested} on the server of '{git.ClonePath}', and {serverDefault}.", git.Branch, defaultBranch);
         }
 
+        ValidateBranch(defaultBranch, git);
         return new(defaultBranch, git.Branch is not null, remote);
+    }
+
+    /// <summary>
+    /// Rejects a branch name that an update would refuse, so a preview reports the same failure as a backup run.
+    /// </summary>
+    /// <param name="branch">The branch name to check.</param>
+    /// <param name="git">The clone the branch belongs to.</param>
+    /// <exception cref="ArgumentException">The branch is empty or starts with <c>-</c>.</exception>
+    private static void ValidateBranch(string branch, GitRepositoryRequest git)
+    {
+        if (string.IsNullOrWhiteSpace(branch))
+        {
+            throw new ArgumentException($"The branch for '{git.ClonePath}' must not be empty.", nameof(git));
+        }
+
+        if (branch.StartsWith('-'))
+        {
+            throw new ArgumentException(
+                $"The branch '{branch}' for '{git.ClonePath}' must not start with '-'.", nameof(git));
+        }
     }
 
     /// <summary>

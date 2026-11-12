@@ -204,3 +204,4 @@
 - [x] Cli.Tests: `BackupSummaryRendererTests`, `BackupCommandHandlerTests`, `CliApplicationTests`.
 - [x] README.
 - [x] Сборка, тесты, формат; проверка комментариев.
+- [x] По итогам security-ревью: `ChangeDetector.PreviewAsync` отклоняет запрошенную ветку и ветку по умолчанию, которые начинаются с `-`, как это делает `GitClient` в обычном запуске.
