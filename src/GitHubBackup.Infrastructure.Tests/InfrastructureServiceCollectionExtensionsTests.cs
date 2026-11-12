@@ -11,6 +11,7 @@ using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Archiving;
+using GitHubBackup.Infrastructure.Authentication;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
@@ -173,13 +174,31 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     }
 
     [Fact]
-    public async Task AddGitHubBackupInfrastructure_NoToken_TokenProviderReturnsAnonymous()
+    public void AddGitHubBackupInfrastructure_TokenSources_RegisteredInChainOrder()
     {
         using var provider = BuildProvider(new());
 
-        var token = await provider.GetRequiredService<ITokenProvider>().GetTokenAsync(TestContext.Current.CancellationToken);
+        var sources = provider.GetServices<ITokenSource>().ToList();
 
-        token.IsAnonymous.ShouldBeTrue();
+        sources.Select(source => source.GetType()).ShouldBe(
+            [typeof(ConfigurationTokenSource), typeof(CredentialManagerTokenSource), typeof(GitHubCliTokenSource)]);
+        sources.Select(source => source.Name).ShouldBe(
+        [
+            "configuration (GitHub:Token)",
+            "Windows Credential Manager (GitHubBackup:https://github.com)",
+            "GitHub CLI (gh auth token)",
+        ]);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_TokenStore_IsCredentialManagerOverDefaultTarget()
+    {
+        using var provider = BuildProvider(new());
+
+        var store = provider.GetRequiredService<ITokenStore>().ShouldBeOfType<CredentialManagerTokenStore>();
+
+        store.Target.ShouldBe(CredentialManagerTokenStore.DefaultTarget);
+        provider.GetRequiredService<ITokenStore>().ShouldBeSameAs(store);
     }
 
     [Fact]

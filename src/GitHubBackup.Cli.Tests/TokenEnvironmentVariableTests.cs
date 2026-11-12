@@ -27,16 +27,6 @@ public sealed class TokenEnvironmentVariableTests : IDisposable
         token.IsAnonymous.ShouldBeFalse();
     }
 
-    [Fact]
-    public async Task BuildHost_NoTokenVariable_TokenProviderReturnsAnonymous()
-    {
-        Environment.SetEnvironmentVariable(TokenVariable, null);
-
-        var token = await GetTokenAsync();
-
-        token.IsAnonymous.ShouldBeTrue();
-    }
-
     /// <summary>
     /// Restores the variable the tests change and deletes the content root.
     /// </summary>

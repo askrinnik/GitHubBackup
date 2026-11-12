@@ -18,11 +18,17 @@ namespace GitHubBackup.Cli.Tests;
 /// </summary>
 public sealed class CliApplicationTests : IDisposable
 {
-    /// <summary>A valid settings file with every section of the shipped <c>appsettings.json</c>.</summary>
+    /// <summary>
+    /// A valid settings file with every section of the shipped <c>appsettings.json</c>.
+    /// </summary>
+    /// <remarks>
+    /// It sets <c>GitHub:Token</c> so that the token chain of the real host stops at its first source and never reads
+    /// the Credential Manager of the machine or starts the GitHub CLI.
+    /// </remarks>
     internal const string ValidAppSettings =
-        """
+        $$"""
         {
-          "GitHub": { "ApiBaseUrl": "https://api.github.com", "Token": null },
+          "GitHub": { "ApiBaseUrl": "https://api.github.com", "Token": "{{HostTestToken}}" },
           "Tools": { "GitPath": null, "SevenZipPath": "C:\\Program Files\\7-Zip\\7z.exe" },
           "Backup": { "ConfigPath": "backup-config.json", "ShortHashLength": 10, "VerifyArchive": true },
           "History": { "DatabasePath": "data\\history.db" },
@@ -30,6 +36,9 @@ public sealed class CliApplicationTests : IDisposable
           "Serilog": { "MinimumLevel": { "Default": "Information" } }
         }
         """;
+
+    /// <summary>The token that <see cref="ValidAppSettings"/> configures.</summary>
+    internal const string HostTestToken = "ghp_HostTestTokenValue0123456789abcdefAB";
 
     /// <summary>A token value that must never reach the console or the log.</summary>
     internal const string Token = "ghp_TestTokenValue0123456789abcdefABCDEF";
@@ -406,6 +415,7 @@ public sealed class CliApplicationTests : IDisposable
         var exitCode = await RunAsync(ValidAppSettings, "validate");
 
         exitCode.ShouldBe(ExitCode.Critical);
+        _output.Output.ShouldContain("Token: configuration (GitHub:Token)");
         var lines = ErrorLines();
         lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
         lines[0].ShouldContain("backup-config.json");
@@ -413,12 +423,14 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_SetToken_ReturnsCriticalNotImplemented()
+    public async Task RunAsync_SetTokenInputRedirected_ReturnsCriticalWithHint()
     {
+        _isInputRedirected = true;
+
         var exitCode = await RunAsync(ValidAppSettings, "set-token");
 
         exitCode.ShouldBe(ExitCode.Critical);
-        ErrorLines().ShouldBe([SetTokenCommandHandler.NotImplementedMessage]);
+        ErrorLines().ShouldBe([BackupSummaryRenderer.ErrorPrefix + SetTokenCommandHandler.RedirectedInputMessage]);
     }
 
     [Fact]

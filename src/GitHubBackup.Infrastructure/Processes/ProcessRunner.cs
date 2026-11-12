@@ -92,8 +92,13 @@ internal sealed class ProcessRunner(
 
             readers =
             [
-                ReadLinesAsync(process.StandardOutput, tool, StandardOutputStream, readCancellation.Token),
-                ReadLinesAsync(process.StandardError, tool, StandardErrorStream, readCancellation.Token),
+                ReadLinesAsync(
+                    process.StandardOutput,
+                    tool,
+                    StandardOutputStream,
+                    logLines: !request.IsStandardOutputSecret,
+                    readCancellation.Token),
+                ReadLinesAsync(process.StandardError, tool, StandardErrorStream, logLines: true, readCancellation.Token),
             ];
 
             await process.WaitForExitAsync(cancellationToken);
@@ -201,21 +206,23 @@ internal sealed class ProcessRunner(
         name.StartsWith(_applicationVariablePrefix, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Reads <paramref name="reader"/> to its end and logs every non-empty line, masked, as its own entry.
+    /// Reads <paramref name="reader"/> to its end and, when <paramref name="logLines"/> is set, logs every non-empty
+    /// line, masked, as its own entry.
     /// </summary>
     /// <param name="reader">The output stream of the process.</param>
     /// <param name="tool">The name of the tool.</param>
     /// <param name="stream">The name of the stream.</param>
+    /// <param name="logLines">Whether the lines are logged; <see langword="false"/> for a stream that carries a secret.</param>
     /// <param name="cancellationToken">Stops reading when the run abandons the output.</param>
     /// <returns>Every line read, unmasked and in order.</returns>
     private async Task<IReadOnlyList<string>> ReadLinesAsync(
-        StreamReader reader, string tool, string stream, CancellationToken cancellationToken)
+        StreamReader reader, string tool, string stream, bool logLines, CancellationToken cancellationToken)
     {
         var lines = new List<string>();
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             lines.Add(line);
-            if (line.Length > 0 && logger.IsEnabled(LogLevel.Information))
+            if (logLines && line.Length > 0 && logger.IsEnabled(LogLevel.Information))
             {
                 var maskedLine = secretMasker.Mask(line);
                 ProcessRunnerLog.OutputLine(logger, tool, stream, maskedLine);

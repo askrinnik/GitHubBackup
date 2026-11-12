@@ -22,6 +22,10 @@
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
   </ItemGroup>
 
+  <ItemGroup Label="Credentials">
+    <PackageVersion Include="Meziantou.Framework.Win32.CredentialManager" Version="3.0.10" />
+  </ItemGroup>
+
   <ItemGroup Label="Console">
     <PackageVersion Include="Spectre.Console" Version="0.57.2" />
     <PackageVersion Include="System.CommandLine" Version="2.0.15" />
