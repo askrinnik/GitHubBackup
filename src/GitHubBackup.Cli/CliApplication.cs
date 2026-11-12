@@ -120,7 +120,7 @@ internal sealed class CliApplication(CliConsole console)
         {
             CliCommand.Backup => await services.GetRequiredService<BackupCommandHandler>().RunAsync(arguments.Backup, cancellationToken),
             CliCommand.Validate => await services.GetRequiredService<ValidateCommandHandler>().RunAsync(cancellationToken),
-            CliCommand.SetToken => await services.GetRequiredService<SetTokenCommandHandler>().RunAsync(),
+            CliCommand.SetToken => await services.GetRequiredService<SetTokenCommandHandler>().RunAsync(cancellationToken),
             _ => ExitCode.Success,
         };
 

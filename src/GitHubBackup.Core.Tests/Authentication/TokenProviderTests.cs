@@ -34,6 +34,36 @@ public sealed class TokenProviderTests
     }
 
     [Theory]
+    [InlineData(0, "configuration")]
+    [InlineData(1, "credential manager")]
+    [InlineData(2, "gh")]
+    [InlineData(-1, "anonymous")]
+    public async Task GetTokenAsync_ThreeSources_TakesFirstNonBlankInOrder(int sourceWithToken, string expectedSource)
+    {
+        string[] names = ["configuration", "credential manager", "gh"];
+        var sources = names.Select((name, index) => Source(name, index == sourceWithToken ? Secret : null)).ToArray();
+
+        var token = await Provider(sources).GetTokenAsync(TestContext.Current.CancellationToken);
+
+        token.SourceName.ShouldBe(expectedSource);
+        token.Value.ShouldBe(sourceWithToken < 0 ? null : Secret);
+    }
+
+    [Fact]
+    public async Task GetTokenAsync_EarlierSourceHasToken_LaterSourcesNotQueried()
+    {
+        var configuration = Source("configuration", null);
+        var credentialManager = Source("credential manager", Secret);
+        var gh = Source("gh", "gh-token");
+
+        await Provider(configuration, credentialManager, gh).GetTokenAsync(TestContext.Current.CancellationToken);
+
+        await configuration.Received(1).GetTokenAsync(Arg.Any<CancellationToken>());
+        await credentialManager.Received(1).GetTokenAsync(Arg.Any<CancellationToken>());
+        await gh.DidNotReceive().GetTokenAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("  ")]

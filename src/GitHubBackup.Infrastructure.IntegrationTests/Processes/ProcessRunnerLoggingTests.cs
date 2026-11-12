@@ -148,6 +148,30 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_StandardOutputSecret_ReturnsOutputButLogsOnlyStartErrorAndExit()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, [$"echo {_secretValue}", ">&2 echo to error"]) with
+        {
+            IsStandardOutputSecret = true,
+        };
+
+        var result = await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        result.StandardOutput.ShouldBe([_secretValue]);
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _exitedEventId]);
+        var line = records[1];
+        line.GetStructuredStateValue(LogProperties.Stream).ShouldBe("stderr");
+        line.GetStructuredStateValue("Line").ShouldBe("to error");
+        foreach (var record in records)
+        {
+            record.Message.ShouldNotContain(_secretValue);
+            record.StructuredState.ShouldNotBeNull()
+                .ShouldAllBe(pair => pair.Value == null || !pair.Value.Contains(_secretValue));
+        }
+    }
+
+    [Fact]
     public async Task RunAsync_NoOutput_LogsNoLineEntries()
     {
         var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 0"]);

@@ -2,7 +2,7 @@
 
 Приложение для Windows 11, которое делает локальные резервные копии GitHub-репозиториев и ZIP-архивы их состояния.
 
-> **Статус:** фаза 2 — команда `backup` обнаруживает новые, пропавшие и переименованные репозитории, обновляет `backup-config.json` и бэкапит репозитории и их wiki. У CLI есть команды `backup`, `validate` и `set-token` и параметры `--account`, `--repo`, `--dry-run`, `--silent`, `--config`. Хранение токена командой `set-token`, история запусков и WPF-интерфейс ещё не реализованы. Требования описаны в [docs/PRD.md](docs/PRD.md).
+> **Статус:** фаза 2 — команда `backup` обнаруживает новые, пропавшие и переименованные репозитории, обновляет `backup-config.json` и бэкапит репозитории и их wiki. У CLI есть команды `backup`, `validate` и `set-token` и параметры `--account`, `--repo`, `--dry-run`, `--silent`, `--config`. Токен ищется по цепочке: конфигурация, Windows Credential Manager, GitHub CLI. История запусков и WPF-интерфейс ещё не реализованы. Требования описаны в [docs/PRD.md](docs/PRD.md).
 
 ## Возможности (план)
 
@@ -28,7 +28,13 @@
 | 7-Zip | `C:\Program Files\7-Zip\7z.exe` или путь в настройках |
 | GitHub-токен | Classic PAT со scope `repo`, `read:org` (подробнее — в PRD, FR-11) |
 
-Токен берётся из ключа конфигурации `GitHub:Token`, например из переменной окружения `GitHubBackup__GitHub__Token` или из `appsettings.json`. Без токена программа работает анонимно: видны только публичные репозитории, а GitHub API разрешает 60 запросов в час.
+Программа ищет токен по цепочке источников и берёт первый найденный:
+
+1. Ключ конфигурации `GitHub:Token`, например переменная окружения `GitHubBackup__GitHub__Token` или `appsettings.json`.
+2. Windows Credential Manager: запись `GitHubBackup:https://github.com`, которую сохраняет команда `set-token`.
+3. GitHub CLI: `gh auth token --hostname github.com`, если `gh.exe` есть в `PATH` и в нём выполнен вход.
+
+В лог пишется только имя источника, значение токена туда не попадает. Если токена нет ни в одном источнике, программа работает анонимно: видны только публичные репозитории, а GitHub API разрешает 60 запросов в час.
 
 Не передавайте токен в командной строке (`--GitHub:Token=…`): его видят другие процессы, и он остаётся в истории shell.
 
@@ -106,8 +112,8 @@ Remove-MpPreference -ExclusionPath (Join-Path $env:TEMP "GitHubBackup.Tests")
 | `GitHubBackup.Cli backup --repo <url\|owner/repo>` | Только один репозиторий из `backup-config.json`; `--account` и `--repo` вместе — ошибка |
 | `GitHubBackup.Cli backup --silent` | Без вопросов: все решения принимаются автоматически (подробнее ниже) |
 | `GitHubBackup.Cli backup --dry-run` | Проверочный прогон: показывает, что сделал бы обычный запуск, и ничего не меняет (подробнее ниже); сочетается с `--account`, `--repo` и `--silent` |
-| `GitHubBackup.Cli validate [--config <path>]` | Проверка `backup-config.json`, git, git-lfs, 7-Zip и источника токена без запросов к GitHub и без изменений; код `0` или `2` |
-| `GitHubBackup.Cli set-token` | Пока не реализован: сообщает об этом и завершается с кодом `2` |
+| `GitHubBackup.Cli validate [--config <path>]` | Проверка `backup-config.json`, git, git-lfs, 7-Zip и источника токена без запросов к GitHub и без изменений; выводит имя источника токена (`Token: …`), но не его значение; код `0` или `2` |
+| `GitHubBackup.Cli set-token` | Запрашивает токен скрытым вводом и сохраняет его в Windows Credential Manager (`GitHubBackup:https://github.com`); код `0`. Если ввод перенаправлен или запись не удалась — одна строка ошибки и код `2`. Токен в аргументах не принимается |
 | `GitHubBackup.Cli --help` | Справка по командам и параметрам |
 
 Через `dotnet run` аргументы передаются после `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. Ключи конфигурации .NET (`--Section:Key=value`) тоже принимаются. Любая ошибка в аргументах даёт одну строку `Command-line error: …` и код `2`. Значения опций в сообщения не попадают; посторонний аргумент показывается, только если он не длиннее 32 символов, а у `set-token` не показывается никогда.

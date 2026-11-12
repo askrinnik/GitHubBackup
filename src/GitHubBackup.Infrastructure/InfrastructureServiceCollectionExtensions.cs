@@ -37,7 +37,8 @@ public static class InfrastructureServiceCollectionExtensions
     {
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
-        /// token, the <see cref="ITokenProvider"/> with the configuration token source, the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IArchiver"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/> and the
+        /// token, the <see cref="ITokenStore"/> in Windows Credential Manager, the <see cref="ITokenProvider"/> with the
+        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IArchiver"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/> and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
         /// <see cref="OpenTelemetryOptions"/>, validated when the host starts.
@@ -54,8 +55,14 @@ public static class InfrastructureServiceCollectionExtensions
         public IServiceCollection AddGitHubBackupInfrastructure(IConfiguration configuration)
         {
             services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
+            services.TryAddSingleton<ITokenStore>(
+                _ => new CredentialManagerTokenStore(CredentialManagerTokenStore.DefaultTarget));
+
+            // The order of registration is the order of the token chain.
             services.TryAddEnumerable(
                 ServiceDescriptor.Singleton<ITokenSource, ConfigurationTokenSource>(_ => new ConfigurationTokenSource(configuration)));
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITokenSource, CredentialManagerTokenSource>());
+            services.TryAddEnumerable(ServiceDescriptor.Singleton<ITokenSource, GitHubCliTokenSource>());
             services.TryAddSingleton<ITokenProvider, TokenProvider>();
             services.TryAddSingleton<IFileSystem, FileSystem>();
             services.TryAddSingleton<IProcessRunner, ProcessRunner>();

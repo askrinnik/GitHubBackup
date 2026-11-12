@@ -5,6 +5,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Meziantou.Framework.Win32.CredentialManager" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Octokit" />
     <PackageReference Include="Serilog" />

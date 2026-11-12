@@ -13,8 +13,7 @@ namespace GitHubBackup.Infrastructure.Tools;
 /// running it through <see cref="IProcessRunner"/>.
 /// </summary>
 /// <remarks>
-/// Entries of <c>PATH</c> that are empty or not fully qualified are skipped, so the current directory is never
-/// searched for an executable.
+/// git is searched for in <c>PATH</c> with <see cref="ExecutableSearchPath"/>.
 /// </remarks>
 /// <param name="options">The configured tool paths.</param>
 /// <param name="processRunner">Runs the tools to read their versions.</param>
@@ -63,24 +62,10 @@ internal sealed class ToolLocator(
                     $"git was not found at '{configured}'. Fix {ToolsOptions.SectionName}:{nameof(ToolsOptions.GitPath)}.");
         }
 
-        foreach (var entry in (GetEnvironmentVariable("PATH") ?? string.Empty).Split(';'))
-        {
-            var directory = entry.Trim().Trim('"');
-            if (directory.Length == 0 || !fileSystem.Path.IsPathFullyQualified(directory))
-            {
-                continue;
-            }
-
-            var candidate = fileSystem.Path.Combine(directory, _gitFileName);
-            if (fileSystem.File.Exists(candidate))
-            {
-                return candidate;
-            }
-        }
-
-        throw new ToolUnavailableException(
-            $"{_gitFileName} was not found in PATH. Install Git for Windows or set " +
-            $"{ToolsOptions.SectionName}:{nameof(ToolsOptions.GitPath)}.");
+        return ExecutableSearchPath.Find(fileSystem, GetEnvironmentVariable("PATH"), _gitFileName)
+            ?? throw new ToolUnavailableException(
+                $"{_gitFileName} was not found in PATH. Install Git for Windows or set " +
+                $"{ToolsOptions.SectionName}:{nameof(ToolsOptions.GitPath)}.");
     }
 
     /// <summary>
