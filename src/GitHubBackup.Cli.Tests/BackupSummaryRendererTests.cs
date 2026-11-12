@@ -1,3 +1,4 @@
+using System.Globalization;
 using GitHubBackup.Core.Runs;
 using Spectre.Console.Testing;
 
@@ -19,6 +20,7 @@ public sealed class BackupSummaryRendererTests : IDisposable
         var result = new BackupRunResult(
             [
                 new("octocat/hello", BackupItemStatus.Archived, "octocat_hello_20261111-120000_0123456789.zip", TimeSpan.FromSeconds(75.34), null),
+                new("octocat/hello.wiki", BackupItemStatus.Warning, "octocat_hello.wiki_20261111.zip", TimeSpan.FromSeconds(1), "Branch 'dev' is missing [x]."),
                 new("octocat/same", BackupItemStatus.UpToDate, null, TimeSpan.FromMilliseconds(420), null),
                 new("octocat/broken", BackupItemStatus.Failed, null, TimeSpan.FromSeconds(3), "git exited with code 128."),
                 new("octocat/gone", BackupItemStatus.Skipped, null, TimeSpan.Zero, "The repository is marked Unavailable."),
@@ -30,32 +32,61 @@ public sealed class BackupSummaryRendererTests : IDisposable
 
         Normalize(_output.Output).ShouldBe(Normalize(
             """
-            ┌────────────────┬──────────┬──────────────────────────────────────────────┬──────────┬───────────────────────────────────────┐
-            │ Repository     │ Status   │ Archive                                      │ Duration │ Error                                 │
-            ├────────────────┼──────────┼──────────────────────────────────────────────┼──────────┼───────────────────────────────────────┤
-            │ octocat/hello  │ Archived │ octocat_hello_20261111-120000_0123456789.zip │ 1:15.3   │                                       │
-            │ octocat/same   │ UpToDate │                                              │ 0:00.4   │                                       │
-            │ octocat/broken │ Failed   │                                              │ 0:03.0   │ git exited with code 128.             │
-            │ octocat/gone   │ Skipped  │                                              │ 0:00.0   │ The repository is marked Unavailable. │
-            └────────────────┴──────────┴──────────────────────────────────────────────┴──────────┴───────────────────────────────────────┘
-            Archived: 1, UpToDate: 1, Warning: 0, Failed: 1, Skipped: 1
+            ┌────────────────────┬──────────┬──────────────────────────────────────────────┬──────────┬───────────────────────────────────────┐
+            │ Repository         │ Status   │ Archive                                      │ Duration │ Error                                 │
+            ├────────────────────┼──────────┼──────────────────────────────────────────────┼──────────┼───────────────────────────────────────┤
+            │ octocat/hello      │ Archived │ octocat_hello_20261111-120000_0123456789.zip │ 1:15.3   │                                       │
+            │ octocat/hello.wiki │ Warning  │ octocat_hello.wiki_20261111.zip              │ 0:01.0   │ Branch 'dev' is missing [x].          │
+            │ octocat/same       │ UpToDate │                                              │ 0:00.4   │                                       │
+            │ octocat/broken     │ Failed   │                                              │ 0:03.0   │ git exited with code 128.             │
+            │ octocat/gone       │ Skipped  │                                              │ 0:00.0   │ The repository is marked Unavailable. │
+            └────────────────────┴──────────┴──────────────────────────────────────────────┴──────────┴───────────────────────────────────────┘
+            Archived: 1, UpToDate: 1, Warning: 1, Failed: 1, Skipped: 1
             Log: C:\app\logs\githubbackup-20261111.log
             """));
         _error.ToString().ShouldBeEmpty();
     }
 
-    [Fact]
-    public async Task RenderAsync_BranchFallback_ShowsWarningWithArchiveAndMessage()
+    [Theory]
+    [InlineData(0, "0:00.0")]
+    [InlineData(999, "0:00.9")]
+    [InlineData(125300, "2:05.3")]
+    [InlineData(3660000, "61:00.0")]
+    public async Task RenderAsync_Duration_FormatsMinutesSecondsAndTenths(long milliseconds, string expected)
     {
-        var result = new BackupRunResult(
-            [new("octocat/hello", BackupItemStatus.Warning, "a.zip", TimeSpan.FromSeconds(1), "Branch 'dev' is missing.")],
-            [],
-            []);
+        var previous = CultureInfo.CurrentCulture;
+        CultureInfo.CurrentCulture = new CultureInfo("ru-RU");
+        try
+        {
+            await Render(new(
+                [new("octocat/hello", BackupItemStatus.UpToDate, null, TimeSpan.FromMilliseconds(milliseconds), null)],
+                [],
+                []));
+        }
+        finally
+        {
+            CultureInfo.CurrentCulture = previous;
+        }
 
-        await Render(result);
+        Normalize(_output.Output).ShouldContain($"│ {expected} ");
+    }
 
-        Normalize(_output.Output).ShouldContain("│ octocat/hello │ Warning │ a.zip   │ 0:01.0   │ Branch 'dev' is missing. │");
-        Normalize(_output.Output).ShouldContain("Archived: 0, UpToDate: 0, Warning: 1, Failed: 0, Skipped: 0");
+    [Fact]
+    public async Task RenderAsync_RunStoppedWithConfigWarnings_WritesWarningsToOutputAndErrorsToErrorOutput()
+    {
+        await Render(BackupRunResult.Stopped(["git was not found."], ["First warning.", "Second warning."]));
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Warning: First warning.
+            Warning: Second warning.
+            """));
+        _error.ToString().ShouldBe(
+            """
+            Error: git was not found.
+            Log: C:\app\logs\githubbackup-20261111.log
+
+            """.ReplaceLineEndings());
     }
 
     [Fact]
