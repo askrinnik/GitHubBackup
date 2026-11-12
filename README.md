@@ -74,6 +74,20 @@ dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --fil
 
 Код 8 означает, что в проекте не запущен ни один тест. При фильтре `--filter-trait` так завершаются все проекты, кроме выбранного, поэтому здесь код 8 игнорируется. В обычном прогоне и в CI он не игнорируется: проект, в котором не запустился ни один тест, роняет прогон.
 
+#### Миграции базы истории
+
+История запусков хранится в SQLite-базе `data\history.db` рядом с exe. Хост при старте сам создаёт базу и применяет недостающие миграции EF Core. Миграции лежат в `src/GitHubBackup.Infrastructure/History/Migrations`. После изменения модели истории добавьте миграцию инструментом `dotnet-ef` из локального манифеста `.config/dotnet-tools.json`:
+
+```bash
+dotnet tool restore
+```
+
+```bash
+dotnet ef migrations add <Name> --project src/GitHubBackup.Infrastructure --output-dir History/Migrations
+```
+
+Тест `HistoryDbContextTests` падает, если модель изменилась, а миграцию не добавили.
+
 #### Ускорение интеграционных тестов (необязательно)
 
 Интеграционные тесты создают временные репозитории в папке `%TEMP%\GitHubBackup.Tests`. Путь задаёт класс `TemporaryFolder` в `GitHubBackup.TestUtilities`. Microsoft Defender проверяет каждый файл, который git пишет в эту папку, и локально тесты идут заметно дольше.

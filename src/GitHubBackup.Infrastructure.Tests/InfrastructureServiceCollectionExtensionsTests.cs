@@ -6,6 +6,7 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.History;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -17,10 +18,13 @@ using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.GitHub;
+using GitHubBackup.Infrastructure.History;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.Infrastructure.Tools;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -146,6 +150,41 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         runLock.ShouldBeOfType<NamedMutexRunLock>();
         provider.GetRequiredService<IRunLock>().ShouldBeSameAs(runLock);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_RunHistoryStore_IsOneSqliteInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var store = provider.GetRequiredService<IRunHistoryStore>();
+
+        store.ShouldBeOfType<SqliteRunHistoryStore>();
+        provider.GetRequiredService<IRunHistoryStore>().ShouldBeSameAs(store);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_HostedServices_IncludeHistoryDatabaseInitializerOnce()
+    {
+        var services = new ServiceCollection()
+            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build())
+            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build());
+
+        services.Where(descriptor => descriptor.ServiceType == typeof(IHostedService))
+            .Select(descriptor => descriptor.ImplementationType)
+            .ShouldBe([typeof(HistoryDatabaseInitializer)]);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_HistoryContextFactory_UsesDatabasePathWithoutPooling()
+    {
+        using var provider = BuildProvider(new() { ["History:DatabasePath"] = @"D:\history\runs.db" });
+
+        using var context = provider.GetRequiredService<IDbContextFactory<HistoryDbContext>>().CreateDbContext();
+
+        var connectionString = new SqliteConnectionStringBuilder(context.Database.GetConnectionString());
+        connectionString.DataSource.ShouldBe(@"D:\history\runs.db");
+        connectionString.Pooling.ShouldBeFalse();
     }
 
     [Fact]

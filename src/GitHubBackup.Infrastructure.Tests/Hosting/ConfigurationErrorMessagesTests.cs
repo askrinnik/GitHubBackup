@@ -1,4 +1,5 @@
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.History;
 using GitHubBackup.Infrastructure.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -63,6 +64,18 @@ public sealed class ConfigurationErrorMessagesTests
 
         found.ShouldBeTrue();
         messages.ShouldHaveSingleItem().ShouldBe("The settings file is not valid.");
+    }
+
+    [Fact]
+    public void TryGet_RunHistoryException_ReturnsOneMessageNamingDatabase()
+    {
+        var exception = new RunHistoryException(@"C:\app\data\history.db", "SQLite Error 26: 'file is not a database'.");
+
+        var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
+
+        found.ShouldBeTrue();
+        messages.ShouldHaveSingleItem().ShouldBe(
+            @"The run history database 'C:\app\data\history.db' cannot be used: SQLite Error 26: 'file is not a database'.");
     }
 
     [Fact]
