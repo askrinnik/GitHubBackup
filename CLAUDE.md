@@ -6,7 +6,7 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 
 - **`docs/PRD.md` is the single source of requirements.** Every issue links the PRD sections and requirement ids (`FR-x.y`, `NFR-x`) it implements. Read those sections, not the whole document.
 - **PRD first.** If a task needs behaviour the PRD does not describe, or contradicts it, stop and propose the PRD change (bump the version in the header, add a row to the change history). Code follows only after the user approves the change; the issue is updated after the PRD.
-- The AI harness itself (agents, rules, skills, workflow, benchmark) is described in `docs/ai/README.md`; each workflow command has its own document next to it in `docs/ai/`.
+- The AI harness itself (agents, rules, skills, workflow, benchmark) is described in `docs/ai/README.md`. The issue workflow comes from the `issue-kit` plugin of the marketplace `askrinnik/ai-plugins`, the harness benchmark from its `harness-kit` plugin; `issue-kit.config.json` (repository root) holds this repository's values for the workflow.
 
 ## Language (NFR-7)
 
@@ -19,7 +19,7 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 docs/
   PRD.md                 requirements (source of truth)
   plans/                 one implementation plan per issue: <type>-<issue>-<slug>.md
-  ai/                    AI harness hub (README.md) and one document per workflow command (step tree and flowchart)
+  ai/                    AI harness hub (README.md)
 src/
   GitHubBackup.slnx
   Directory.Build.props, Directory.Packages.props, .editorconfig
@@ -30,8 +30,9 @@ src/
   GitHubBackup.ArchitectureTests               layer dependency rules and direct file system access
   GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot, LocalGitSandbox)
 .ai/
-  prompts/               workflow bodies shared by commands
   benchmarks/harness/    harness benchmark: fixtures, history, reports
+issue-kit.config.json    issue-kit plugin settings for this repository
+profile-session.config.json   harness-kit session profile settings
 ```
 
 - Dependencies point inward only: `Cli`, `App` → `Infrastructure` → `Core`. `Core` references none of the others and no I/O library; `GitHubBackup.ArchitectureTests` enforces it.
@@ -65,12 +66,12 @@ Terminal hygiene: run build and test as separate commands, never chained with a 
 ## Git and GitHub
 
 - All GitHub work goes through the `gh` CLI (repository `askrinnik/GitHubBackup`). Use `--json` with `--jq` to fetch only the fields you need.
-- `main` is the base branch. Work for issue `<n>` happens on branch `<n>-<slug>`, created immediately before the first commit. A commit made directly on `main` (or `master`) is work not tied to an issue and uses the no-issue format of the `git-commit` skill.
-- Commit messages and PR text follow the `git-commit`, `open-pr` and `github-issue` skills. Load the skill with the Skill tool before the action; never copy the format from earlier commits. A `PostToolUse` hook checks every new commit message against `git-commit`. A PR targets `main`, its description contains `Closes #<n>`, and the user merges it with a merge commit.
-- Never commit, push, open or merge a PR, comment on, create or edit an issue without the user's explicit go-ahead for that action. The one standing exception: starting `/implement-issues` authorises its commits (one per issue); push, PR and comments still wait for a go-ahead unless the command carries `--ship`.
-- Never create, switch, rename or delete a branch, and never stash, on your own initiative — not to prepare work, not to tidy up after a mistake. Do it only when the user's current message asks for it. The one built-in exception is a task branch created together with a commit the user has authorised; `.ai/prompts/implement-issue.md` (step 0) and `.ai/prompts/implement-issues.md` say when. Work stays on the branch you were started on; if that is a problem, say so and ask.
+- `main` is the base branch. Work for issue `<n>` happens on branch `<n>-<slug>`, created immediately before the first commit. A commit made directly on `main` (or `master`) is work not tied to an issue and uses the no-issue format of the `issue-kit:git-commit` skill.
+- Commit messages and PR text follow the `issue-kit:git-commit`, `issue-kit:open-pr` and `issue-kit:github-issue` skills. Load the skill with the Skill tool before the action; never copy the format from earlier commits. The plugin's `PostToolUse` hook checks every new commit message against `issue-kit:git-commit`. A PR targets `main`, its description contains `Closes #<n>`, and the user merges it with a merge commit.
+- Never commit, push, open or merge a PR, comment on, create or edit an issue without the user's explicit go-ahead for that action. The one standing exception: starting `/issue-kit:implement-issues` authorises its commits (one per issue); push, PR and comments still wait for a go-ahead unless the command carries `--ship`.
+- Never create, switch, rename or delete a branch, and never stash, on your own initiative — not to prepare work, not to tidy up after a mistake. Do it only when the user's current message asks for it. The one built-in exception is a task branch created together with a commit the user has authorised; the `issue-kit:implement-issue` and `issue-kit:implement-issues` skills say when. Work stays on the branch you were started on; if that is a problem, say so and ask.
 - Issue order is expressed twice: GitHub "blocked by" relations (machine-readable) and the `## Зависимости` section of the issue body (human-readable). When creating an issue, set both.
-- Entry points: `/implement-issue <n>` takes one issue (bug, feature or test-authoring lane, chosen by its labels) end to end; `/implement-issues <n> <n> …` takes several small issues in order on one branch, one commit each, and ships one PR; `/next-issue` recommends what to take next.
+- Entry points: `/issue-kit:implement-issue <n>` takes one issue (bug, feature or test-authoring lane, chosen by its labels) end to end; `/issue-kit:implement-issues <n> <n> …` takes several small issues in order on one branch, one commit each, and ships one PR; `/issue-kit:next-issue` recommends what to take next.
 
 ## Code conventions (summary)
 
@@ -99,14 +100,12 @@ Every C# type and member gets a `///` XML doc comment; implementations and overr
 - Read narrowly: grep first, then read around the match. Do not re-read a file you just edited.
 - Keep tool output small at the source; a successful write (commit, `gh` edit) is its own confirmation.
 - **Run simple commands.** The working directory is already the repository root: do not prefix commands with `cd`, and avoid `&&` chains, pipes, loops and heredocs where one plain command does the job. Plain commands match the permission rules in `.claude/settings.json`; compound ones cannot be allowed permanently and interrupt the user with a one-time prompt. When text must reach a command (commit message, comment, PR body), write it to a file in the scratchpad and pass the file (`-F`, `--body-file`).
-- Delegate read-heavy or noisy work: broad research → `Explore`; planning an issue → `issue-planner`; implementing an approved plan → `issue-developer`; the build-and-test gate inside `/implement-issue(s)` → `build-runner`; an approved commit, issue comment or PR inside `/implement-issue(s)` → `skill-runner`.
+- Delegate read-heavy or noisy work: broad research → `Explore`; planning an issue → `issue-kit:issue-planner`; implementing an approved plan → `issue-kit:issue-developer`; the build-and-test gate inside `/issue-kit:implement-issue(s)` → `issue-kit:build-runner`; an approved commit, issue comment or PR inside `/issue-kit:implement-issue(s)` → `issue-kit:skill-runner`.
 
 ## Custom agents (`.claude/agents/`)
 
-- **issue-planner** — read-only research; returns a review-ready plan for one issue.
-- **issue-developer** — implements an approved plan with tests; never commits, pushes or posts.
-- **build-runner** — runs the build, tests and format check on a cheap model and returns the tools' summary lines verbatim; never edits or fixes anything.
-- **skill-runner** — carries out one approved commit, issue comment or pull request end to end by following the matching skill (`git-commit`, `github-issue`, `open-pr`) on a cheap model; never pushes and never acts beyond that one action. The caller gets the user's go-ahead first.
+The workflow agents `issue-kit:issue-planner`, `issue-kit:issue-developer`, `issue-kit:build-runner` and `issue-kit:skill-runner` come from the plugin; `issue-kit.config.json` names the project agents below in its `roles`.
+
 - **architect** — designs changes that keep the layer boundaries; surfaces trade-offs.
 - **security-reviewer** — reviews changes for the risks of this application (token leakage, argument injection into git, path escape, unsafe archives).
 

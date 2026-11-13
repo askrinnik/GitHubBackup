@@ -1,6 +1,6 @@
 # Бенчмарк AI Harness
 
-Результаты скилла `harness-quality-check` (`.claude/skills/_local.harness-quality-check/`): сколько стоит харнесс
+Результаты скилла `harness-kit:harness-quality-check` из плагина `harness-kit`: сколько стоит харнесс
 (контекст в начале сессии, токены, которые добавляет чтение файла, загруженные правила) и работает ли он
 (ответы, оценённые судьёй по эталону). Подробное описание — в `docs/ai/README.md`.
 
@@ -10,8 +10,10 @@
 - `runs/` — ответ каждой сессии и манифест каждого прогона.
 - `reports/` — отчёт по каждому прогону со сравнением с предыдущим прогоном каждой фикстуры.
 
-Запуск через скилл (`/harness-quality-check bench-* "<что изменилось>"`; без фикстур запускаются все) или напрямую:
-`pwsh .claude/skills/_local.harness-quality-check/scripts/Run-Harness.ps1 -Fixture 'bench-*' -Note "<what changed>"`.
+Запуск через скилл (`/harness-kit:harness-quality-check bench-* "<что изменилось>"`; без фикстур запускаются все) или напрямую
+из корня репозитория:
+`pwsh "<папка плагина harness-kit>/skills/harness-quality-check/scripts/Run-Harness.ps1" -Fixture 'bench-*' -Note "<what changed>"`.
+Скрипт и его описание — в плагине (`skills/harness-quality-check/README.md`); фикстуры, история и отчёты остаются здесь.
 
 ## Фикстуры
 
