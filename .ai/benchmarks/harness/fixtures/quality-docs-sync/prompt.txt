@@ -1,0 +1,3 @@
+The working tree holds an uncommitted change to these files: {{PATCH_FILES}}. It adds a new option of the backup
+command and a new application setting. Which documents of this repository must be updated in the same change, and
+what must change in each? Name only documents that really need an update. Do not edit any files.

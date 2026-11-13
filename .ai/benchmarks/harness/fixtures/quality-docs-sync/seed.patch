@@ -1,0 +1,80 @@
+diff --git a/src/GitHubBackup.Cli/CliCommandLine.cs b/src/GitHubBackup.Cli/CliCommandLine.cs
+index 9d408f4..5077e0a 100644
+--- a/src/GitHubBackup.Cli/CliCommandLine.cs
++++ b/src/GitHubBackup.Cli/CliCommandLine.cs
+@@ -79,6 +79,10 @@ internal static class CliCommandLine
+         {
+             Description = "Never ask a question; decide automatically.",
+         };
++        var noColor = new Option<bool>("--no-color")
++        {
++            Description = "Write plain console output without colors.",
++        };
+         var backupConfig = CreateConfigOption();
+ 
+         var backup = new Command(BackupCommandName, "Backs up the repositories listed in backup-config.json.")
+@@ -89,6 +93,7 @@ internal static class CliCommandLine
+         backup.Options.Add(repository);
+         backup.Options.Add(dryRun);
+         backup.Options.Add(silent);
++        backup.Options.Add(noColor);
+         backup.Options.Add(backupConfig);
+         backup.Validators.Add(result =>
+         {
+diff --git a/src/GitHubBackup.Cli/appsettings.json b/src/GitHubBackup.Cli/appsettings.json
+index 0775126..6ab6e94 100644
+--- a/src/GitHubBackup.Cli/appsettings.json
++++ b/src/GitHubBackup.Cli/appsettings.json
+@@ -10,7 +10,8 @@
+   "Backup": {
+     "ConfigPath": "backup-config.json",
+     "ShortHashLength": 10,
+-    "VerifyArchive": true
++    "VerifyArchive": true,
++    "CompressionLevel": 5
+   },
+   "History": {
+     "DatabasePath": "data\\history.db"
+diff --git a/src/GitHubBackup.Core/Configuration/BackupOptions.cs b/src/GitHubBackup.Core/Configuration/BackupOptions.cs
+index b59e103..58c591a 100644
+--- a/src/GitHubBackup.Core/Configuration/BackupOptions.cs
++++ b/src/GitHubBackup.Core/Configuration/BackupOptions.cs
+@@ -14,6 +14,12 @@ public sealed class BackupOptions
+     /// <summary>The largest accepted <see cref="ShortHashLength"/>: the length of a full SHA-1 commit hash.</summary>
+     public const int MaxShortHashLength = 40;
+ 
++    /// <summary>The smallest accepted <see cref="CompressionLevel"/>: store without compression.</summary>
++    public const int MinCompressionLevel = 0;
++
++    /// <summary>The largest accepted <see cref="CompressionLevel"/>: the strongest 7-Zip compression.</summary>
++    public const int MaxCompressionLevel = 9;
++
+     /// <summary>
+     /// Gets or sets the path of <c>backup-config.json</c>; a relative path is resolved against the application folder.
+     /// </summary>
+@@ -24,4 +30,7 @@ public sealed class BackupOptions
+ 
+     /// <summary>Gets or sets a value indicating whether each new archive is tested after it is created.</summary>
+     public bool VerifyArchive { get; set; } = true;
++
++    /// <summary>Gets or sets the 7-Zip compression level of new archives.</summary>
++    public int CompressionLevel { get; set; } = 5;
+ }
+diff --git a/src/GitHubBackup.Core/Configuration/BackupOptionsValidator.cs b/src/GitHubBackup.Core/Configuration/BackupOptionsValidator.cs
+index 36a351c..6e38c26 100644
+--- a/src/GitHubBackup.Core/Configuration/BackupOptionsValidator.cs
++++ b/src/GitHubBackup.Core/Configuration/BackupOptionsValidator.cs
+@@ -24,6 +24,13 @@ internal sealed class BackupOptionsValidator : IValidateOptions<BackupOptions>
+                 + $"{BackupOptions.MinShortHashLength} and {BackupOptions.MaxShortHashLength}.");
+         }
+ 
++        if (options.CompressionLevel is < BackupOptions.MinCompressionLevel or > BackupOptions.MaxCompressionLevel)
++        {
++            failures.Add(
++                $"{BackupOptions.SectionName}:{nameof(BackupOptions.CompressionLevel)} must be between "
++                + $"{BackupOptions.MinCompressionLevel} and {BackupOptions.MaxCompressionLevel}.");
++        }
++
+         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+     }
+ }
