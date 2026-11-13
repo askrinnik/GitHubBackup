@@ -1,0 +1,34 @@
+{
+  "run": "2026-11-13-12-23_m2b-bench-fixtures-on-main-after-the-iss",
+  "note": "M2b bench fixtures on main after the issue-kit migration",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-13 12:23",
+  "commit": "dc128379",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "302eff34-09a2-46e8-8096-cdc5e00b174c",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "50292e0b-3382-400e-9cb1-2150f67151e4",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "b34aea94-a78a-4858-aba9-1ce5e3f5740b",
+      "hash": "cdc276b0",
+      "judged": false
+    }
+  ]
+}
