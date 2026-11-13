@@ -27,14 +27,145 @@
             <ToggleButton Content="Dry run"
                           IsChecked="{Binding IsDryRun, Mode=TwoWay}"
                           IsEnabled="{Binding IsIdle, Mode=OneWay}"
-                          Padding="8,2"
+                          Padding="8,2" Margin="0,0,8,0"
                           AutomationProperties.AutomationId="DryRunToggle" />
+            <Button Content="Cancel"
+                    Command="{Binding StartBackupCancelCommand, Mode=OneWay}"
+                    Padding="8,2" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="CancelBackupButton" />
+            <TextBlock Text="Cancelling…"
+                       VerticalAlignment="Center"
+                       AutomationProperties.AutomationId="CancellingMessage">
+                <TextBlock.Style>
+                    <Style TargetType="TextBlock">
+                        <Setter Property="Visibility" Value="Collapsed" />
+                        <Style.Triggers>
+                            <MultiDataTrigger>
+                                <MultiDataTrigger.Conditions>
+                                    <Condition Binding="{Binding StartBackupCommand.IsRunning, Mode=OneWay}" Value="True" />
+                                    <Condition Binding="{Binding StartBackupCommand.IsCancellationRequested, Mode=OneWay}" Value="True" />
+                                </MultiDataTrigger.Conditions>
+                                <Setter Property="Visibility" Value="Visible" />
+                            </MultiDataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </TextBlock.Style>
+            </TextBlock>
         </StackPanel>
-        <TextBlock DockPanel.Dock="Bottom"
-                   Text="{Binding LastRunMessage, Mode=OneWay}"
-                   Margin="0,8,0,0"
-                   TextWrapping="Wrap"
-                   AutomationProperties.AutomationId="LastRunMessage" />
+        <StackPanel DockPanel.Dock="Top"
+                    Orientation="Horizontal"
+                    Margin="0,0,0,8"
+                    Visibility="{Binding HasProgress, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    AutomationProperties.AutomationId="RunProgress">
+            <TextBlock Text="{Binding ProgressRepository, Mode=OneWay}"
+                       FontWeight="SemiBold"
+                       Margin="0,0,12,0"
+                       AutomationProperties.AutomationId="RunProgressRepository" />
+            <TextBlock Text="{Binding ProgressOperation, Mode=OneWay}"
+                       AutomationProperties.AutomationId="RunProgressOperation" />
+        </StackPanel>
+        <Border DockPanel.Dock="Bottom"
+                Margin="0,8,0,0"
+                Padding="0,8,0,0"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
+                Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                AutomationProperties.AutomationId="RunSummary">
+            <StackPanel DataContext="{Binding Summary, Mode=OneWay}">
+                <TextBlock Text="{Binding Header, Mode=OneWay}"
+                           Style="{StaticResource OptionalLineStyle}"
+                           AutomationProperties.AutomationId="RunSummaryHeader" />
+                <ItemsControl ItemsSource="{Binding Errors, Mode=OneWay}"
+                              Visibility="{Binding HasErrors, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              AutomationProperties.AutomationId="RunSummaryErrors">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Mode=OneWay, StringFormat='Error: {0}'}"
+                                       Foreground="Firebrick"
+                                       TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ItemsControl ItemsSource="{Binding Warnings, Mode=OneWay}"
+                              Visibility="{Binding HasWarnings, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              AutomationProperties.AutomationId="RunSummaryWarnings">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Mode=OneWay, StringFormat='Warning: {0}'}"
+                                       Foreground="DarkGoldenrod"
+                                       TextWrapping="Wrap" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <ListView ItemsSource="{Binding Rows, Mode=OneWay}"
+                          Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                          MaxHeight="160"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          AutomationProperties.AutomationId="RunSummaryTable">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="Repository" DisplayMemberBinding="{Binding Repository, Mode=OneWay}" />
+                            <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status, Mode=OneWay}" />
+                            <GridViewColumn Header="Archive" DisplayMemberBinding="{Binding Archive, Mode=OneWay}" />
+                            <GridViewColumn Header="Duration" DisplayMemberBinding="{Binding Duration, Mode=OneWay}" />
+                            <GridViewColumn Header="Error" DisplayMemberBinding="{Binding Error, Mode=OneWay}" />
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <TextBlock Text="{Binding NoRepositoriesLine, Mode=OneWay}"
+                           Style="{StaticResource OptionalLineStyle}"
+                           AutomationProperties.AutomationId="RunSummaryNoRepositories" />
+                <ItemsControl ItemsSource="{Binding DiscoveryLines, Mode=OneWay}"
+                              Visibility="{Binding HasDiscoveryLines, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              AutomationProperties.AutomationId="RunSummaryDiscovery" />
+                <TextBlock Text="{Binding CancelledLine, Mode=OneWay}"
+                           Style="{StaticResource OptionalLineStyle}"
+                           Foreground="DarkGoldenrod"
+                           AutomationProperties.AutomationId="RunSummaryCancelled" />
+                <TextBlock Text="{Binding TotalsLine, Mode=OneWay}"
+                           Style="{StaticResource OptionalLineStyle}"
+                           AutomationProperties.AutomationId="RunSummaryTotals" />
+                <TextBlock Text="{Binding LogPath, Mode=OneWay, StringFormat='Log: {0}'}"
+                           TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="RunSummaryLogPath" />
+            </StackPanel>
+        </Border>
+        <ListBox x:Name="RunLogList"
+                 DockPanel.Dock="Bottom"
+                 Height="160"
+                 Margin="0,8,0,0"
+                 ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
+                 FontFamily="Consolas"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 AutomationProperties.AutomationId="RunLog">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding Message, Mode=OneWay}" />
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
+                                        <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
+                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
+                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
         <Grid>
             <TreeView ItemsSource="{Binding Nodes, Mode=OneWay}"
                       VirtualizingPanel.IsVirtualizing="True"

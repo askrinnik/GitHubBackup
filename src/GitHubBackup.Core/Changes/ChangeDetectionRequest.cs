@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Git;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 
 namespace GitHubBackup.Core.Changes;
@@ -19,4 +20,11 @@ public sealed record ChangeDetectionRequest
 
     /// <summary>Gets the last archive recorded for this target, or <see langword="null"/> when there is none.</summary>
     public ArchiveRecord? LastArchive { get; init; }
+
+    /// <summary>
+    /// Gets the receiver of each git operation the detector starts: <see cref="BackupProgressStage.CheckingRemote"/>,
+    /// <see cref="BackupProgressStage.Cloning"/> or <see cref="BackupProgressStage.Fetching"/>; <see langword="null"/>
+    /// when nobody follows the progress.
+    /// </summary>
+    public IProgress<BackupProgressStage>? OperationProgress { get; init; }
 }

@@ -1660,6 +1660,88 @@ public sealed class BackupOrchestratorTests : IDisposable
         wiki.Status.ShouldBe(ActivityStatusCode.Error);
     }
 
+    [Fact]
+    public async Task RunAsync_Progress_ReportsDiscoveryThenEachOperationOfRepository()
+    {
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            call.Arg<ChangeDetectionRequest>().OperationProgress?.Report(BackupProgressStage.Cloning);
+            return Detection(ChangeDecision.ArchiveNeeded, branchFallback: false);
+        });
+        var progress = new RecordingProgress<BackupProgress>();
+
+        await CreateOrchestrator().RunAsync(Request() with { Progress = progress }, CancellationToken);
+
+        progress.Values.ShouldBe(
+        [
+            new(BackupProgressStage.Discovering, null, 0, 0),
+            new(BackupProgressStage.Preparing, "owner/repo", 1, 1),
+            new(BackupProgressStage.Cloning, "owner/repo", 1, 1),
+            new(BackupProgressStage.Archiving, "owner/repo", 1, 1),
+        ]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProgressWithWikiAndSecondRepository_ReportsWikiAtPositionOfItsRepository()
+    {
+        AddRepository("other");
+        _config.Repositories[1].Status = RepositoryStatus.Unavailable;
+        SetupWiki(hasWiki: true);
+        var progress = new RecordingProgress<BackupProgress>();
+
+        await CreateOrchestrator().RunAsync(Request() with { Progress = progress }, CancellationToken);
+
+        progress.Values.ShouldBe(
+        [
+            new(BackupProgressStage.Discovering, null, 0, 0),
+            new(BackupProgressStage.Preparing, "owner/repo", 1, 2),
+            new(BackupProgressStage.Archiving, "owner/repo", 1, 2),
+            new(BackupProgressStage.Preparing, "owner/repo.wiki", 1, 2),
+            new(BackupProgressStage.Archiving, "owner/repo.wiki", 1, 2),
+            new(BackupProgressStage.Preparing, "owner/other", 2, 2),
+        ]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ProgressForOneRepository_ReportsNoDiscovery()
+    {
+        var progress = new RecordingProgress<BackupProgress>();
+
+        await CreateOrchestrator().RunAsync(
+            Request(BackupRunFilter.ForRepository("owner", "repo")) with { Progress = progress }, CancellationToken);
+
+        progress.Values.ShouldBe(
+        [
+            new(BackupProgressStage.Preparing, "owner/repo", 1, 1),
+            new(BackupProgressStage.Archiving, "owner/repo", 1, 1),
+        ]);
+    }
+
+    [Fact]
+    public async Task DryRun_Progress_ReportsNoArchiving()
+    {
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+        var progress = new RecordingProgress<BackupProgress>();
+
+        await CreateOrchestrator().RunAsync(Request() with { DryRun = true, Progress = progress }, CancellationToken);
+
+        progress.Values.ShouldBe(
+        [
+            new(BackupProgressStage.Discovering, null, 0, 0),
+            new(BackupProgressStage.Preparing, "owner/repo", 1, 1),
+        ]);
+    }
+
+    [Fact]
+    public async Task RunAsync_Progress_PassesOperationProgressToDetector()
+    {
+        await CreateOrchestrator().RunAsync(
+            Request() with { Progress = new RecordingProgress<BackupProgress>() }, CancellationToken);
+
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.OperationProgress != null), CancellationToken);
+    }
+
     /// <summary>
     /// Adds the branch <c>main</c> and its commit from <see cref="_refs"/> to an expected result, and every ref of
     /// <see cref="_refs"/> as changed when the item has its first archive.

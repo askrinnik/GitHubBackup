@@ -4,6 +4,7 @@ using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
+using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -58,6 +59,16 @@ public sealed class AppHostTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildHost_NoRun_MainWindowCanClose()
+    {
+        using var host = BuildHost();
+
+        var canClose = await host.Services.GetRequiredService<MainWindowViewModel>().CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+    }
+
+    [Fact]
     public void BuildHost_DiscoveryDecisionHandler_IsDeferredHandler()
     {
         using var host = BuildHost();
@@ -71,6 +82,24 @@ public sealed class AppHostTests : IDisposable
         using var host = BuildHost();
 
         host.Services.GetRequiredService<IBackupRunService>().ShouldBeOfType<BackupRunService>();
+    }
+
+    [Fact]
+    public void BuildHost_UiDispatcher_IsWpfDispatcher()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IUiDispatcher>().ShouldBeOfType<WpfUiDispatcher>();
+    }
+
+    [Fact]
+    public void BuildHost_LiveLogFeed_IsSingleton()
+    {
+        using var host = BuildHost();
+
+        var feed = host.Services.GetRequiredService<ILiveLogFeed>();
+
+        host.Services.GetRequiredService<ILiveLogFeed>().ShouldBeSameAs(feed);
     }
 
     /// <summary>

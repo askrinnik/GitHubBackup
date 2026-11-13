@@ -12,10 +12,14 @@ public interface IBackupRunService
     /// </summary>
     /// <param name="filter">The repositories the run covers.</param>
     /// <param name="dryRun">Whether the run only shows what a backup run would do.</param>
+    /// <param name="progress">
+    /// Receives the current repository and operation on the thread that runs the operation, or <see langword="null"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The result of the run.</returns>
     /// <exception cref="OperationCanceledException">
     /// <paramref name="cancellationToken"/> was cancelled before the orchestrator took the lock.
     /// </exception>
-    Task<BackupRunResult> RunAsync(BackupRunFilter filter, bool dryRun, CancellationToken cancellationToken);
+    Task<BackupRunResult> RunAsync(
+        BackupRunFilter filter, bool dryRun, IProgress<BackupProgress>? progress, CancellationToken cancellationToken);
 }

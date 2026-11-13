@@ -36,7 +36,7 @@ public sealed class BackupRunServiceTests
     {
         var filter = BackupRunFilter.ForAccount("octo");
 
-        var result = await _service.RunAsync(filter, dryRun, TestContext.Current.CancellationToken);
+        var result = await _service.RunAsync(filter, dryRun, null, TestContext.Current.CancellationToken);
 
         result.ShouldBeSameAs(_result);
         await _orchestrator.Received(1).RunAsync(
@@ -44,14 +44,38 @@ public sealed class BackupRunServiceTests
                 request.Filter == filter
                 && request.DryRun == dryRun
                 && request.Mode == RunMode.Ui
-                && request.DecisionHandler == _decisionHandler),
+                && request.DecisionHandler == _decisionHandler
+                && request.Progress == null),
             TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_Progress_PassesProgressToRequest()
+    {
+        var progress = Substitute.For<IProgress<BackupProgress>>();
+
+        await _service.RunAsync(BackupRunFilter.All, false, progress, TestContext.Current.CancellationToken);
+
+        await _orchestrator.Received(1).RunAsync(
+            Arg.Is<BackupRunRequest>(request => request.Progress == progress), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_TokenCancelledBeforeStart_StillCallsOrchestrator()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var result = await _service.RunAsync(BackupRunFilter.All, false, null, cancellation.Token);
+
+        result.ShouldBeSameAs(_result);
+        await _orchestrator.Received(1).RunAsync(Arg.Any<BackupRunRequest>(), cancellation.Token);
     }
 
     [Fact]
     public async Task RunAsync_BeginsNewRunBeforeOrchestrator()
     {
-        await _service.RunAsync(BackupRunFilter.All, false, TestContext.Current.CancellationToken);
+        await _service.RunAsync(BackupRunFilter.All, false, null, TestContext.Current.CancellationToken);
 
         Received.InOrder(() =>
         {

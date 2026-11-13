@@ -24,4 +24,14 @@ public sealed record BackupRunRequest(BackupRunFilter Filter, IDiscoveryDecision
     /// strategy decided about the discovered repositories.
     /// </summary>
     public RunMode Mode { get; init; } = RunMode.Interactive;
+
+    /// <summary>
+    /// Gets the receiver of the current repository and operation while the run works, or <see langword="null"/> when
+    /// the host shows no progress.
+    /// </summary>
+    /// <remarks>
+    /// Reports arrive on the thread that runs the operation, independent of the log level, so a host that updates a
+    /// window marshals them to its UI thread.
+    /// </remarks>
+    public IProgress<BackupProgress>? Progress { get; init; }
 }

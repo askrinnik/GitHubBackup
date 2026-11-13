@@ -125,6 +125,25 @@ public sealed class SerilogFileLoggingTests
     }
 
     [Fact]
+    public void Log_LiveLogFeedSubscribed_ReceivesMaskedEntriesAtFileLevels()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        var received = new List<LiveLogEntry>();
+        using (var host = contentRoot.BuildHost($"--GitHub:Token={_configuredToken}"))
+        {
+            var logger = CreateLogger(host);
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            TestLog.Write(logger, LogLevel.Debug, "Below the level");
+            TestLog.Write(logger, LogLevel.Warning, $"Calling with {_configuredToken}");
+        }
+
+        var entry = received.ShouldHaveSingleItem();
+        entry.Level.ShouldBe(LogLevel.Warning);
+        entry.Message.ShouldBe("Calling with ***");
+        contentRoot.ReadTextLog().ShouldContain("Calling with ***");
+    }
+
+    [Fact]
     public void Build_InvalidLevel_ThrowsValidationExceptionNamingKey()
     {
         using var contentRoot = new TemporaryContentRoot("""{ "Serilog": { "MinimumLevel": { "Default": "Loud" } } }""");

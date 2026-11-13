@@ -1,4 +1,3 @@
-using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHubBackup.App.Dialogs;
@@ -7,13 +6,16 @@ using GitHubBackup.App.Runs;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.Logging;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
 /// Backs the main screen: the tree of accounts and repositories of <c>backup-config.json</c> and the commands that
-/// start a backup of everything, of one account or of one repository.
+/// start a backup of everything, of one account or of one repository, show its progress, cancel it and show its
+/// summary.
 /// </summary>
 /// <remarks>
 /// The tree is read again before and after every run, so a run always reflects the file as it is on disk and the
@@ -21,27 +23,38 @@ namespace GitHubBackup.App.ViewModels;
 /// </remarks>
 /// <param name="overviewProvider">Reads the configuration and the dates of the last archives.</param>
 /// <param name="runService">Runs the backup.</param>
-/// <param name="dialogs">Shows the errors of a run.</param>
+/// <param name="uiDispatcher">
+/// Brings the progress reports and the log entries of a run from the thread of the core to the UI thread.
+/// </param>
+/// <param name="liveLogFeed">Delivers the log entries that the live log shows while a run works.</param>
+/// <param name="dialogs">Shows an unexpected failure of a run and asks before the window closes during a run.</param>
 /// <param name="secretMasker">
 /// Masks secrets in exception messages before the window shows them, because an exception from a lower layer can
 /// carry a token or a header.
 /// </param>
+/// <param name="environment">The host environment whose content root holds the log folder the summary names.</param>
+/// <param name="timeProvider">Supplies the local date that names the log file of the day.</param>
 /// <param name="logger">Logs the failures of a run and of reading the tree.</param>
 public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
     IBackupRunService runService,
+    IUiDispatcher uiDispatcher,
+    ILiveLogFeed liveLogFeed,
     IDialogService dialogs,
     ISecretMasker secretMasker,
-    ILogger<RepositoriesViewModel> logger) : ObservableObject
+    IHostEnvironment environment,
+    TimeProvider timeProvider,
+    ILogger<RepositoriesViewModel> logger) : ObservableObject, ICloseGuard
 {
-    /// <summary>The title of the dialog that shows the errors that stopped a run.</summary>
-    public const string RunStoppedTitle = "Backup stopped";
-
     /// <summary>The title of the dialog that shows an unexpected failure of a run.</summary>
     public const string RunFailedTitle = "Backup failed";
 
-    /// <summary>The title of the dialog that shows that a run was not recorded in the run history.</summary>
-    public const string HistoryWarningTitle = "Run history not updated";
+    /// <summary>The title of the dialog that asks whether to close the window during a run.</summary>
+    public const string CloseDuringRunTitle = "Backup in progress";
+
+    /// <summary>The question of the dialog that asks whether to close the window during a run.</summary>
+    public const string CloseDuringRunMessage =
+        "A backup is running. Cancel it and close the window when it has stopped?";
 
     /// <summary>The nodes at the top of the tree: the accounts in file order, then the group of standalone repositories.</summary>
     [ObservableProperty]
@@ -71,15 +84,91 @@ public sealed partial class RepositoriesViewModel(
     [ObservableProperty]
     private bool _isEmpty;
 
-    /// <summary>The outcome of the last run that went through, or <see langword="null"/>.</summary>
+    /// <summary>The summary of the last run, or <see langword="null"/> before the first run and while a run is in progress.</summary>
     [ObservableProperty]
-    private string? _lastRunMessage;
+    [NotifyPropertyChangedFor(nameof(HasSummary))]
+    private RunSummaryViewModel? _summary;
+
+    /// <summary>The current repository and operation of the run, or <see langword="null"/> when nothing is reported.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasProgress), nameof(ProgressRepository), nameof(ProgressOperation))]
+    private BackupProgress? _currentProgress;
+
+    /// <summary>
+    /// The number of the run whose progress the screen accepts; it changes when a run starts and when it ends, so a
+    /// report still queued on the UI thread from a finished run is dropped.
+    /// </summary>
+    private int _runNumber;
+
+    /// <summary>Gets the live log of the current or the last run.</summary>
+    public RunLogViewModel RunLog { get; } = new(uiDispatcher);
 
     /// <summary>Gets whether no run is in progress.</summary>
     public bool IsIdle => !IsRunning;
 
     /// <summary>Gets whether the tree cannot be read.</summary>
     public bool HasLoadError => LoadError is not null;
+
+    /// <summary>Gets whether a run summary is shown.</summary>
+    public bool HasSummary => Summary is not null;
+
+    /// <summary>Gets whether the current repository or operation of a run is shown.</summary>
+    public bool HasProgress => CurrentProgress is not null;
+
+    /// <summary>
+    /// Gets the repository or wiki the run works on with its position, such as <c>owner/repo (2 of 5)</c>, or
+    /// <see langword="null"/> when the operation concerns no single repository.
+    /// </summary>
+    public string? ProgressRepository =>
+        CurrentProgress is { Repository: { } repository } progress
+            ? $"{repository} ({progress.Index} of {progress.Total})"
+            : null;
+
+    /// <summary>Gets the operation the run is busy with, or <see langword="null"/> when nothing is reported.</summary>
+    public string? ProgressOperation => CurrentProgress is { } progress ? DescribeStage(progress.Stage) : null;
+
+    /// <summary>
+    /// Returns the text the screen shows for an operation of a run.
+    /// </summary>
+    /// <param name="stage">The operation.</param>
+    /// <returns>The text.</returns>
+    public static string DescribeStage(BackupProgressStage stage) => stage switch
+    {
+        BackupProgressStage.Discovering => "Discovering repositories on GitHub",
+        BackupProgressStage.Preparing => "Preparing",
+        BackupProgressStage.CheckingRemote => "Checking the server for changes",
+        BackupProgressStage.Cloning => "Cloning",
+        BackupProgressStage.Fetching => "Fetching changes",
+        BackupProgressStage.Archiving => "Archiving",
+        _ => stage.ToString(),
+    };
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Without a run the window closes at once. During a run the user confirms first, unless a cancellation is already
+    /// requested; the run is then cancelled and awaited, so the core records it in the run history and removes its
+    /// temporary files before the host stops.
+    /// </remarks>
+    public async Task<bool> CanCloseAsync()
+    {
+        if (!StartBackupCommand.IsRunning)
+        {
+            return true;
+        }
+
+        if (!StartBackupCommand.IsCancellationRequested && !dialogs.Confirm(CloseDuringRunTitle, CloseDuringRunMessage))
+        {
+            return false;
+        }
+
+        StartBackupCommand.Cancel();
+        if (StartBackupCommand.ExecutionTask is { } execution)
+        {
+            await execution;
+        }
+
+        return true;
+    }
 
     /// <summary>
     /// Reads the tree again.
@@ -98,11 +187,14 @@ public sealed partial class RepositoriesViewModel(
     private bool CanStartBackup(BackupScope scope) => !IsRunning && CreateFilter(scope) is not null;
 
     /// <summary>
-    /// Reads the tree again, runs the backup of <paramref name="scope"/> and shows its outcome.
+    /// Reads the tree again, runs the backup of <paramref name="scope"/> and shows its summary.
     /// </summary>
     /// <remarks>
     /// A tree that cannot be read does not stop the run: the orchestrator reads the configuration itself, reports the
-    /// error and records the run in the history, as the console application does.
+    /// error and records the run in the history, as the console application does. An unexpected failure has no
+    /// result to summarize, so it is shown in a dialog. The progress of the run is shown while it works and cleared when
+    /// it ends. The live log is cleared when the run starts and receives the log entries until the run ends; it keeps
+    /// them afterwards so the user can read them next to the summary.
     /// </remarks>
     /// <param name="scope">The repositories the run covers.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
@@ -117,16 +209,22 @@ public sealed partial class RepositoriesViewModel(
 
         var dryRun = IsDryRun;
         IsRunning = true;
-        LastRunMessage = null;
+        Summary = null;
+        var run = ++_runNumber;
+        CurrentProgress = null;
+        RunLog.Clear();
+        var logSubscription = liveLogFeed.Subscribe(RunLog.Add);
+        var progress = new UiProgress<BackupProgress>(uiDispatcher, value => ShowProgress(run, value));
         try
         {
             await LoadAsync(cancellationToken);
-            var result = await runService.RunAsync(filter, dryRun, cancellationToken);
-            ShowOutcome(result, dryRun);
+            var result = await runService.RunAsync(filter, dryRun, progress, cancellationToken);
+            Summary = RunSummaryViewModel.FromResult(result, GetLogPath(), secretMasker);
         }
         catch (OperationCanceledException)
         {
-            // A cancelled run is the user's choice and needs no message.
+            // A run cancelled before the core takes the run lock has no result, only the cancellation to report.
+            Summary = RunSummaryViewModel.CancelledBeforeStart(GetLogPath());
         }
         catch (Exception exception)
         {
@@ -135,37 +233,32 @@ public sealed partial class RepositoriesViewModel(
         }
         finally
         {
+            logSubscription.Dispose();
+            _runNumber++;
+            CurrentProgress = null;
             await LoadAsync(CancellationToken.None);
             IsRunning = false;
         }
     }
 
     /// <summary>
-    /// Shows the outcome of a run: the errors that stopped it and a missing history record in a dialog, otherwise
-    /// the exit code in <see cref="LastRunMessage"/>.
+    /// Shows a progress report of the run <paramref name="run"/> unless that run has ended.
     /// </summary>
-    /// <param name="result">The result of the run.</param>
-    /// <param name="dryRun">Whether the run was a dry run.</param>
-    private void ShowOutcome(BackupRunResult result, bool dryRun)
+    /// <param name="run">The number of the run that reported.</param>
+    /// <param name="progress">The current repository and operation.</param>
+    private void ShowProgress(int run, BackupProgress progress)
     {
-        if (result.CriticalErrors.Count > 0)
+        if (run == _runNumber)
         {
-            dialogs.ShowError(RunStoppedTitle, string.Join(Environment.NewLine, result.CriticalErrors));
-        }
-        else
-        {
-            LastRunMessage = string.Format(
-                CultureInfo.InvariantCulture,
-                "{0} finished with exit code {1}.",
-                dryRun ? "Dry run" : "Backup",
-                (int)result.ExitCode);
-        }
-
-        if (result.HistoryWarning is not null)
-        {
-            dialogs.ShowError(HistoryWarningTitle, result.HistoryWarning);
+            CurrentProgress = progress;
         }
     }
+
+    /// <summary>
+    /// Returns the path of the text log of the current day, which the summary names.
+    /// </summary>
+    /// <returns>The absolute path of the log file.</returns>
+    private string GetLogPath() => LogFiles.GetTextLogPath(environment.ContentRootPath, timeProvider);
 
     /// <summary>
     /// Returns the filter of a run of <paramref name="scope"/> for the current selection.

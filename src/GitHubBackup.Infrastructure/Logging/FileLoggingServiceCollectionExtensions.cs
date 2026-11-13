@@ -33,7 +33,7 @@ public static class FileLoggingServiceCollectionExtensions
     {
         /// <summary>
         /// Adds Serilog with the levels of <see cref="SerilogOptions"/>, the run identifier in every entry and
-        /// secrets masked in both files.
+        /// secrets masked in both files and in the <see cref="ILiveLogFeed"/>, which shows the same levels as the files.
         /// </summary>
         /// <remarks>
         /// The logger is created when the host is built, so an invalid level fails <c>Build()</c> with an
@@ -48,6 +48,8 @@ public static class FileLoggingServiceCollectionExtensions
         {
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SerilogOptions>, SerilogOptionsValidator>());
             services.AddOptions<SerilogOptions>().BindSection(configuration, SerilogOptions.SectionName).ValidateOnStart();
+            services.TryAddSingleton<LiveLogSink>();
+            services.TryAddSingleton<ILiveLogFeed>(provider => provider.GetRequiredService<LiveLogSink>());
             services.AddSerilog(ConfigureLogger, preserveStaticLogger: true);
 
             return services;
@@ -55,7 +57,7 @@ public static class FileLoggingServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Configures the levels, the run identifier and the two file sinks of the logger.
+    /// Configures the levels, the run identifier and the sinks of the logger: the two files and the live log feed.
     /// </summary>
     /// <param name="provider">The service provider of the host.</param>
     /// <param name="configuration">The logger configuration to fill.</param>
@@ -83,6 +85,7 @@ public static class FileLoggingServiceCollectionExtensions
             new CompactJsonFormatter(),
             masker,
             LogFiles.GetPathTemplate(contentRootPath, LogFiles.JsonExtension));
+        configuration.WriteTo.Sink(provider.GetRequiredService<LiveLogSink>());
     }
 
     /// <summary>

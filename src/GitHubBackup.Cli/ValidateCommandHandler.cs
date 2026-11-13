@@ -4,6 +4,7 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Tools;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using Spectre.Console;
@@ -63,7 +64,7 @@ internal sealed class ValidateCommandHandler(
             await console.Error.WriteLineAsync(BackupSummaryRenderer.ErrorPrefix + error);
         }
 
-        await console.Error.WriteLineAsync(BackupSummaryRenderer.LogPrefix + CliLogPath.Get(environment, timeProvider));
+        await console.Error.WriteLineAsync(BackupSummaryRenderer.LogPrefix + LogFiles.GetTextLogPath(environment.ContentRootPath, timeProvider));
         return ExitCode.Critical;
     }
 

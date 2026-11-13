@@ -215,7 +215,7 @@ public sealed class BackupOrchestrator(
         {
             try
             {
-                discovery = await DiscoverAsync(config, filter, cancellationToken);
+                discovery = await DiscoverAsync(config, filter, request.Progress, cancellationToken);
 
                 // The applier always saves the configuration and may move folders, so a dry run only shows what
                 // discovery found and leaves the decisions to a backup run.
@@ -247,7 +247,7 @@ public sealed class BackupOrchestrator(
         }
 
         var missing = dryRun ? discovery.Missing.Select(repository => repository.Id).ToHashSet() : [];
-        var settings = new RunSettings(tools, token, temporaryFolder, dryRun);
+        var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress);
         var work = ExcludeMatching(config, SelectIncluded(items, filter));
         var results = new List<BackupItemResult>(work.Count);
         var cancelled = await ProcessAllAsync(work, missing, discovery.Repositories, settings, results, cancellationToken);
@@ -301,6 +301,9 @@ public sealed class BackupOrchestrator(
                 return true;
             }
 
+            var stages = ItemProgress.Create(settings.Progress, item.FullName, index + 1, work.Count);
+            stages?.Report(BackupProgressStage.Preparing);
+
             if (missing.Contains(item.Id))
             {
                 results.Add(SkipMissing(item));
@@ -311,10 +314,11 @@ public sealed class BackupOrchestrator(
             var (current, target) = (item.FullName, BackupTarget.Repository);
             try
             {
-                results.Add(await ProcessAsync(item, settings, cancellationToken));
+                results.Add(await ProcessAsync(item, settings, stages, cancellationToken));
                 started = timeProvider.GetTimestamp();
                 (current, target) = (item.WikiFullName, BackupTarget.Wiki);
-                var wiki = await ProcessWikiAsync(item, discovered, settings, cancellationToken);
+                var wikiStages = ItemProgress.Create(settings.Progress, item.WikiFullName, index + 1, work.Count);
+                var wiki = await ProcessWikiAsync(item, discovered, settings, wikiStages, cancellationToken);
                 if (wiki is not null)
                 {
                     results.Add(wiki);
@@ -391,18 +395,24 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <param name="config">The configuration to compare with.</param>
     /// <param name="filter">The repositories the run covers.</param>
+    /// <param name="progress">Receives the start of the discovery, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the discovery.</param>
     /// <returns>The classified repositories, or <see cref="DiscoveryResult.Empty"/> when discovery is skipped.</returns>
     /// <exception cref="GitHubApiException">Listing the repositories failed.</exception>
     /// <exception cref="ArgumentException">The account of <paramref name="filter"/> is not tracked.</exception>
     private async Task<DiscoveryResult> DiscoverAsync(
-        BackupConfig config, BackupRunFilter filter, CancellationToken cancellationToken)
+        BackupConfig config,
+        BackupRunFilter filter,
+        IProgress<BackupProgress>? progress,
+        CancellationToken cancellationToken)
     {
         if (filter.IsRepository)
         {
             BackupOrchestratorLog.DiscoverySkipped(logger, filter.RepositoryFullName!);
             return DiscoveryResult.Empty;
         }
+
+        progress?.Report(new(BackupProgressStage.Discovering, null, 0, 0));
 
         return await discoveryService.DiscoverAsync(config, filter.AccountLogin, cancellationToken);
     }
@@ -539,10 +549,14 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <param name="item">The repository.</param>
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
+    /// <param name="stages">Receives each operation on the repository, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>The result of the repository.</returns>
     private async Task<BackupItemResult> ProcessAsync(
-        BackupWorkItem item, RunSettings settings, CancellationToken cancellationToken)
+        BackupWorkItem item,
+        RunSettings settings,
+        IProgress<BackupProgressStage>? stages,
+        CancellationToken cancellationToken)
     {
         using var scope = logger.BeginRepositoryScope(item.FullName);
         using var activity = telemetry.StartRepository(item.FullName, BackupTarget.Repository);
@@ -565,7 +579,7 @@ public sealed class BackupOrchestrator(
                     item.CloneFolder,
                     remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
                     item.Branch);
-                outcome = await BackupAsync(item, source, settings, cancellationToken);
+                outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -601,6 +615,9 @@ public sealed class BackupOrchestrator(
     /// <param name="item">The repository that owns the wiki.</param>
     /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
+    /// <param name="stages">
+    /// Receives each operation on the wiki once the wiki is known to be enabled, or <see langword="null"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>
     /// The result of the wiki, or <see langword="null"/> when the repository is not active, the wiki feature is
@@ -610,6 +627,7 @@ public sealed class BackupOrchestrator(
         BackupWorkItem item,
         IReadOnlyDictionary<long, GitHubRepository> discovered,
         RunSettings settings,
+        IProgress<BackupProgressStage>? stages,
         CancellationToken cancellationToken)
     {
         if (!item.IsActive)
@@ -640,6 +658,7 @@ public sealed class BackupOrchestrator(
         }
 
         using var activity = telemetry.StartRepository(item.WikiFullName, BackupTarget.Wiki);
+        stages?.Report(BackupProgressStage.Preparing);
         BackupOrchestratorLog.RepositoryStarted(logger, item.WikiCloneFolder, item.ArchiveFolder);
         BackupOutcome outcome;
         Exception? failure = null;
@@ -651,7 +670,7 @@ public sealed class BackupOrchestrator(
                 item.WikiCloneFolder,
                 remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
                 Branch: null);
-            outcome = await BackupAsync(item, source, settings, cancellationToken);
+            outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
         }
         catch (GitRepositoryNotFoundException)
         {
@@ -720,13 +739,18 @@ public sealed class BackupOrchestrator(
     /// <param name="item">The active repository, which supplies the archive folder and the state file.</param>
     /// <param name="source">The repository or its wiki.</param>
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
+    /// <param name="stages">Receives each git operation and the archiving, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>
     /// The status, the archive created or the archive a dry run predicts, the warning, the branch and its commit, and
     /// the refs that changed since the last archive when there is an archive.
     /// </returns>
     private async Task<BackupOutcome> BackupAsync(
-        BackupWorkItem item, BackupSource source, RunSettings settings, CancellationToken cancellationToken)
+        BackupWorkItem item,
+        BackupSource source,
+        RunSettings settings,
+        IProgress<BackupProgressStage>? stages,
+        CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
         var request = new ChangeDetectionRequest
@@ -741,6 +765,7 @@ public sealed class BackupOrchestrator(
             RemoteUrl = source.RemoteUrl,
             ArchiveFolder = item.ArchiveFolder,
             LastArchive = state.GetLastArchive(source.Target),
+            OperationProgress = stages,
         };
         var detection = settings.DryRun
             ? await changeDetector.PreviewAsync(request, cancellationToken)
@@ -753,6 +778,11 @@ public sealed class BackupOrchestrator(
         string? archive = null;
         if (detection.Decision == ChangeDecision.ArchiveNeeded)
         {
+            if (!settings.DryRun)
+            {
+                stages?.Report(BackupProgressStage.Archiving);
+            }
+
             archive = settings.DryRun
                 ? nameBuilder.Build(item.Owner, item.Name, source.Target, GetHeadCommit(source, detection).Commit).FileName
                 : await ArchiveAsync(item, source, settings, detection, cancellationToken);
@@ -851,7 +881,35 @@ public sealed class BackupOrchestrator(
     /// <param name="Token">The token passed to git.</param>
     /// <param name="TemporaryFolder">The folder in which archives are built.</param>
     /// <param name="DryRun">Whether the run only shows what a backup run would do.</param>
-    private readonly record struct RunSettings(ToolSet Tools, GitHubToken Token, string TemporaryFolder, bool DryRun);
+    /// <param name="Progress">Receives the current repository and operation, or <see langword="null"/>.</param>
+    private readonly record struct RunSettings(
+        ToolSet Tools, GitHubToken Token, string TemporaryFolder, bool DryRun, IProgress<BackupProgress>? Progress);
+
+    /// <summary>
+    /// Turns the operations on one repository or wiki into <see cref="BackupProgress"/> reports that name the item and
+    /// its position in the run.
+    /// </summary>
+    /// <param name="progress">Receives the reports.</param>
+    /// <param name="repository">The repository as <c>owner/name</c> or its wiki as <c>owner/name.wiki</c>.</param>
+    /// <param name="index">The 1-based position of the repository in the run.</param>
+    /// <param name="total">The number of repositories of the run.</param>
+    private sealed class ItemProgress(IProgress<BackupProgress> progress, string repository, int index, int total)
+        : IProgress<BackupProgressStage>
+    {
+        /// <summary>
+        /// Creates the receiver of the operations on one item, or none when the run reports no progress.
+        /// </summary>
+        /// <param name="progress">Receives the reports of the run, or <see langword="null"/>.</param>
+        /// <param name="repository">The repository as <c>owner/name</c> or its wiki as <c>owner/name.wiki</c>.</param>
+        /// <param name="index">The 1-based position of the repository in the run.</param>
+        /// <param name="total">The number of repositories of the run.</param>
+        /// <returns>The receiver, or <see langword="null"/> when <paramref name="progress"/> is <see langword="null"/>.</returns>
+        public static ItemProgress? Create(IProgress<BackupProgress>? progress, string repository, int index, int total) =>
+            progress is null ? null : new(progress, repository, index, total);
+
+        /// <inheritdoc />
+        public void Report(BackupProgressStage value) => progress.Report(new(value, repository, index, total));
+    }
 
     /// <summary>
     /// Holds what the backup of one repository or wiki did, before its duration is known.

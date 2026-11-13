@@ -7,6 +7,18 @@
     <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes. -->
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <!-- A text block without text takes no space, so optional lines of a panel leave no gap. -->
+        <Style x:Key="OptionalLineStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <DataTemplate DataType="{x:Type vm:RepositoriesViewModel}">
             <views:RepositoriesView />
         </DataTemplate>

@@ -2,8 +2,10 @@ using System.Diagnostics;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Git;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
+using GitHubBackup.Core.Tests.Runs;
 using GitHubBackup.Core.Tests.Telemetry;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -29,6 +31,7 @@ public sealed class ChangeDetectorTests : IDisposable
     private readonly IGitClient _git = Substitute.For<IGitClient>();
     private readonly MockFileSystem _fileSystem = new();
     private readonly TelemetryCapture _capture = new();
+    private readonly RecordingProgress<BackupProgressStage> _progress = new();
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
@@ -636,6 +639,89 @@ public sealed class ChangeDetectorTests : IDisposable
 
         _capture.Spans.ShouldHaveSingleItem().Status.ShouldBe(ActivityStatusCode.Unset);
     }
+
+    [Fact]
+    public async Task DetectAsync_NoClone_ReportsCloning()
+    {
+        SetupClone(Sync("main", BaseRefs));
+
+        await DetectWithProgressAsync(last: null);
+
+        _progress.Values.ShouldBe([BackupProgressStage.Cloning]);
+    }
+
+    [Fact]
+    public async Task DetectAsync_CloneExistsAndNoArchive_ReportsFetchingOnly()
+    {
+        AddClone();
+        SetupUpdate(Sync("main", BaseRefs));
+
+        await DetectWithProgressAsync(last: null);
+
+        _progress.Values.ShouldBe([BackupProgressStage.Fetching]);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerUnchanged_ReportsCheckingRemoteOnly()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+
+        await DetectWithProgressAsync(Archive("main", BaseRefs));
+
+        _progress.Values.ShouldBe([BackupProgressStage.CheckingRemote]);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerChanged_ReportsCheckingRemoteThenFetching()
+    {
+        AddClone();
+        AddArchiveFile();
+        var changed = Snapshot(("heads/main", "a2"), ("heads/develop", "b"), ("tags/v1", "t1"));
+        SetupRemote(changed);
+        SetupUpdate(Sync("main", changed));
+
+        await DetectWithProgressAsync(Archive("main", BaseRefs));
+
+        _progress.Values.ShouldBe([BackupProgressStage.CheckingRemote, BackupProgressStage.Fetching]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_CloneExists_ReportsCheckingRemote()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+
+        await CreateDetector().PreviewAsync(
+            CreateRequest(last: null, "main") with { OperationProgress = _progress }, CancellationToken);
+
+        _progress.Values.ShouldBe([BackupProgressStage.CheckingRemote]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoClone_ReportsNothing()
+    {
+        await CreateDetector().PreviewAsync(
+            CreateRequest(last: null, "main") with { OperationProgress = _progress }, CancellationToken);
+
+        _progress.Values.ShouldBeEmpty();
+    }
+
+    /// <summary>
+    /// Creates the detector over the substitute git client, the in-memory file system and the telemetry capture.
+    /// </summary>
+    /// <returns>The detector.</returns>
+    private ChangeDetector CreateDetector() =>
+        new(_git, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance);
+
+    /// <summary>
+    /// Runs the detection of the branch <c>main</c> with <see cref="_progress"/> as the receiver of its operations.
+    /// </summary>
+    /// <param name="last">The last archive, or <see langword="null"/>.</param>
+    /// <returns>The detection result.</returns>
+    private Task<ChangeDetection> DetectWithProgressAsync(ArchiveRecord? last) =>
+        CreateDetector().DetectAsync(CreateRequest(last, "main") with { OperationProgress = _progress }, CancellationToken);
 
     private static RefSnapshot Snapshot(params (string Name, string Id)[] refs) =>
         new(refs.Select(entry => KeyValuePair.Create(entry.Name, entry.Id)));

@@ -1,6 +1,7 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Runs;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.Cli;
@@ -57,7 +58,7 @@ internal sealed class BackupCommandHandler(
                     Mode = options.Silent ? RunMode.Silent : RunMode.Interactive,
                 },
                 cancellationToken);
-        await renderer.RenderAsync(result, CliLogPath.Get(environment, timeProvider));
+        await renderer.RenderAsync(result, LogFiles.GetTextLogPath(environment.ContentRootPath, timeProvider));
         return result.ExitCode;
     }
 }

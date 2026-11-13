@@ -27,6 +27,13 @@ public sealed partial class MainWindowViewModel : ObservableObject
     }
 
     /// <summary>
+    /// Returns whether the window may close, asking the current ViewModel when it is an <see cref="ICloseGuard"/>.
+    /// </summary>
+    /// <returns>A task that returns <see langword="true"/> when the window may close.</returns>
+    public Task<bool> CanCloseAsync() =>
+        CurrentViewModel is ICloseGuard guard ? guard.CanCloseAsync() : Task.FromResult(true);
+
+    /// <summary>
     /// Copies the current ViewModel of the navigation.
     /// </summary>
     /// <param name="sender">The navigation.</param>
