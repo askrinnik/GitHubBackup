@@ -37,4 +37,15 @@ public static class LogFiles
     /// <returns>The file name, for example <c>githubbackup-20261007.log</c>.</returns>
     public static string GetFileName(DateOnly date, string extension) =>
         FileNamePrefix + date.ToString("yyyyMMdd", CultureInfo.InvariantCulture) + extension;
+
+    /// <summary>
+    /// Returns the path of the text log of the current local day, which the summary of a run names.
+    /// </summary>
+    /// <param name="contentRootPath">The folder of the executable.</param>
+    /// <param name="timeProvider">Supplies the local date that names the log file.</param>
+    /// <returns>The path, for example <c>C:\app\logs\githubbackup-20261007.log</c>.</returns>
+    public static string GetTextLogPath(string contentRootPath, TimeProvider timeProvider) => Path.Combine(
+        contentRootPath,
+        FolderName,
+        GetFileName(DateOnly.FromDateTime(timeProvider.GetLocalNow().DateTime), TextExtension));
 }

@@ -58,6 +58,16 @@ public sealed class AppHostTests : IDisposable
     }
 
     [Fact]
+    public async Task BuildHost_NoRun_MainWindowCanClose()
+    {
+        using var host = BuildHost();
+
+        var canClose = await host.Services.GetRequiredService<MainWindowViewModel>().CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+    }
+
+    [Fact]
     public void BuildHost_DiscoveryDecisionHandler_IsDeferredHandler()
     {
         using var host = BuildHost();

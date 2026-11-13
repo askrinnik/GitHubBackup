@@ -5,15 +5,18 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
+using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
 namespace GitHubBackup.App.Tests.ViewModels;
 
 /// <summary>
-/// Tests <see cref="RepositoriesViewModel"/>: reading the tree, the availability of the backup commands and the runs.
+/// Tests <see cref="RepositoriesViewModel"/>: reading the tree, the availability of the backup commands, the runs, their
+/// summary, cancellation and closing the window during a run.
 /// </summary>
 public sealed class RepositoriesViewModelTests
 {
@@ -43,6 +46,8 @@ public sealed class RepositoriesViewModelTests
 
     private readonly IDialogService _dialogs = Substitute.For<IDialogService>();
 
+    private const string _logPath = @"C:\app\logs\githubbackup-20261113.log";
+
     private readonly FakeLogger<RepositoriesViewModel> _logger = new();
 
     private readonly RepositoriesViewModel _viewModel;
@@ -55,7 +60,11 @@ public sealed class RepositoriesViewModelTests
         _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview);
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(new BackupRunResult([], [], []));
-        _viewModel = new(_provider, _runService, _dialogs, new SecretMasker(), _logger);
+        var environment = Substitute.For<IHostEnvironment>();
+        environment.ContentRootPath.Returns(@"C:\app");
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
+        timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
+        _viewModel = new(_provider, _runService, _dialogs, new SecretMasker(), environment, timeProvider, _logger);
     }
 
     [Fact]
@@ -264,56 +273,77 @@ public sealed class RepositoriesViewModelTests
     }
 
     [Fact]
-    public async Task StartBackup_CriticalErrors_ShowsErrorDialog()
+    public async Task StartBackup_CriticalErrors_ShowsErrorsInSummaryWithoutDialog()
     {
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(BackupRunResult.Stopped([BackupOrchestrator.RunLockHeldMessage, "Git was not found."], []));
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
-        _dialogs.Received(1).ShowError(
-            RepositoriesViewModel.RunStoppedTitle,
-            $"{BackupOrchestrator.RunLockHeldMessage}{Environment.NewLine}Git was not found.");
-        _viewModel.LastRunMessage.ShouldBeNull();
+        var summary = _viewModel.Summary.ShouldNotBeNull();
+        summary.Errors.ShouldBe([BackupOrchestrator.RunLockHeldMessage, "Git was not found."]);
+        summary.HasItems.ShouldBeFalse();
+        summary.LogPath.ShouldBe(_logPath);
+        _viewModel.HasSummary.ShouldBeTrue();
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
         _viewModel.IsRunning.ShouldBeFalse();
     }
 
     [Fact]
-    public async Task StartBackup_HistoryWarning_ShowsWarning()
+    public async Task StartBackup_HistoryWarning_ShowsWarningInSummaryWithoutDialog()
     {
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .Returns(new BackupRunResult([], [], []) { HistoryWarning = "The run was not recorded in the run history." });
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
-        _dialogs.Received(1).ShowError(
-            RepositoriesViewModel.HistoryWarningTitle, "The run was not recorded in the run history.");
-        _viewModel.LastRunMessage.ShouldBe("Backup finished with exit code 0.");
+        _viewModel.Summary.ShouldNotBeNull().Warnings.ShouldBe(["The run was not recorded in the run history."]);
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
     }
 
     [Theory]
-    [InlineData(false, "Backup finished with exit code 0.")]
-    [InlineData(true, "Dry run finished with exit code 0.")]
-    public async Task StartBackup_Success_SetsLastRunMessageWithExitCode(bool dryRun, string expected)
+    [InlineData(false, null)]
+    [InlineData(true, BackupRunSummary.DryRunHeader)]
+    public async Task StartBackup_Finished_ShowsSummaryWithLogPath(bool dryRun, string? header)
     {
         _viewModel.IsDryRun = dryRun;
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult(
+                [new("octo/tool", BackupItemStatus.Failed, null, TimeSpan.Zero, "The clone failed.")], [], [])
+            { IsDryRun = dryRun });
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
-        _viewModel.LastRunMessage.ShouldBe(expected);
+        var summary = _viewModel.Summary.ShouldNotBeNull();
+        summary.Header.ShouldBe(header);
+        summary.Rows.ShouldHaveSingleItem().Error.ShouldBe("The clone failed.");
+        summary.LogPath.ShouldBe(_logPath);
         _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
     }
 
     [Fact]
-    public async Task StartBackup_FailedRepository_ReportsItsExitCode()
+    public async Task StartBackup_NoItems_ShowsNoRepositoriesLine()
     {
-        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
-            .Returns(new BackupRunResult(
-                [new("octo/tool", BackupItemStatus.Failed, null, TimeSpan.Zero, "The clone failed.")], [], []));
-
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
-        _viewModel.LastRunMessage.ShouldBe("Backup finished with exit code 1.");
+        _viewModel.Summary.ShouldNotBeNull().NoRepositoriesLine.ShouldBe(BackupRunSummary.NoRepositoriesLine);
+    }
+
+    [Fact]
+    public async Task StartBackup_NewRun_ClearsPreviousSummaryWhileRunning()
+    {
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _viewModel.Summary.ShouldNotBeNull();
+        var run = new TaskCompletionSource<BackupRunResult>();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(run.Task);
+
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.Summary.ShouldBeNull();
+        _viewModel.HasSummary.ShouldBeFalse();
+        run.SetResult(new([], [], []));
+        await execution;
+        _viewModel.Summary.ShouldNotBeNull();
     }
 
     [Fact]
@@ -326,7 +356,7 @@ public sealed class RepositoriesViewModelTests
 
         _dialogs.Received(1).ShowError(RepositoriesViewModel.RunFailedTitle, "Something broke.");
         _viewModel.IsRunning.ShouldBeFalse();
-        _viewModel.LastRunMessage.ShouldBeNull();
+        _viewModel.Summary.ShouldBeNull();
     }
 
     [Fact]
@@ -371,16 +401,97 @@ public sealed class RepositoriesViewModelTests
     }
 
     [Fact]
-    public async Task StartBackup_RunnerCancelled_ShowsNothingAndResetsIsRunning()
+    public async Task StartBackup_RunnerCancelledBeforeLock_ShowsCancelledSummaryWithoutDialog()
     {
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
+        var summary = _viewModel.Summary.ShouldNotBeNull();
+        summary.CancelledLine.ShouldBe(BackupRunSummary.CancelledLine);
+        summary.LogPath.ShouldBe(_logPath);
         _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
         _viewModel.IsRunning.ShouldBeFalse();
-        _viewModel.LastRunMessage.ShouldBeNull();
+    }
+
+    [Fact]
+    public void StartBackupCancel_NoRun_CannotExecute() =>
+        _viewModel.StartBackupCancelCommand.CanExecute(null).ShouldBeFalse();
+
+    [Fact]
+    public async Task StartBackupCancel_DuringRun_CancelsTokenAndShowsCancelledSummary()
+    {
+        var token = UseRunThatEndsOnCancellation();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _viewModel.StartBackupCancelCommand.CanExecute(null).ShouldBeTrue();
+
+        _viewModel.StartBackupCancelCommand.Execute(null);
+
+        _viewModel.StartBackupCommand.IsCancellationRequested.ShouldBeTrue();
+        _viewModel.StartBackupCancelCommand.CanExecute(null).ShouldBeFalse();
+        await execution;
+        token().IsCancellationRequested.ShouldBeTrue();
+        var summary = _viewModel.Summary.ShouldNotBeNull();
+        summary.Rows.Select(row => row.Status).ShouldBe(["Cancelled", "Skipped"]);
+        summary.CancelledLine.ShouldBe(BackupRunSummary.CancelledLine);
+        _viewModel.StartBackupCancelCommand.CanExecute(null).ShouldBeFalse();
+        _viewModel.IsRunning.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task CanClose_NoRun_ReturnsTrueWithoutAsking()
+    {
+        var canClose = await _viewModel.CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+    }
+
+    [Fact]
+    public async Task CanClose_DuringRunUserDeclines_ReturnsFalseAndKeepsRunning()
+    {
+        var token = UseRunThatEndsOnCancellation();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _dialogs.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+
+        var canClose = await _viewModel.CanCloseAsync();
+
+        canClose.ShouldBeFalse();
+        _dialogs.Received(1).Confirm(RepositoriesViewModel.CloseDuringRunTitle, RepositoriesViewModel.CloseDuringRunMessage);
+        token().IsCancellationRequested.ShouldBeFalse();
+        _viewModel.IsRunning.ShouldBeTrue();
+        _viewModel.StartBackupCancelCommand.Execute(null);
+        await execution;
+    }
+
+    [Fact]
+    public async Task CanClose_DuringRunUserConfirms_CancelsAndWaitsForRun()
+    {
+        var token = UseRunThatEndsOnCancellation();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _dialogs.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+
+        var canClose = await _viewModel.CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+        token().IsCancellationRequested.ShouldBeTrue();
+        execution.IsCompleted.ShouldBeTrue();
+        _viewModel.IsRunning.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task CanClose_CancellationAlreadyRequested_WaitsWithoutAsking()
+    {
+        UseRunThatEndsOnCancellation();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _viewModel.StartBackupCancelCommand.Execute(null);
+
+        var canClose = await _viewModel.CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+        execution.IsCompleted.ShouldBeTrue();
     }
 
     [Fact]
@@ -415,6 +526,31 @@ public sealed class RepositoriesViewModelTests
 
         FindNode("octo").IsExpanded.ShouldBeFalse();
         FindNode("empty").IsExpanded.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Makes the run service return a run that stays in progress until its token is cancelled and then returns the
+    /// result of a cancelled run with one cancelled and one skipped item.
+    /// </summary>
+    /// <returns>A function that returns the token the run received.</returns>
+    private Func<CancellationToken> UseRunThatEndsOnCancellation()
+    {
+        var received = CancellationToken.None;
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            received = call.ArgAt<CancellationToken>(2);
+            var run = new TaskCompletionSource<BackupRunResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            received.Register(() => run.TrySetResult(new BackupRunResult(
+                [
+                    new("octo/tool", BackupItemStatus.Cancelled, null, TimeSpan.Zero, null),
+                    new("other/lib", BackupItemStatus.Skipped, null, TimeSpan.Zero, "The run was cancelled."),
+                ],
+                [],
+                [])
+            { IsCancelled = true }));
+            return run.Task;
+        });
+        return () => received;
     }
 
     /// <summary>

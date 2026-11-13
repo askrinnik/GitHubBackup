@@ -49,6 +49,18 @@ public sealed class BackupRunServiceTests
     }
 
     [Fact]
+    public async Task RunAsync_TokenCancelledBeforeStart_StillCallsOrchestrator()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var result = await _service.RunAsync(BackupRunFilter.All, false, cancellation.Token);
+
+        result.ShouldBeSameAs(_result);
+        await _orchestrator.Received(1).RunAsync(Arg.Any<BackupRunRequest>(), cancellation.Token);
+    }
+
+    [Fact]
     public async Task RunAsync_BeginsNewRunBeforeOrchestrator()
     {
         await _service.RunAsync(BackupRunFilter.All, false, TestContext.Current.CancellationToken);

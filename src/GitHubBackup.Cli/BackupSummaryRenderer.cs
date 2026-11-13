@@ -1,5 +1,3 @@
-using System.Globalization;
-using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Runs;
 using Spectre.Console;
 
@@ -30,31 +28,10 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
     public const string LogPrefix = "Log: ";
 
     /// <summary>The line that opens the summary of a dry run.</summary>
-    public const string DryRunHeader = "Dry run: nothing was cloned, updated, archived or saved.";
+    public const string DryRunHeader = BackupRunSummary.DryRunHeader;
 
     /// <summary>The line that follows the items of a cancelled run.</summary>
-    public const string CancelledLine = "Cancelled: the run was stopped before it finished.";
-
-    /// <summary>The statuses listed in the totals line of a normal run, in output order.</summary>
-    private static readonly BackupItemStatus[] _runStatuses =
-    [
-        BackupItemStatus.Archived,
-        BackupItemStatus.UpToDate,
-        BackupItemStatus.Warning,
-        BackupItemStatus.Failed,
-        BackupItemStatus.Skipped,
-    ];
-
-    /// <summary>The statuses listed in the totals line of a dry run, in output order.</summary>
-    private static readonly BackupItemStatus[] _dryRunStatuses =
-    [
-        BackupItemStatus.WouldClone,
-        BackupItemStatus.WouldArchive,
-        BackupItemStatus.UpToDate,
-        BackupItemStatus.Warning,
-        BackupItemStatus.Failed,
-        BackupItemStatus.Skipped,
-    ];
+    public const string CancelledLine = BackupRunSummary.CancelledLine;
 
     /// <summary>
     /// Writes the summary of <paramref name="result"/>.
@@ -95,14 +72,14 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
         {
             output.Write(CreateTable(result.Items));
         }
-        else if (!result.IsCancelled)
+        else if (BackupRunSummary.ShowsNoRepositoriesLine(result))
         {
-            output.WriteLine("No repositories to back up.");
+            output.WriteLine(BackupRunSummary.NoRepositoriesLine);
         }
 
         if (result.PlannedDiscovery is { } discovery)
         {
-            foreach (var line in DescribeDiscovery(discovery))
+            foreach (var line in BackupRunSummary.DescribeDiscovery(discovery))
             {
                 output.WriteLine(line);
             }
@@ -113,24 +90,9 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
             output.MarkupLine($"[yellow]{Markup.Escape(CancelledLine)}[/]");
         }
 
-        // A cancelled run adds its own status to the totals; a run that went through has no item with it.
-        var listed = result.IsDryRun ? _dryRunStatuses : _runStatuses;
-        var statuses = result.IsCancelled ? [.. listed, BackupItemStatus.Cancelled] : listed;
-        output.WriteLine(string.Join(", ", statuses.Select(status => $"{status}: {result.Count(status)}")));
+        output.WriteLine(BackupRunSummary.FormatTotals(result));
         output.WriteLine(LogPrefix + logPath);
     }
-
-    /// <summary>
-    /// Lists what discovery found in a dry run, one repository per line.
-    /// </summary>
-    /// <param name="discovery">What discovery found.</param>
-    /// <returns>The new, missing, renamed and returned repositories, in that order.</returns>
-    private static IEnumerable<string> DescribeDiscovery(DiscoveryResult discovery) =>
-        discovery.NewInAccounts.Select(item => $"New: {item.Repository.FullName}")
-            .Concat(discovery.NewStandalone.Select(repository => $"New: {repository.FullName}"))
-            .Concat(discovery.Missing.Select(repository => $"Missing: {repository.FullName}"))
-            .Concat(discovery.Renamed.Select(item => $"Renamed: {item.Tracked.FullName} -> {item.Current.FullName}"))
-            .Concat(discovery.Returned.Select(item => $"Returned: {item.Tracked.FullName}"));
 
     /// <summary>
     /// Builds the table of the repositories.
@@ -146,7 +108,7 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
                 new Text(item.Repository),
                 new Text(item.Status.ToString(), GetStyle(item.Status)),
                 new Text(item.ArchiveFileName ?? string.Empty),
-                new Text(FormatDuration(item.Duration)),
+                new Text(BackupRunSummary.FormatDuration(item.Duration)),
                 new Text(item.Message ?? string.Empty));
         }
 
@@ -169,13 +131,4 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
         BackupItemStatus.Cancelled => new(Color.Yellow),
         _ => Style.Plain,
     };
-
-    /// <summary>
-    /// Formats a duration as minutes, seconds and tenths, such as <c>2:05.3</c>.
-    /// </summary>
-    /// <param name="duration">The duration.</param>
-    /// <returns>The text, independent of the culture.</returns>
-    private static string FormatDuration(TimeSpan duration) => string.Create(
-        CultureInfo.InvariantCulture,
-        $"{(int)duration.TotalMinutes}:{duration.Seconds:00}.{duration.Milliseconds / 100}");
 }
