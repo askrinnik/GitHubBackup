@@ -4,7 +4,6 @@ using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.App.Views;
-using GitHubBackup.Core.Discovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -20,8 +19,8 @@ internal static class AppServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandler"/> and the
-        /// <see cref="IBackupRunService"/> of a run started from the window, the <see cref="IUiDispatcher"/> that
+        /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandlerFactory"/> and
+        /// the <see cref="IBackupRunService"/> of a run started from the window, the <see cref="IUiDispatcher"/> that
         /// brings its progress to the UI thread, the main window and the ViewModels.
         /// </summary>
         /// <remarks>
@@ -36,7 +35,8 @@ internal static class AppServiceCollectionExtensions
             services.AddSingleton<IDialogService, MessageBoxDialogService>();
             services.AddSingleton<MainWindowViewModel>();
             services.AddSingleton<MainWindow>();
-            services.AddSingleton<IDiscoveryDecisionHandler, DeferredDiscoveryDecisionHandler>();
+            services.AddSingleton<IDiscoveryDialogService, WpfDiscoveryDialogService>();
+            services.AddSingleton<IDiscoveryDecisionHandlerFactory, DialogDiscoveryDecisionHandlerFactory>();
             services.AddSingleton<IBackupRunService, BackupRunService>();
             services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
             services.AddTransient<RepositoriesViewModel>();

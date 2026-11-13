@@ -451,6 +451,86 @@ public sealed class DiscoveryDecisionApplierTests
         await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
     }
 
+    [Fact]
+    public async Task ApplyAsync_Findings_ReviewsEveryFindingBeforeFirstDecision()
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1 }, new AccountRepositoryConfig { Name = "gone", Id = 3 });
+        config.Repositories.Add(new() { Url = "https://github.com/acme/old", Id = 4, Status = RepositoryStatus.Unavailable });
+        DiscoveryReview? review = null;
+        _handler.ReviewAsync(Arg.Do<DiscoveryReview>(value => review = value), Token).Returns(Task.CompletedTask);
+        _handler.DecideNewAsync(default!, Token).ReturnsForAnyArgs(NewRepositoryDecision.Skip);
+        _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.KeepArchiveFolder);
+        var accountRepository = Repo(10, "octo", "tool");
+        var standalone = Repo(20, "acme", "lib");
+        var renamed = new RenamedRepository(Tracked("octo", "app", 1, "octo"), Repo(1, "octo", "app2"));
+        var missing = Tracked("octo", "gone", 3, "octo");
+        var returned = new ReturnedRepository(Tracked("acme", "old", 4, null, RepositoryStatus.Unavailable), Repo(4, "acme", "old"));
+
+        await ApplyAsync(config, new([new("octo", accountRepository)], [standalone], [missing], [returned], [renamed]));
+
+        review.ShouldNotBeNull();
+        review.New.ShouldBe(
+        [
+            new(accountRepository, "octo", @"C:\backup\octo\tool"),
+            new(standalone, null, @"C:\backup\acme\lib"),
+        ]);
+        review.Renamed.ShouldBe([new(renamed, @"C:\backup\octo\app", @"C:\backup\octo\app2")]);
+        review.Missing.ShouldBe([missing]);
+        review.Returned.ShouldBe([returned]);
+        Received.InOrder(() =>
+        {
+            _ = _handler.ReviewAsync(Arg.Any<DiscoveryReview>(), Token);
+            _ = _handler.DecideNewAsync(Arg.Is<NewRepositoryProposal>(proposal => proposal.Repository == accountRepository), Token);
+            _ = _handler.DecideNewAsync(Arg.Is<NewRepositoryProposal>(proposal => proposal.Repository == standalone), Token);
+            _ = _handler.DecideRenameAsync(Arg.Any<RenameProposal>(), Token);
+        });
+    }
+
+    [Fact]
+    public async Task ApplyAsync_OnlyMissingAndReturned_ReviewsThemWithoutQuestions()
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "gone", Id = 3 });
+        config.Repositories.Add(new() { Url = "https://github.com/acme/old", Id = 4, Status = RepositoryStatus.Unavailable });
+        var missing = Tracked("octo", "gone", 3, "octo");
+        var returned = new ReturnedRepository(Tracked("acme", "old", 4, null, RepositoryStatus.Unavailable), Repo(4, "acme", "old"));
+
+        await ApplyAsync(config, DiscoveryResult.Empty with { Missing = [missing], Returned = [returned] });
+
+        await _handler.Received(1).ReviewAsync(
+            Arg.Is<DiscoveryReview>(review =>
+                review.New.Count == 0
+                && review.Renamed.Count == 0
+                && review.Missing.Single() == missing
+                && review.Returned.Single() == returned),
+            Token);
+        await _handler.DidNotReceiveWithAnyArgs().DecideNewAsync(default!, Token);
+        await _handler.DidNotReceiveWithAnyArgs().DecideRenameAsync(default!, Token);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_ReviewCancels_AsksNothingAndLeavesConfigAndDiskUnchanged()
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1 }, new AccountRepositoryConfig { Name = "gone", Id = 3 });
+        _fileSystem.AddFile(@"C:\backup\octo\app\app.zip", new("zip"));
+        var before = Snapshot(config);
+        _handler.ReviewAsync(default!, Token).ReturnsForAnyArgs(Task.FromException(new OperationCanceledException()));
+        var discovery = DiscoveryResult.Empty with
+        {
+            NewInAccounts = [new("octo", Repo(10, "octo", "tool"))],
+            Missing = [Tracked("octo", "gone", 3, "octo")],
+            Renamed = [new(Tracked("octo", "app", 1, "octo"), Repo(1, "octo", "app2"))],
+        };
+
+        await Should.ThrowAsync<OperationCanceledException>(() => ApplyAsync(config, discovery));
+
+        Snapshot(config).ShouldBe(before);
+        _fileSystem.File.Exists(@"C:\backup\octo\app\app.zip").ShouldBeTrue();
+        await _handler.DidNotReceiveWithAnyArgs().DecideNewAsync(default!, Token);
+        await _handler.DidNotReceiveWithAnyArgs().DecideRenameAsync(default!, Token);
+        await _store.DidNotReceiveWithAnyArgs().SaveAsync(default!, Token);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
+    }
+
     /// <summary>
     /// Runs the applier with the handler of the test.
     /// </summary>

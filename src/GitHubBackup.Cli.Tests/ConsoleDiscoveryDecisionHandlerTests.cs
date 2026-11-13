@@ -317,6 +317,15 @@ public sealed class ConsoleDiscoveryDecisionHandlerTests : IDisposable
     }
 
     [Fact]
+    public async Task ReviewAsync_WritesNothing()
+    {
+        await CreateHandler().ReviewAsync(
+            new([CreateNew()], [CreateRename()], [], []), TestContext.Current.CancellationToken);
+
+        _output.Output.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task ConfirmIdSaveAsync_Interactive_AsksQuestionNamingRepositoryAndId()
     {
         _output.Input.PushKey(ConsoleKey.Enter);

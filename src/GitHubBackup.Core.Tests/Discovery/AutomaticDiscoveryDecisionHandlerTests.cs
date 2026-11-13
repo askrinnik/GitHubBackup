@@ -37,6 +37,27 @@ public sealed class AutomaticDiscoveryDecisionHandlerTests
     }
 
     [Fact]
+    public async Task ReviewAsync_AnyReview_Completes()
+    {
+        var task = _handler.ReviewAsync(
+            new([new(_repository, "octo", @"C:\backup\octo\tool")], [], [], []), TestContext.Current.CancellationToken);
+
+        await task;
+
+        task.IsCompletedSuccessfully.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ReviewAsync_Cancelled_ThrowsOperationCanceledException()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _handler.ReviewAsync(new([], [], [], []), cancellation.Token));
+    }
+
+    [Fact]
     public async Task ConfirmIdSaveAsync_AnyId_ReturnsTrue()
     {
         var save = await _handler.ConfirmIdSaveAsync(new("octo/tool", 7), TestContext.Current.CancellationToken);

@@ -9,7 +9,8 @@ namespace GitHubBackup.Core.Discovery;
 public interface IDiscoveryDecisionApplier
 {
     /// <summary>
-    /// Asks <paramref name="handler"/> about every new and renamed repository, changes <paramref name="config"/>,
+    /// Shows <paramref name="handler"/> every finding through <see cref="IDiscoveryDecisionHandler.ReviewAsync"/>,
+    /// asks it about every new and renamed repository, changes <paramref name="config"/>,
     /// saves it through <see cref="IBackupConfigStore"/> when anything changed, and moves the clones of renamed
     /// repositories.
     /// </summary>

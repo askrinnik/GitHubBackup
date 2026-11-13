@@ -28,8 +28,22 @@ public sealed class DiscoveryDecisionApplier(
         string gitPath,
         CancellationToken cancellationToken)
     {
-        var newItems = await DecideNewAsync(config, discovery, handler, cancellationToken);
-        var renames = await DecideRenamesAsync(config, discovery, handler, cancellationToken);
+        var newProposals = ProposeNew(config, discovery);
+        var renames = PlanRenames(config, discovery);
+        await handler.ReviewAsync(
+            new(
+                [.. newProposals.Select(item => item.Proposal)],
+                [.. renames.Select(rename => rename.Proposal)],
+                discovery.Missing,
+                discovery.Returned),
+            cancellationToken);
+
+        var newItems = await DecideNewAsync(newProposals, handler, cancellationToken);
+        foreach (var rename in renames)
+        {
+            rename.Requested = await handler.DecideRenameAsync(rename.Proposal, cancellationToken);
+        }
+
         var statusEntries = discovery.Missing.Select(item => (item, Status: RepositoryStatus.Unavailable))
             .Concat(discovery.Returned.Select(item => (item.Tracked, Status: RepositoryStatus.Active)))
             .Select(pair => (Entry: FindEntry(config, pair.Item1), pair.Status, Name: pair.Item1.FullName))
@@ -151,38 +165,51 @@ public sealed class DiscoveryDecisionApplier(
     }
 
     /// <summary>
-    /// Builds a proposal for every new repository and asks the handler about it, without changing anything.
+    /// Builds a proposal for every new repository, without changing anything.
     /// </summary>
     /// <param name="config">The configuration.</param>
     /// <param name="discovery">The classified repositories.</param>
-    /// <param name="handler">The handler that decides.</param>
-    /// <param name="cancellationToken">Cancels the decisions.</param>
-    /// <returns>The new repositories with their decisions, accounts first.</returns>
-    /// <exception cref="ArgumentException">
-    /// An account is not in the configuration, or a decision is not valid for its repository.
-    /// </exception>
-    private async Task<List<NewItem>> DecideNewAsync(
-        BackupConfig config, DiscoveryResult discovery, IDiscoveryDecisionHandler handler, CancellationToken cancellationToken)
+    /// <returns>The proposals with the tracked account of each, accounts first.</returns>
+    /// <exception cref="ArgumentException">An account is not in the configuration.</exception>
+    private List<NewProposal> ProposeNew(BackupConfig config, DiscoveryResult discovery)
     {
-        var items = new List<NewItem>();
+        var proposals = new List<NewProposal>();
         foreach (var item in discovery.NewInAccounts)
         {
             var account = FindAccount(config, item.AccountLogin)
                 ?? throw new ArgumentException($"The account '{item.AccountLogin}' is not in the configuration.", nameof(discovery));
             var folder = pathResolver.GetArchiveFolder(
                 config, account, new AccountRepositoryConfig { Name = item.Repository.Name, Id = item.Repository.Id });
-            var decision = await handler.DecideNewAsync(new(item.Repository, item.AccountLogin, folder), cancellationToken);
-            EnsureValid(decision, item.Repository, standalone: false);
-            items.Add(new(item.Repository, account, decision));
+            proposals.Add(new(new(item.Repository, item.AccountLogin, folder), account));
         }
 
         foreach (var repository in discovery.NewStandalone)
         {
             var folder = pathResolver.GetArchiveFolder(
                 config, new RepositoryConfig { Url = RepositoryUrl(repository.Owner, repository.Name), Id = repository.Id });
-            var decision = await handler.DecideNewAsync(new(repository, null, folder), cancellationToken);
-            EnsureValid(decision, repository, standalone: true);
-            items.Add(new(repository, null, decision));
+            proposals.Add(new(new(repository, null, folder), null));
+        }
+
+        return proposals;
+    }
+
+    /// <summary>
+    /// Asks the handler about every new repository, without changing anything.
+    /// </summary>
+    /// <param name="proposals">The proposals in the order to ask.</param>
+    /// <param name="handler">The handler that decides.</param>
+    /// <param name="cancellationToken">Cancels the decisions.</param>
+    /// <returns>The new repositories with their decisions, in the order of <paramref name="proposals"/>.</returns>
+    /// <exception cref="ArgumentException">A decision is not valid for its repository.</exception>
+    private static async Task<List<NewItem>> DecideNewAsync(
+        List<NewProposal> proposals, IDiscoveryDecisionHandler handler, CancellationToken cancellationToken)
+    {
+        var items = new List<NewItem>(proposals.Count);
+        foreach (var (proposal, account) in proposals)
+        {
+            var decision = await handler.DecideNewAsync(proposal, cancellationToken);
+            EnsureValid(decision, proposal.Repository, standalone: account is null);
+            items.Add(new(proposal.Repository, account, decision));
         }
 
         return items;
@@ -219,16 +246,13 @@ public sealed class DiscoveryDecisionApplier(
     }
 
     /// <summary>
-    /// Plans every rename and asks the handler about its archive folder, without changing anything.
+    /// Plans every rename, without asking about its archive folder and without changing anything.
     /// </summary>
     /// <param name="config">The configuration.</param>
     /// <param name="discovery">The classified repositories.</param>
-    /// <param name="handler">The handler that decides.</param>
-    /// <param name="cancellationToken">Cancels the decisions.</param>
     /// <returns>The planned renames in the order of <see cref="DiscoveryResult.Renamed"/>.</returns>
     /// <exception cref="ArgumentException">An entry is not in the configuration or a new name is not valid.</exception>
-    private async Task<List<RenamePlan>> DecideRenamesAsync(
-        BackupConfig config, DiscoveryResult discovery, IDiscoveryDecisionHandler handler, CancellationToken cancellationToken)
+    private List<RenamePlan> PlanRenames(BackupConfig config, DiscoveryResult discovery)
     {
         var plans = new List<RenamePlan>();
         foreach (var renamed in discovery.Renamed)
@@ -248,11 +272,10 @@ public sealed class DiscoveryDecisionApplier(
                 : pathResolver.GetArchiveFolder(
                     config, new RepositoryConfig { Url = RepositoryUrl(current.Owner, current.Name), Id = current.Id, Path = entry.Path });
 
-            var requested = await handler.DecideRenameAsync(new(renamed, currentFolder, renamedFolder), cancellationToken);
             plans.Add(new()
             {
                 Renamed = renamed,
-                Requested = requested,
+                Proposal = new(renamed, currentFolder, renamedFolder),
                 Entry = entry,
                 TargetAccount = targetAccount,
                 CurrentArchiveFolder = currentFolder,
@@ -465,6 +488,13 @@ public sealed class DiscoveryDecisionApplier(
     private sealed record NewItem(GitHubRepository Repository, AccountConfig? Account, NewRepositoryDecision Decision);
 
     /// <summary>
+    /// A new repository with the proposal the handler is shown, before the decision.
+    /// </summary>
+    /// <param name="Proposal">The proposal.</param>
+    /// <param name="Account">The tracked account it belongs to, or <see langword="null"/> for a standalone repository.</param>
+    private sealed record NewProposal(NewRepositoryProposal Proposal, AccountConfig? Account);
+
+    /// <summary>
     /// A configuration entry: a repository of an account or a standalone repository.
     /// </summary>
     /// <param name="Account">The account that lists the repository, or <see langword="null"/> for a standalone entry.</param>
@@ -532,8 +562,11 @@ public sealed class DiscoveryDecisionApplier(
         /// <summary>Gets the URL of the wiki under the new name.</summary>
         public required string NewWikiUrl { get; init; }
 
-        /// <summary>Gets the decision of the handler.</summary>
-        public required RenameDecision Requested { get; init; }
+        /// <summary>Gets what the handler is shown about the rename.</summary>
+        public required RenameProposal Proposal { get; init; }
+
+        /// <summary>Gets or sets the decision of the handler.</summary>
+        public RenameDecision Requested { get; set; }
 
         /// <summary>Gets or sets the decision carried out.</summary>
         public RenameDecision Applied { get; set; }
