@@ -34,13 +34,15 @@
   "enabledMcpjsonServers": [
     "context7",
     "microsoft-learn",
-    "nuget"
+    "nuget",
+    "netwright"
   ],
   "permissions": {
     "allow": [
       "mcp__context7",
       "mcp__microsoft-learn",
       "mcp__nuget",
+	  "mcp__netwright",
       "Bash(dotnet build *)",
       "Bash(dotnet test *)",
       "Bash(dotnet restore *)",

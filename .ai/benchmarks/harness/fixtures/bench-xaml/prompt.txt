@@ -1,0 +1,1 @@
+bench-xaml: read src/GitHubBackup.App/Views/MainWindow.xaml with the Read tool, then answer with one word: done.

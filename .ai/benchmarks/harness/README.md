@@ -22,9 +22,8 @@
 | `bench-base` | Размер контекста в начале сессии по областям: инструменты, системный промпт, `CLAUDE.md`, память, скиллы, агенты, MCP |
 | `bench-cs` | Сколько токенов добавляет чтение стабильного файла `Core` (`src/GitHubBackup.Core/ExitCode.cs`) вместе с правилами по путям, которые оно подтягивает (`csharp`, `security`) |
 | `bench-test` | То же для стабильного файла тестового проекта (`src/GitHubBackup.Core.Tests/Processes/ProcessResultTests.cs`; правила `csharp`, `tests`) |
+| `bench-xaml` | То же для стабильного файла XAML приложения (`src/GitHubBackup.App/Views/MainWindow.xaml`; правило `wpf-mvvm`) |
 | `quality-prd-first` | Следует ли ассистент правилу PRD-first: на запрос новой функции предлагает сначала изменить PRD, а не пишет код |
 | `quality-service-convention` | Проектирует ли ассистент новый сервис (очистка `<sourcesRoot>\.tmp\`, FR-7.4) по соглашениям репозитория: интерфейс в `Core`, регистрация в DI в методе слоя, `IFileSystem` и `TimeProvider`, XML-документация, тест в парном тестовом проекте. Когда сервис появится в решении, фикстуре нужна новая цель |
 | `quality-security` | Находит ли ревью безопасности семь уязвимостей, которые `seed.patch` подбрасывает в `GitClient`, `GitEnvironment`, `RepositoryPathResolver` и `SevenZipArchiver`: токен в аргументах git, в логе и в URL remote, нет `GIT_TERMINAL_PROMPT=0`, путь из имени репозитория без проверки границ, ветка с `-` в аргументах git, имя архива с выходом за пределы папки. Патч нужно обновлять, когда эти файлы меняются |
 | `quality-docs-sync` | Называет ли ассистент документы, которые нужно обновить, когда `seed.patch` добавляет параметр `backup --no-color` и настройку `Backup:CompressionLevel`: `docs/PRD.md` (FR-9.2, §7.2, версия и история) и `README.md`, без лишних документов. Патч нужно обновлять, когда меняются `CliCommandLine.cs`, `BackupOptions.cs`, `BackupOptionsValidator.cs` или `appsettings.json` CLI |
-
-Фикстура, которой нужен код решения и которая ещё не добавлена, — отдельный issue: #49 (F4.8).

@@ -43,3 +43,12 @@ paths:
 - Shared styles, colors and converters live in resource dictionaries merged in `App.xaml`, not repeated per view.
 - Every interactive element an automated UI test needs carries an `AutomationProperties.AutomationId`; names are stable, PascalCase and unique within the window.
 - User-visible text is English (NFR-7).
+
+## Verifying the running app
+
+- When an issue changes a window or view, its verify step also checks the visible acceptance items in the running app through the `netwright` MCP server, next to the ViewModel and FlaUI tests.
+- Launch with `desktop_app action=launch project=src/GitHubBackup.App/GitHubBackup.App.csproj`, target elements by AutomationId selectors (`#HomeMessage`), assert each item with `desktop_expect`, and close the app with `desktop_app action=close` when done.
+- Netwright 2.1.0 puts only `{"ok":true}` in `structuredContent`, and Claude Code shows that instead of the text result: snapshots, Change Reports and `pass:` lines arrive empty, while errors arrive in full. So a successful `desktop_expect` returns `{"ok":true}` and a failed one returns `EXPECTATION_FAILED` with the actual state; verify through `desktop_expect`, not by reading snapshots, and use `desktop_screenshot` when you need to see the window.
+- On a failure, read `desktop_logs` for the app's output and exception.
+- Never point the app at real repositories or a real token during verification; use a temporary content root, as the tests do.
+- The check records how an item was verified; it does not replace a test. A flow worth keeping becomes a FlaUI test in `GitHubBackup.App.UITests`.

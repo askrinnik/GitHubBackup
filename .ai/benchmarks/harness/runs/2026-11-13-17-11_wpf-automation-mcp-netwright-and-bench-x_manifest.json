@@ -1,0 +1,41 @@
+{
+  "run": "2026-11-13-17-11_wpf-automation-mcp-netwright-and-bench-x",
+  "note": "WPF automation MCP netwright and bench-xaml",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-13 17:11",
+  "commit": "b1ca9c87",
+  "dirty": "yes",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "da407425-3b73-4812-9697-bbdeb2d1c3a4",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "53a58792-734c-4d36-9761-b10826c56760",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "d05bece0-9012-4117-a80a-75dd3e0d7070",
+      "hash": "cdc276b0",
+      "judged": false
+    },
+    {
+      "test": "bench-xaml",
+      "rep": 1,
+      "session": "60347dc3-10c6-4ec8-8c40-5a31535a5052",
+      "hash": "4ba3cdec",
+      "judged": false
+    }
+  ]
+}
