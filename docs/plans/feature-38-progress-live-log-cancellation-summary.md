@@ -173,10 +173,10 @@
 - [ ] Проверка через Netwright
 
 Часть B:
-- [ ] Core: `BackupProgress`, `BackupProgressStage`, `BackupRunRequest.Progress`, `ChangeDetectionRequest.OperationProgress`
-- [ ] Core: отчёты в `ChangeDetector` и `BackupOrchestrator` + тесты
-- [ ] App: `IUiDispatcher`, `WpfUiDispatcher`, `UiProgress<T>`, DI + тесты
-- [ ] App: прогресс в `IBackupRunService`, `RepositoriesViewModel`, View + тесты
+- [x] Core: `BackupProgress`, `BackupProgressStage`, `BackupRunRequest.Progress`, `ChangeDetectionRequest.OperationProgress`
+- [x] Core: отчёты в `ChangeDetector` и `BackupOrchestrator` + тесты
+- [x] App: `IUiDispatcher`, `WpfUiDispatcher`, `UiProgress<T>`, DI + тесты
+- [x] App: прогресс в `IBackupRunService`, `RepositoriesViewModel`, View + тесты
 
 Часть C:
 - [ ] Infrastructure: `ILiveLogFeed`, `LiveLogEntry`, `LiveLogSink`, подключение + тесты

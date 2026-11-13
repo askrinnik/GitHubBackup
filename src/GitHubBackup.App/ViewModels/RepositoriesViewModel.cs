@@ -14,7 +14,8 @@ namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
 /// Backs the main screen: the tree of accounts and repositories of <c>backup-config.json</c> and the commands that
-/// start a backup of everything, of one account or of one repository, cancel it and show its summary.
+/// start a backup of everything, of one account or of one repository, show its progress, cancel it and show its
+/// summary.
 /// </summary>
 /// <remarks>
 /// The tree is read again before and after every run, so a run always reflects the file as it is on disk and the
@@ -22,6 +23,7 @@ namespace GitHubBackup.App.ViewModels;
 /// </remarks>
 /// <param name="overviewProvider">Reads the configuration and the dates of the last archives.</param>
 /// <param name="runService">Runs the backup.</param>
+/// <param name="uiDispatcher">Brings the progress reports of a run from the thread of the core to the UI thread.</param>
 /// <param name="dialogs">Shows an unexpected failure of a run and asks before the window closes during a run.</param>
 /// <param name="secretMasker">
 /// Masks secrets in exception messages before the window shows them, because an exception from a lower layer can
@@ -33,6 +35,7 @@ namespace GitHubBackup.App.ViewModels;
 public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
     IBackupRunService runService,
+    IUiDispatcher uiDispatcher,
     IDialogService dialogs,
     ISecretMasker secretMasker,
     IHostEnvironment environment,
@@ -82,6 +85,17 @@ public sealed partial class RepositoriesViewModel(
     [NotifyPropertyChangedFor(nameof(HasSummary))]
     private RunSummaryViewModel? _summary;
 
+    /// <summary>The current repository and operation of the run, or <see langword="null"/> when nothing is reported.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasProgress), nameof(ProgressRepository), nameof(ProgressOperation))]
+    private BackupProgress? _currentProgress;
+
+    /// <summary>
+    /// The number of the run whose progress the screen accepts; it changes when a run starts and when it ends, so a
+    /// report still queued on the UI thread from a finished run is dropped.
+    /// </summary>
+    private int _runNumber;
+
     /// <summary>Gets whether no run is in progress.</summary>
     public bool IsIdle => !IsRunning;
 
@@ -90,6 +104,37 @@ public sealed partial class RepositoriesViewModel(
 
     /// <summary>Gets whether a run summary is shown.</summary>
     public bool HasSummary => Summary is not null;
+
+    /// <summary>Gets whether the current repository or operation of a run is shown.</summary>
+    public bool HasProgress => CurrentProgress is not null;
+
+    /// <summary>
+    /// Gets the repository or wiki the run works on with its position, such as <c>owner/repo (2 of 5)</c>, or
+    /// <see langword="null"/> when the operation concerns no single repository.
+    /// </summary>
+    public string? ProgressRepository =>
+        CurrentProgress is { Repository: { } repository } progress
+            ? $"{repository} ({progress.Index} of {progress.Total})"
+            : null;
+
+    /// <summary>Gets the operation the run is busy with, or <see langword="null"/> when nothing is reported.</summary>
+    public string? ProgressOperation => CurrentProgress is { } progress ? DescribeStage(progress.Stage) : null;
+
+    /// <summary>
+    /// Returns the text the screen shows for an operation of a run.
+    /// </summary>
+    /// <param name="stage">The operation.</param>
+    /// <returns>The text.</returns>
+    public static string DescribeStage(BackupProgressStage stage) => stage switch
+    {
+        BackupProgressStage.Discovering => "Discovering repositories on GitHub",
+        BackupProgressStage.Preparing => "Preparing",
+        BackupProgressStage.CheckingRemote => "Checking the server for changes",
+        BackupProgressStage.Cloning => "Cloning",
+        BackupProgressStage.Fetching => "Fetching changes",
+        BackupProgressStage.Archiving => "Archiving",
+        _ => stage.ToString(),
+    };
 
     /// <inheritdoc />
     /// <remarks>
@@ -140,7 +185,8 @@ public sealed partial class RepositoriesViewModel(
     /// <remarks>
     /// A tree that cannot be read does not stop the run: the orchestrator reads the configuration itself, reports the
     /// error and records the run in the history, as the console application does. An unexpected failure has no
-    /// result to summarize, so it is shown in a dialog.
+    /// result to summarize, so it is shown in a dialog. The progress of the run is shown while it works and cleared when
+    /// it ends.
     /// </remarks>
     /// <param name="scope">The repositories the run covers.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
@@ -156,10 +202,13 @@ public sealed partial class RepositoriesViewModel(
         var dryRun = IsDryRun;
         IsRunning = true;
         Summary = null;
+        var run = ++_runNumber;
+        CurrentProgress = null;
+        var progress = new UiProgress<BackupProgress>(uiDispatcher, value => ShowProgress(run, value));
         try
         {
             await LoadAsync(cancellationToken);
-            var result = await runService.RunAsync(filter, dryRun, cancellationToken);
+            var result = await runService.RunAsync(filter, dryRun, progress, cancellationToken);
             Summary = RunSummaryViewModel.FromResult(result, GetLogPath(), secretMasker);
         }
         catch (OperationCanceledException)
@@ -174,8 +223,23 @@ public sealed partial class RepositoriesViewModel(
         }
         finally
         {
+            _runNumber++;
+            CurrentProgress = null;
             await LoadAsync(CancellationToken.None);
             IsRunning = false;
+        }
+    }
+
+    /// <summary>
+    /// Shows a progress report of the run <paramref name="run"/> unless that run has ended.
+    /// </summary>
+    /// <param name="run">The number of the run that reported.</param>
+    /// <param name="progress">The current repository and operation.</param>
+    private void ShowProgress(int run, BackupProgress progress)
+    {
+        if (run == _runNumber)
+        {
+            CurrentProgress = progress;
         }
     }
 

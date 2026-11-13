@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core.Git;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
 using Microsoft.Extensions.Logging;
@@ -30,6 +31,7 @@ public sealed class ChangeDetector(
         GitSyncResult sync;
         if (!cloneExists)
         {
+            request.OperationProgress?.Report(BackupProgressStage.Cloning);
             sync = await telemetry.TraceOperationAsync(
                 BackupTelemetry.CloneOperation,
                 () => gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken));
@@ -38,13 +40,14 @@ public sealed class ChangeDetector(
         {
             if (last is not null && !archiveMissing)
             {
-                var unchanged = await TryConfirmUnchangedAsync(request.Git, last, cancellationToken);
+                var unchanged = await TryConfirmUnchangedAsync(request, last, cancellationToken);
                 if (unchanged is not null)
                 {
                     return Log(request, unchanged);
                 }
             }
 
+            request.OperationProgress?.Report(BackupProgressStage.Fetching);
             sync = await telemetry.TraceOperationAsync(
                 BackupTelemetry.FetchOperation, () => gitClient.UpdateAsync(request.Git, cancellationToken));
         }
@@ -64,6 +67,7 @@ public sealed class ChangeDetector(
                 new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, RefSnapshot.Empty));
         }
 
+        request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
         var git = request.Git;
         var remote = await GetRemoteRefsAsync(git, cancellationToken);
         var sync = remote.HasBranches
@@ -183,7 +187,7 @@ public sealed class ChangeDetector(
     /// <summary>
     /// Compares the refs of the server and the branch to check out with the last archive, without fetching.
     /// </summary>
-    /// <param name="git">The clone and the requested branch.</param>
+    /// <param name="request">The request, with the clone, the requested branch and the receiver of progress.</param>
     /// <param name="last">The last archive, whose file exists.</param>
     /// <param name="cancellationToken">Cancels the git commands.</param>
     /// <returns>
@@ -191,8 +195,10 @@ public sealed class ChangeDetector(
     /// decide.
     /// </returns>
     private async Task<ChangeDetection?> TryConfirmUnchangedAsync(
-        GitRepositoryRequest git, ArchiveRecord last, CancellationToken cancellationToken)
+        ChangeDetectionRequest request, ArchiveRecord last, CancellationToken cancellationToken)
     {
+        request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
+        var git = request.Git;
         var remote = await GetRemoteRefsAsync(git, cancellationToken);
         if (!remote.Equals(last.Refs))
         {

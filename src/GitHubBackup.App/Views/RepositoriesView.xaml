@@ -52,6 +52,18 @@
                 </TextBlock.Style>
             </TextBlock>
         </StackPanel>
+        <StackPanel DockPanel.Dock="Top"
+                    Orientation="Horizontal"
+                    Margin="0,0,0,8"
+                    Visibility="{Binding HasProgress, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    AutomationProperties.AutomationId="RunProgress">
+            <TextBlock Text="{Binding ProgressRepository, Mode=OneWay}"
+                       FontWeight="SemiBold"
+                       Margin="0,0,12,0"
+                       AutomationProperties.AutomationId="RunProgressRepository" />
+            <TextBlock Text="{Binding ProgressOperation, Mode=OneWay}"
+                       AutomationProperties.AutomationId="RunProgressOperation" />
+        </StackPanel>
         <Border DockPanel.Dock="Bottom"
                 Margin="0,8,0,0"
                 Padding="0,8,0,0"

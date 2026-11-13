@@ -35,6 +35,7 @@ public sealed class MainWindowViewModelTests
         var repositories = new RepositoriesViewModel(
             Substitute.For<IRepositoryOverviewProvider>(),
             Substitute.For<IBackupRunService>(),
+            Substitute.For<IUiDispatcher>(),
             Substitute.For<IDialogService>(),
             new SecretMasker(),
             Substitute.For<IHostEnvironment>(),

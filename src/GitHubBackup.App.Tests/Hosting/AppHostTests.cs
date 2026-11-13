@@ -83,6 +83,14 @@ public sealed class AppHostTests : IDisposable
         host.Services.GetRequiredService<IBackupRunService>().ShouldBeOfType<BackupRunService>();
     }
 
+    [Fact]
+    public void BuildHost_UiDispatcher_IsWpfDispatcher()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IUiDispatcher>().ShouldBeOfType<WpfUiDispatcher>();
+    }
+
     /// <summary>
     /// Deletes the content root.
     /// </summary>

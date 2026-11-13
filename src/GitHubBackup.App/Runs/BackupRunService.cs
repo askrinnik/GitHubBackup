@@ -21,10 +21,16 @@ internal sealed class BackupRunService(
     IDiscoveryDecisionHandler decisionHandler) : IBackupRunService
 {
     /// <inheritdoc />
-    public Task<BackupRunResult> RunAsync(BackupRunFilter filter, bool dryRun, CancellationToken cancellationToken)
+    public Task<BackupRunResult> RunAsync(
+        BackupRunFilter filter, bool dryRun, IProgress<BackupProgress>? progress, CancellationToken cancellationToken)
     {
         runContext.BeginRun();
-        var request = new BackupRunRequest(filter, decisionHandler) { DryRun = dryRun, Mode = RunMode.Ui };
+        var request = new BackupRunRequest(filter, decisionHandler)
+        {
+            DryRun = dryRun,
+            Mode = RunMode.Ui,
+            Progress = progress,
+        };
         return Task.Run(() => orchestrator.RunAsync(request, cancellationToken));
     }
 }
