@@ -51,6 +51,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const int _temporaryFolderLeftUntouchedEventId = 19;
     private const int _repositoryMissingEventId = 20;
     private const int _runCancelledEventId = 21;
+    private const int _repositoryIdUnresolvedEventId = 22;
 
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
@@ -1741,6 +1742,280 @@ public sealed class BackupOrchestratorTests : IDisposable
         await _detector.Received(1).DetectAsync(
             Arg.Is<ChangeDetectionRequest>(request => request.OperationProgress != null), CancellationToken);
     }
+
+    [Fact]
+    public async Task Run_EntryWithoutId_FillsIdBeforeDiscoverySavesOnceAndBacksUp()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+        long? idAtDiscovery = null;
+        _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            idAtDiscovery = call.Arg<BackupConfig>().Repositories[0].Id;
+            return DiscoveryResult.Empty;
+        });
+        long? idAtSave = null;
+        _configStore.When(store => store.SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>()))
+            .Do(call => idAtSave = call.Arg<BackupConfig>().Repositories[0].Id);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBe([Reached(new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null))]);
+        result.SavedRepositoryIds.ShouldBe(["owner/repo"]);
+        idAtDiscovery.ShouldBe(9);
+        idAtSave.ShouldBe(9);
+        await _configStore.Received(1).SaveAsync(_config, CancellationToken);
+        await _stateStore.Received(1).AppendAsync(
+            @"C:\backup\owner\repo", 9, "owner/repo", BackupTarget.Repository, Arg.Any<ArchiveRecord>(), CancellationToken.None);
+        await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, CancellationToken);
+    }
+
+    [Fact]
+    public async Task Run_OnlyIdFilled_ExitCodeSuccess()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+
+        var result = await RunAsync();
+
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        result.Discovery.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Run_IdsAndDiscoveryChanges_SavedOnceByApplier()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+        long? idAtApply = null;
+        SetupApply(Applied(), config => idAtApply = config.Repositories[0].Id);
+
+        await RunAsync();
+
+        idAtApply.ShouldBe(9);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task Run_ApplierSavedNothing_SavesIds()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+        SetupApply(Applied() with { ConfigSaved = false });
+
+        await RunAsync();
+
+        await _configStore.Received(1).SaveAsync(_config, CancellationToken);
+    }
+
+    [Fact]
+    public async Task Run_NotFound_FailedOthersProcessedNoUnavailable()
+    {
+        _config.Repositories[0].Id = 0;
+        AddRepository("other");
+        SetupResolution(new([], ["owner/repo"], []));
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBe(
+        [
+            new("owner/repo", BackupItemStatus.Failed, null, TimeSpan.Zero, BackupOrchestrator.RepositoryNotFoundMessage),
+            Reached(new("owner/other", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null)),
+        ]);
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        _config.Repositories[0].Id.ShouldBe(0);
+        _config.Repositories[0].Status.ShouldBe(RepositoryStatus.Active);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+        await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>());
+        var record = SingleRecord(_repositoryIdUnresolvedEventId);
+        record.Level.ShouldBe(LogLevel.Error);
+        record.GetStructuredStateValue("Reason").ShouldBe(BackupOrchestrator.RepositoryNotFoundMessage);
+    }
+
+    [Fact]
+    public async Task Run_Conflict_FailedWithReasonAndIdNotWritten()
+    {
+        _config.Repositories[0].Id = 0;
+        const string reason = "The id 2 found on GitHub for owner/repo already belongs to owner/old in backup-config.json.";
+        SetupResolution(new([], [], [new("owner/repo", reason)]));
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.Failed, null, TimeSpan.Zero, reason)]);
+        _config.Repositories[0].Id.ShouldBe(0);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task Run_InteractiveNotDryRun_DoesNotAskConfirm()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+
+        await CreateOrchestrator().RunAsync(Request() with { Mode = RunMode.Interactive }, CancellationToken);
+
+        await _handler.DidNotReceiveWithAnyArgs().ConfirmIdSaveAsync(default!, CancellationToken);
+        _config.Repositories[0].Id.ShouldBe(9);
+    }
+
+    [Fact]
+    public async Task Run_RepoFilterEntryWithoutId_ResolvedWithoutDiscovery()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.Items.Select(item => item.Status).ShouldBe([BackupItemStatus.Archived]);
+        _config.Repositories[0].Id.ShouldBe(9);
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, CancellationToken);
+        await _configStore.Received(1).SaveAsync(_config, CancellationToken);
+    }
+
+    [Fact]
+    public async Task Run_AccountFilter_ResolvesOnlyThatAccount()
+    {
+        _config.Repositories[0].Id = 0;
+        _config.Accounts.Add(new() { Url = "https://github.com/octocat", Repositories = [new() { Name = "listed" }] });
+        _config.Accounts.Add(new() { Url = "https://github.com/other", Repositories = [new() { Name = "foreign" }] });
+        IReadOnlyList<BackupWorkItem>? resolvedItems = null;
+        _discovery.ResolveIdsAsync(Arg.Any<BackupConfig>(), Arg.Any<IReadOnlyList<BackupWorkItem>>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                resolvedItems = call.Arg<IReadOnlyList<BackupWorkItem>>();
+                return Resolved("octocat", "listed", 9, "octocat");
+            });
+
+        await RunAsync(BackupRunFilter.ForAccount("OctoCat"));
+
+        resolvedItems.ShouldNotBeNull().Select(item => item.FullName).ShouldBe(["octocat/listed"]);
+        _config.Accounts[0].Repositories[0].Id.ShouldBe(9);
+    }
+
+    [Fact]
+    public async Task Run_ExcludedEntryWithoutId_NotResolved()
+    {
+        _config.Repositories[0].Id = 0;
+        _config.Exclude.Add("owner/repo");
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBeEmpty();
+        await _discovery.DidNotReceiveWithAnyArgs().ResolveIdsAsync(default!, default!, CancellationToken);
+        await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData("rate-limit")]
+    [InlineData("unauthorized")]
+    [InlineData("server")]
+    public async Task Run_ResolveApiFailure_Critical(string kind)
+    {
+        _config.Repositories[0].Id = 0;
+        var failure = DiscoveryFailure(kind);
+        _discovery.ResolveIdsAsync(Arg.Any<BackupConfig>(), Arg.Any<IReadOnlyList<BackupWorkItem>>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<RepositoryIdResolution>(failure));
+
+        var result = await RunAsync();
+
+        result.CriticalErrors.ShouldBe([failure.Message]);
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Run_CancelledDuringResolveOrQuestion_CancelledWithoutSave(bool dryRun)
+    {
+        _config.Repositories[0].Id = 0;
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        if (dryRun)
+        {
+            SetupResolution(Resolved("owner", "repo", 9));
+            _handler.ConfirmIdSaveAsync(Arg.Any<RepositoryIdProposal>(), Arg.Any<CancellationToken>()).Returns(_ =>
+            {
+                cancellation.Cancel();
+                return Task.FromException<bool>(new OperationCanceledException(cancellation.Token));
+            });
+        }
+        else
+        {
+            _discovery.ResolveIdsAsync(Arg.Any<BackupConfig>(), Arg.Any<IReadOnlyList<BackupWorkItem>>(), Arg.Any<CancellationToken>())
+                .Returns(_ =>
+                {
+                    cancellation.Cancel();
+                    return Task.FromException<RepositoryIdResolution>(new OperationCanceledException(cancellation.Token));
+                });
+        }
+
+        var result = await CreateOrchestrator().RunAsync(Request() with { DryRun = dryRun }, cancellation.Token);
+
+        result.IsCancelled.ShouldBeTrue();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task DryRun_ConfirmYes_SavesOnlyConfirmedIds()
+    {
+        _config.Repositories[0].Id = 0;
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/other" });
+        SetupResolution(new([Resolved("owner", "repo", 9).Resolved[0], Resolved("owner", "other", 10).Resolved[0]], [], []));
+        _handler.ConfirmIdSaveAsync(new("owner/repo", 9), Arg.Any<CancellationToken>()).Returns(true);
+        _handler.ConfirmIdSaveAsync(new("owner/other", 10), Arg.Any<CancellationToken>()).Returns(false);
+        long[]? idsAtSave = null;
+        _configStore.When(store => store.SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>()))
+            .Do(call => idsAtSave = [.. call.Arg<BackupConfig>().Repositories.Select(repository => repository.Id)]);
+        SetupPreview(ChangeDecision.CloneNeeded);
+
+        var result = await DryRunAsync();
+
+        idsAtSave.ShouldBe([9, 0]);
+        await _configStore.Received(1).SaveAsync(_config, CancellationToken);
+        result.SavedRepositoryIds.ShouldBe(["owner/repo"]);
+        result.Items.Select(item => item.Status).ShouldBe([BackupItemStatus.WouldClone, BackupItemStatus.WouldClone]);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task DryRun_ConfirmNo_NoSaveItemChecked()
+    {
+        _config.Repositories[0].Id = 0;
+        SetupResolution(Resolved("owner", "repo", 9));
+        _handler.ConfirmIdSaveAsync(Arg.Any<RepositoryIdProposal>(), Arg.Any<CancellationToken>()).Returns(false);
+        SetupPreview(ChangeDecision.CloneNeeded);
+
+        var result = await DryRunAsync();
+
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+        result.SavedRepositoryIds.ShouldBeEmpty();
+        result.Items.ShouldBe([new("owner/repo", BackupItemStatus.WouldClone, null, TimeSpan.FromSeconds(5), null)]);
+        await _stateStore.Received(1).LoadAsync(@"C:\backup\owner\repo", 9, "owner/repo", Arg.Any<CancellationToken>());
+        await _handler.Received(1).ConfirmIdSaveAsync(new("owner/repo", 9), Arg.Any<CancellationToken>());
+    }
+
+    /// <summary>
+    /// Makes the lookup of the entries without an ID return <paramref name="resolution"/>.
+    /// </summary>
+    /// <param name="resolution">The outcome of the lookups.</param>
+    private void SetupResolution(RepositoryIdResolution resolution) =>
+        _discovery.ResolveIdsAsync(Arg.Any<BackupConfig>(), Arg.Any<IReadOnlyList<BackupWorkItem>>(), Arg.Any<CancellationToken>())
+            .Returns(resolution);
+
+    /// <summary>
+    /// Creates the outcome of a lookup that found one ID.
+    /// </summary>
+    /// <param name="owner">The owner of the entry.</param>
+    /// <param name="name">The name of the entry.</param>
+    /// <param name="id">The ID found.</param>
+    /// <param name="accountLogin">The account that lists the entry, or <see langword="null"/> for a standalone entry.</param>
+    /// <returns>The outcome.</returns>
+    private static RepositoryIdResolution Resolved(string owner, string name, long id, string? accountLogin = null) =>
+        new([new(owner, name, accountLogin, Repository(id, owner, name))], [], []);
 
     /// <summary>
     /// Adds the branch <c>main</c> and its commit from <see cref="_refs"/> to an expected result, and every ref of

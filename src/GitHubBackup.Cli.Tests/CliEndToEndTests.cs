@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using GitHubBackup.Core;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Runs;
@@ -222,6 +223,87 @@ public sealed class CliEndToEndTests : IDisposable
         _api.Dispose();
         _sandbox.Dispose();
     }
+
+    [Fact]
+    public async Task Backup_SilentEntryWithoutId_WritesIdArchivesExitsSuccess()
+    {
+        await _sandbox.CreateRemoteAsync($"{_owner}/a", CancellationToken);
+        GivenCurrentUserRepository("a", 5);
+        _config.WithRepositoryWithoutId(_owner, "a").WriteTo(_installation.BackupConfigPath);
+        var before = await ReadBackupConfigAsync();
+
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ShouldContain(nameof(BackupItemStatus.Archived));
+        StandaloneIds(await ReadBackupConfigAsync()).ShouldBe([5]);
+        (await File.ReadAllTextAsync(_installation.BackupConfigPath + ".bak", CancellationToken)).ShouldBe(before);
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Backup_SilentEntryWithoutIdNotOnGitHub_FailedWithoutIdOthersArchived()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        _config.WithRepositoryWithoutId(_owner, "ghost").WriteTo(_installation.BackupConfigPath);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.RepositoriesFailed, result.ToString());
+        result.StandardOutput.ShouldContain(nameof(BackupItemStatus.Failed));
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+        _installation.FindArchives(_owner, "ghost").ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("backup", "--dry-run")]
+    [InlineData("backup", "--dry-run", "--silent")]
+    public async Task Backup_DryRunRedirectedOrSilentEntryWithoutId_WritesOnlyId(params string[] arguments)
+    {
+        await _sandbox.CreateRemoteAsync($"{_owner}/a", CancellationToken);
+        GivenCurrentUserRepository("a", 5);
+        _config.WithRepositoryWithoutId(_owner, "a").WriteTo(_installation.BackupConfigPath);
+        var before = JsonNode.Parse(await ReadBackupConfigAsync());
+
+        var result = await _installation.RunAsync(arguments);
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ReplaceLineEndings(string.Empty).ShouldContain(BackupSummaryRenderer.DryRunSavedIdsHeader);
+        result.StandardOutput.ShouldContain(nameof(BackupItemStatus.WouldClone));
+        var saved = JsonNode.Parse(await ReadBackupConfigAsync()).ShouldNotBeNull();
+        var entry = saved["repositories"].ShouldNotBeNull()[0].ShouldNotBeNull().AsObject();
+        entry["id"].ShouldNotBeNull().GetValue<long>().ShouldBe(5);
+        entry.Remove("id");
+        JsonNode.DeepEquals(saved, before).ShouldBeTrue(saved.ToJsonString());
+        Directory.Exists(_installation.SourcesPath).ShouldBeFalse();
+        _installation.FindArchives().ShouldBeEmpty();
+        _installation.FindStateFiles().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Validate_EntryWithoutId_ExitsSuccess()
+    {
+        _config.WithRepositoryWithoutId(_owner, "a").WriteTo(_installation.BackupConfigPath);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("validate");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
+    /// <summary>
+    /// Returns the <c>id</c> of each standalone repository of a configuration, <c>0</c> for an entry without one.
+    /// </summary>
+    /// <param name="json">The text of <c>backup-config.json</c>.</param>
+    /// <returns>The ids in file order.</returns>
+    private static long[] StandaloneIds(string json) =>
+    [
+        .. JsonNode.Parse(json).ShouldNotBeNull()["repositories"].ShouldNotBeNull().AsArray()
+            .Select(entry => entry?["id"]?.GetValue<long>() ?? 0),
+    ];
 
     /// <summary>
     /// Creates a bare repository with one commit per name, serves each through the API and the list of the token's

@@ -13,7 +13,8 @@ namespace GitHubBackup.Cli;
 /// <remarks>
 /// With <c>--silent</c>, discovered repositories are decided by <see cref="AutomaticDiscoveryDecisionHandler"/>;
 /// otherwise <see cref="ConsoleDiscoveryDecisionHandler"/> asks in the console, which needs a console whose input is
-/// not redirected. With <c>--dry-run</c> nothing is decided, so nobody is asked and redirected input is fine.
+/// not redirected. With <c>--dry-run</c> discovery decides nothing; the only question is whether to write an ID found
+/// for an entry without one, which redirected input answers "yes" without asking, so redirected input is fine.
 /// </remarks>
 /// <param name="orchestrator">Runs the backup.</param>
 /// <param name="automaticHandler">Decides about new and renamed repositories without asking.</param>

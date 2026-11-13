@@ -37,6 +37,26 @@ public sealed class DeferredDiscoveryDecisionHandlerTests
         decision.ShouldBe(RenameDecision.KeepArchiveFolder);
     }
 
+    [Fact]
+    public async Task ConfirmIdSaveAsync_ReturnsTrue()
+    {
+        var save = await _handler.ConfirmIdSaveAsync(new("octo/tool", 7), TestContext.Current.CancellationToken);
+
+        save.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ConfirmIdSaveAsync_CancelledToken_ReturnsCanceledTask()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var task = _handler.ConfirmIdSaveAsync(new("octo/tool", 7), cancellation.Token);
+
+        task.IsCanceled.ShouldBeTrue();
+        await Should.ThrowAsync<OperationCanceledException>(() => task);
+    }
+
     [Theory]
     [InlineData(true)]
     [InlineData(false)]

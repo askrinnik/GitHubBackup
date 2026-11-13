@@ -26,4 +26,14 @@ public interface IDiscoveryDecisionHandler
     /// <returns>The decision.</returns>
     /// <exception cref="OperationCanceledException">The user or <paramref name="cancellationToken"/> cancelled.</exception>
     Task<RenameDecision> DecideRenameAsync(RenameProposal proposal, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Decides whether a dry run writes the ID found for an entry without one to <c>backup-config.json</c>.
+    /// </summary>
+    /// <remarks>A backup run writes the ID without asking.</remarks>
+    /// <param name="proposal">The entry and the ID found for it.</param>
+    /// <param name="cancellationToken">Cancels the decision.</param>
+    /// <returns><see langword="true"/> to write the ID; <see langword="false"/> keeps it in memory for the run.</returns>
+    /// <exception cref="OperationCanceledException">The user or <paramref name="cancellationToken"/> cancelled.</exception>
+    Task<bool> ConfirmIdSaveAsync(RepositoryIdProposal proposal, CancellationToken cancellationToken);
 }

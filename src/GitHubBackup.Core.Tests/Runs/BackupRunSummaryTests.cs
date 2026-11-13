@@ -77,6 +77,21 @@ public sealed class BackupRunSummaryTests
         ]);
     }
 
+    [Theory]
+    [InlineData(false, BackupRunSummary.DryRunHeader)]
+    [InlineData(true, BackupRunSummary.DryRunSavedIdsHeader)]
+    public void GetDryRunHeader_SavedIds_NamesOnlyWhatWasSaved(bool savedIds, string expected)
+    {
+        var result = new BackupRunResult([], [], []) { IsDryRun = true, SavedRepositoryIds = savedIds ? ["octo/tool"] : [] };
+
+        BackupRunSummary.GetDryRunHeader(result).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void DryRunSavedIdsHeader_Text_SaysOnlyIdsWereSaved() =>
+        BackupRunSummary.DryRunSavedIdsHeader.ShouldBe(
+            "Dry run: nothing was cloned, updated or archived; only the missing repository ids were saved to backup-config.json.");
+
     [Fact]
     public void DescribeDiscovery_Empty_ReturnsNoLine() =>
         BackupRunSummary.DescribeDiscovery(DiscoveryResult.Empty).ShouldBeEmpty();

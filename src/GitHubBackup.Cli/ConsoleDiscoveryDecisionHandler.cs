@@ -6,11 +6,14 @@ using Spectre.Console;
 namespace GitHubBackup.Cli;
 
 /// <summary>
-/// Asks the user in the console about each new and each renamed repository.
+/// Asks the user in the console about each new and each renamed repository, and in a dry run about each ID found for
+/// an entry without one.
 /// </summary>
 /// <remarks>
 /// Every value that comes from GitHub or from the configuration is shown as plain text, so Spectre.Console never
-/// reads it as markup. The questions need an interactive console; the caller checks that before running discovery.
+/// reads it as markup. The questions about discovered repositories need an interactive console; the caller checks that
+/// before running discovery. A dry run may run with redirected input, so the question about an ID is answered "yes"
+/// without asking then.
 /// </remarks>
 /// <param name="console">The outputs of the console application.</param>
 internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDiscoveryDecisionHandler
@@ -96,6 +99,22 @@ internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDis
             .DefaultValue(RenameDecision.KeepArchiveFolder)
             .UseConverter(Describe)
             .ShowAsync(output, cancellationToken);
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> ConfirmIdSaveAsync(RepositoryIdProposal proposal, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (console.IsInputRedirected)
+        {
+            return true;
+        }
+
+        var question = string.Create(
+            CultureInfo.InvariantCulture,
+            $"ID is missing for {proposal.FullName}; found {proposal.Id}. Save it to backup-config.json?");
+        return await new ConfirmationPrompt(Markup.Escape(question)) { DefaultValue = true }
+            .ShowAsync(console.Output, cancellationToken);
     }
 
     /// <summary>

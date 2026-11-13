@@ -103,6 +103,16 @@ public sealed class RunSummaryViewModelTests
     }
 
     [Fact]
+    public void FromResult_DryRunSavedIds_ShowsSavedIdsHeader()
+    {
+        var result = new BackupRunResult([], [], []) { IsDryRun = true, SavedRepositoryIds = ["octo/tool"] };
+
+        var summary = RunSummaryViewModel.FromResult(result, _logPath, _masker);
+
+        summary.Header.ShouldBe(BackupRunSummary.DryRunSavedIdsHeader);
+    }
+
+    [Fact]
     public void FromResult_Cancelled_ShowsCancelledAndSkippedRowsCancelLineAndCancelledTotal()
     {
         var result = new BackupRunResult(

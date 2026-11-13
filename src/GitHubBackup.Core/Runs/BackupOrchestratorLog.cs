@@ -225,4 +225,15 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Warning,
         Message = "The backup run was cancelled: {Processed} items finished, {NotProcessed} repositories not processed")]
     public static partial void RunCancelled(ILogger logger, int processed, int notProcessed);
+
+    /// <summary>
+    /// Logs that a repository without an ID is not backed up because its ID could not be resolved.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="reason">Why the ID could not be resolved.</param>
+    [LoggerMessage(
+        EventId = 22,
+        Level = LogLevel.Error,
+        Message = "The repository has no id in backup-config.json and is not backed up: {Reason}")]
+    public static partial void RepositoryIdUnresolved(ILogger logger, string reason);
 }

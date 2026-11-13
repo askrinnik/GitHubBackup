@@ -30,7 +30,9 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="runLock">Keeps a second run from starting while this one works.</param>
 /// <param name="pathResolver">Resolves the archive, clone and temporary folders.</param>
 /// <param name="exclusionMatcher">Finds the repositories of the list that an exclusion mask removes from the run.</param>
-/// <param name="discoveryService">Finds new, missing and renamed repositories.</param>
+/// <param name="discoveryService">
+/// Finds the IDs of the entries that have none, and new, missing and renamed repositories.
+/// </param>
 /// <param name="decisionApplier">Applies the decisions about discovered repositories to the configuration.</param>
 /// <param name="remoteUrlProvider">Supplies the URL git clones each repository and wiki from.</param>
 /// <param name="gitHubApi">
@@ -74,6 +76,9 @@ public sealed class BackupOrchestrator(
 
     /// <summary>The message of each repository that a cancelled run did not start.</summary>
     public const string NotProcessedMessage = "Not processed: the run was cancelled.";
+
+    /// <summary>The message of an entry without an ID that GitHub does not know or does not show.</summary>
+    public const string RepositoryNotFoundMessage = "The repository was not found on GitHub.";
 
     /// <inheritdoc />
     /// <remarks>
@@ -172,9 +177,14 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Runs the part of the backup that needs the lock: empties the folder of temporary archives, discovers, applies the
-    /// decisions and processes the repositories.
+    /// Runs the part of the backup that needs the lock: empties the folder of temporary archives, resolves the missing
+    /// IDs, discovers, applies the decisions and processes the repositories.
     /// </summary>
+    /// <remarks>
+    /// IDs are resolved before discovery, so discovery compares every resolved entry by its ID. A backup run writes the
+    /// IDs together with the decisions in one save, so <c>backup-config.json.bak</c> keeps the file as it was before
+    /// the run; a dry run writes only the IDs the decision handler confirms.
+    /// </remarks>
     /// <param name="request">The repositories the run covers, the handler of discovery decisions and the mode.</param>
     /// <param name="run">The span of the run, or <see langword="null"/>.</param>
     /// <param name="loaded">The configuration and its warnings.</param>
@@ -211,10 +221,21 @@ public sealed class BackupOrchestrator(
 
         DiscoveryResult discovery;
         DiscoveryApplyResult? applied = null;
+        RepositoryIdResolution resolution;
+        IReadOnlyList<string> savedIds;
         using (var discoveryActivity = filter.IsRepository ? null : telemetry.StartDiscovery())
         {
             try
             {
+                resolution = await ResolveIdsAsync(config, items, filter, cancellationToken);
+                savedIds = dryRun
+                    ? await SetIdsForDryRunAsync(config, resolution, request.DecisionHandler, cancellationToken)
+                    : SetIds(config, resolution.Resolved);
+                if (resolution.Resolved.Count > 0)
+                {
+                    items = BackupWorkItem.CreateAll(config, pathResolver);
+                }
+
                 discovery = await DiscoverAsync(config, filter, request.Progress, cancellationToken);
 
                 // The applier always saves the configuration and may move folders, so a dry run only shows what
@@ -224,6 +245,11 @@ public sealed class BackupOrchestrator(
                     applied = await decisionApplier.ApplyAsync(
                         config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
                     items = BackupWorkItem.CreateAll(config, pathResolver);
+                }
+
+                if (!dryRun && savedIds.Count > 0 && applied?.ConfigSaved != true)
+                {
+                    await configStore.SaveAsync(config, cancellationToken);
                 }
             }
             catch (BackupConfigException exception)
@@ -250,7 +276,9 @@ public sealed class BackupOrchestrator(
         var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress);
         var work = ExcludeMatching(config, SelectIncluded(items, filter));
         var results = new List<BackupItemResult>(work.Count);
-        var cancelled = await ProcessAllAsync(work, missing, discovery.Repositories, settings, results, cancellationToken);
+        var unresolved = GetUnresolved(resolution);
+        var discovered = MergeResolved(discovery.Repositories, resolution);
+        var cancelled = await ProcessAllAsync(work, missing, unresolved, discovered, settings, results, cancellationToken);
 
         foreach (var repository in applied?.Skipped ?? [])
         {
@@ -264,8 +292,152 @@ public sealed class BackupOrchestrator(
                 IsDryRun = true,
                 PlannedDiscovery = discovery.HasChanges ? discovery : null,
                 IsCancelled = cancelled,
+                SavedRepositoryIds = savedIds,
             }
-            : new(results, loaded.Warnings, []) { Discovery = applied, IsCancelled = cancelled };
+            : new(results, loaded.Warnings, [])
+            {
+                Discovery = applied,
+                IsCancelled = cancelled,
+                SavedRepositoryIds = savedIds,
+            };
+    }
+
+    /// <summary>
+    /// Looks up by name the entries without an ID that the run covers: those the filter keeps and no exclusion mask
+    /// matches.
+    /// </summary>
+    /// <param name="config">The configuration.</param>
+    /// <param name="items">The repositories of the configuration.</param>
+    /// <param name="filter">The filter of the run.</param>
+    /// <param name="cancellationToken">Cancels the lookups.</param>
+    /// <returns>The outcome, or <see cref="RepositoryIdResolution.Empty"/> when no entry of the run lacks an ID.</returns>
+    /// <exception cref="GitHubApiException">A lookup failed for another reason than 404 or 403.</exception>
+    private async Task<RepositoryIdResolution> ResolveIdsAsync(
+        BackupConfig config, IReadOnlyList<BackupWorkItem> items, BackupRunFilter filter, CancellationToken cancellationToken)
+    {
+        List<BackupWorkItem> withoutId =
+        [
+            .. items.Where(item =>
+                item.Id == 0 && filter.Includes(item) && exclusionMatcher.Match(config, item.Owner, item.Name) is null),
+        ];
+        return withoutId.Count == 0
+            ? RepositoryIdResolution.Empty
+            : await discoveryService.ResolveIdsAsync(config, withoutId, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sets every resolved ID in the configuration.
+    /// </summary>
+    /// <param name="config">The configuration to change.</param>
+    /// <param name="resolved">The resolved IDs.</param>
+    /// <returns>The <c>owner/name</c> of each entry whose ID was set.</returns>
+    private static List<string> SetIds(BackupConfig config, IEnumerable<ResolvedRepositoryId> resolved)
+    {
+        var set = new List<string>();
+        foreach (var entry in resolved)
+        {
+            if (BackupConfigEntries.SetId(config, entry.AccountLogin, entry.Owner, entry.Name, entry.Repository.Id))
+            {
+                set.Add(entry.FullName);
+            }
+        }
+
+        return set;
+    }
+
+    /// <summary>
+    /// Asks about every resolved ID, writes the confirmed ones to <c>backup-config.json</c> and keeps the others in
+    /// memory for the rest of the dry run.
+    /// </summary>
+    /// <remarks>
+    /// Every answer is collected before the file is written, so a cancelled question leaves the file unchanged. The
+    /// IDs kept in memory are set after the save, so the file holds only the confirmed ones.
+    /// </remarks>
+    /// <param name="config">The configuration, which a dry run changes in no other way.</param>
+    /// <param name="resolution">The resolved IDs.</param>
+    /// <param name="handler">Confirms each ID.</param>
+    /// <param name="cancellationToken">Cancels the questions and the save.</param>
+    /// <returns>The <c>owner/name</c> of each entry whose ID was written.</returns>
+    private async Task<IReadOnlyList<string>> SetIdsForDryRunAsync(
+        BackupConfig config,
+        RepositoryIdResolution resolution,
+        IDiscoveryDecisionHandler handler,
+        CancellationToken cancellationToken)
+    {
+        var confirmed = new List<ResolvedRepositoryId>();
+        var declined = new List<ResolvedRepositoryId>();
+        foreach (var entry in resolution.Resolved)
+        {
+            var save = await handler.ConfirmIdSaveAsync(new(entry.FullName, entry.Repository.Id), cancellationToken);
+            (save ? confirmed : declined).Add(entry);
+        }
+
+        var saved = SetIds(config, confirmed);
+        if (saved.Count > 0)
+        {
+            await configStore.SaveAsync(config, cancellationToken);
+        }
+
+        SetIds(config, declined);
+        return saved;
+    }
+
+    /// <summary>
+    /// Returns the error of each entry whose missing ID could not be resolved, by <c>owner/name</c>.
+    /// </summary>
+    /// <param name="resolution">The outcome of the lookups.</param>
+    /// <returns>The errors, keyed without regard to case.</returns>
+    private static Dictionary<string, string> GetUnresolved(RepositoryIdResolution resolution)
+    {
+        var unresolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var fullName in resolution.NotFound)
+        {
+            unresolved.TryAdd(fullName, RepositoryNotFoundMessage);
+        }
+
+        foreach (var conflict in resolution.Conflicts)
+        {
+            unresolved.TryAdd(conflict.FullName, conflict.Reason);
+        }
+
+        return unresolved;
+    }
+
+    /// <summary>
+    /// Adds the repositories found while resolving IDs to the repositories discovery reported, so the wiki of a
+    /// resolved entry needs no second request.
+    /// </summary>
+    /// <param name="discovered">The repositories discovery reported, by ID.</param>
+    /// <param name="resolution">The outcome of the lookups.</param>
+    /// <returns>The repositories by ID.</returns>
+    private static IReadOnlyDictionary<long, GitHubRepository> MergeResolved(
+        IReadOnlyDictionary<long, GitHubRepository> discovered, RepositoryIdResolution resolution)
+    {
+        if (resolution.Resolved.Count == 0)
+        {
+            return discovered;
+        }
+
+        var merged = new Dictionary<long, GitHubRepository>(discovered);
+        foreach (var entry in resolution.Resolved)
+        {
+            merged.TryAdd(entry.Repository.Id, entry.Repository);
+        }
+
+        return merged;
+    }
+
+    /// <summary>
+    /// Reports an entry whose missing ID could not be resolved as failed; its wiki is not processed either.
+    /// </summary>
+    /// <param name="item">The entry.</param>
+    /// <param name="message">Why the ID could not be resolved.</param>
+    /// <returns>The result of the entry.</returns>
+    private BackupItemResult FailUnresolved(BackupWorkItem item, string message)
+    {
+        using var scope = logger.BeginRepositoryScope(item.FullName);
+        BackupOrchestratorLog.RepositoryIdUnresolved(logger, message);
+        return new(item.FullName, BackupItemStatus.Failed, null, TimeSpan.Zero, message);
     }
 
     /// <summary>
@@ -278,6 +450,9 @@ public sealed class BackupOrchestrator(
     /// </remarks>
     /// <param name="work">The repositories to process.</param>
     /// <param name="missing">The ids of the repositories a dry run finds missing on GitHub.</param>
+    /// <param name="unresolved">
+    /// The error of each entry whose missing ID could not be resolved, by <c>owner/name</c>.
+    /// </param>
     /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="results">Receives the result of each repository and wiki.</param>
@@ -286,6 +461,7 @@ public sealed class BackupOrchestrator(
     private async Task<bool> ProcessAllAsync(
         List<BackupWorkItem> work,
         HashSet<long> missing,
+        Dictionary<string, string> unresolved,
         IReadOnlyDictionary<long, GitHubRepository> discovered,
         RunSettings settings,
         List<BackupItemResult> results,
@@ -303,6 +479,12 @@ public sealed class BackupOrchestrator(
 
             var stages = ItemProgress.Create(settings.Progress, item.FullName, index + 1, work.Count);
             stages?.Report(BackupProgressStage.Preparing);
+
+            if (item.Id == 0 && unresolved.TryGetValue(item.FullName, out var reason))
+            {
+                results.Add(FailUnresolved(item, reason));
+                continue;
+            }
 
             if (missing.Contains(item.Id))
             {
