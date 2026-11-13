@@ -10,6 +10,7 @@ using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
+using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
@@ -182,6 +183,22 @@ public sealed class CoreServiceCollectionExtensionsTests
         var handler = provider.GetRequiredService<AutomaticDiscoveryDecisionHandler>();
 
         provider.GetRequiredService<AutomaticDiscoveryDecisionHandler>().ShouldBeSameAs(handler);
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_RepositoryOverviewProvider_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(Substitute.For<IBackupConfigStore>())
+            .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton(Substitute.For<IRepositoryPathResolver>())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var overviewProvider = provider.GetRequiredService<IRepositoryOverviewProvider>();
+
+        overviewProvider.ShouldBeOfType<RepositoryOverviewProvider>();
+        provider.GetRequiredService<IRepositoryOverviewProvider>().ShouldBeSameAs(overviewProvider);
     }
 
     [Fact]

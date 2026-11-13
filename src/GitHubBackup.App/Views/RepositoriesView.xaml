@@ -1,0 +1,84 @@
+<UserControl x:Class="GitHubBackup.App.Views.RepositoriesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance Type=vm:RepositoriesViewModel}"
+             Loaded="OnLoaded">
+    <DockPanel Margin="8">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <Button Content="Backup all"
+                    Command="{Binding StartBackupCommand, Mode=OneWay}"
+                    CommandParameter="{x:Static vm:BackupScope.All}"
+                    Padding="8,2" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="BackupAllButton" />
+            <Button Content="Backup account"
+                    Command="{Binding StartBackupCommand, Mode=OneWay}"
+                    CommandParameter="{x:Static vm:BackupScope.Account}"
+                    Padding="8,2" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="BackupAccountButton" />
+            <Button Content="Backup repository"
+                    Command="{Binding StartBackupCommand, Mode=OneWay}"
+                    CommandParameter="{x:Static vm:BackupScope.Repository}"
+                    Padding="8,2" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="BackupRepositoryButton" />
+            <ToggleButton Content="Dry run"
+                          IsChecked="{Binding IsDryRun, Mode=TwoWay}"
+                          IsEnabled="{Binding IsIdle, Mode=OneWay}"
+                          Padding="8,2"
+                          AutomationProperties.AutomationId="DryRunToggle" />
+        </StackPanel>
+        <TextBlock DockPanel.Dock="Bottom"
+                   Text="{Binding LastRunMessage, Mode=OneWay}"
+                   Margin="0,8,0,0"
+                   TextWrapping="Wrap"
+                   AutomationProperties.AutomationId="LastRunMessage" />
+        <Grid>
+            <TreeView ItemsSource="{Binding Nodes, Mode=OneWay}"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      VirtualizingPanel.VirtualizationMode="Recycling"
+                      AutomationProperties.AutomationId="RepositoryTree">
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName, Mode=OneWay}" />
+                    </Style>
+                </TreeView.ItemContainerStyle>
+                <TreeView.Resources>
+                    <HierarchicalDataTemplate DataType="{x:Type vm:AccountNodeViewModel}"
+                                              ItemsSource="{Binding Children, Mode=OneWay}">
+                        <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
+                    </HierarchicalDataTemplate>
+                    <HierarchicalDataTemplate DataType="{x:Type vm:RepositoryGroupNodeViewModel}"
+                                              ItemsSource="{Binding Children, Mode=OneWay}">
+                        <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
+                    </HierarchicalDataTemplate>
+                    <DataTemplate DataType="{x:Type vm:RepositoryNodeViewModel}">
+                        <StackPanel Orientation="Horizontal"
+                                    ToolTip="{Binding StateError, Mode=OneWay}">
+                            <TextBlock Text="{Binding DisplayName, Mode=OneWay}" MinWidth="200" />
+                            <TextBlock Text="{Binding Status, Mode=OneWay}" MinWidth="90" Margin="12,0,0,0" />
+                            <TextBlock Text="{Binding LastArchiveText, Mode=OneWay}" Margin="12,0,0,0" />
+                        </StackPanel>
+                    </DataTemplate>
+                </TreeView.Resources>
+            </TreeView>
+            <TextBlock Text="{Binding LoadError, Mode=OneWay}"
+                       Visibility="{Binding HasLoadError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                       Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
+                       Foreground="Firebrick"
+                       Padding="8"
+                       TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="TreeLoadError" />
+            <TextBlock Text="backup-config.json lists no accounts and no repositories."
+                       Visibility="{Binding IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
+                       TextWrapping="Wrap"
+                       AutomationProperties.AutomationId="EmptyTreeMessage" />
+        </Grid>
+    </DockPanel>
+</UserControl>

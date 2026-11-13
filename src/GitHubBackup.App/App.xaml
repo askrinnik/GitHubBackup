@@ -6,8 +6,9 @@
              ShutdownMode="OnExplicitShutdown">
     <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes. -->
     <Application.Resources>
-        <DataTemplate DataType="{x:Type vm:HomeViewModel}">
-            <views:HomeView />
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <DataTemplate DataType="{x:Type vm:RepositoriesViewModel}">
+            <views:RepositoriesView />
         </DataTemplate>
     </Application.Resources>
 </Application>

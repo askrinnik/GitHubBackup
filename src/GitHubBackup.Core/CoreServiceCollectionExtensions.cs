@@ -5,6 +5,7 @@ using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
+using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
@@ -27,7 +28,7 @@ public static class CoreServiceCollectionExtensions
         /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/>,
         /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="ICloneRelocator"/>, the
         /// <see cref="IDiscoveryDecisionApplier"/>, the <see cref="AutomaticDiscoveryDecisionHandler"/> that hosts pass
-        /// to a run in silent mode, the <see cref="IBackupOrchestrator"/> as a <see cref="RecordingBackupOrchestrator"/>
+        /// to a run in silent mode, the <see cref="IRepositoryOverviewProvider"/>, the <see cref="IBackupOrchestrator"/> as a <see cref="RecordingBackupOrchestrator"/>
         /// that adds each run of the <see cref="BackupOrchestrator"/> to the <see cref="IRunHistoryStore"/>, and
         /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, the <see cref="BackupTelemetry"/> with the
         /// meter factory it needs, and registers <see cref="BackupOptions"/> with
@@ -53,6 +54,7 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton<ICloneRelocator, CloneRelocator>();
             services.TryAddSingleton<IDiscoveryDecisionApplier, DiscoveryDecisionApplier>();
             services.TryAddSingleton<AutomaticDiscoveryDecisionHandler>();
+            services.TryAddSingleton<IRepositoryOverviewProvider, RepositoryOverviewProvider>();
             services.TryAddSingleton<BackupOrchestrator>();
             services.TryAddSingleton<IBackupOrchestrator>(provider => new RecordingBackupOrchestrator(
                 provider.GetRequiredService<BackupOrchestrator>(),

@@ -1,0 +1,433 @@
+using GitHubBackup.App.Dialogs;
+using GitHubBackup.App.Runs;
+using GitHubBackup.App.ViewModels;
+using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.Overview;
+using GitHubBackup.Core.Runs;
+using GitHubBackup.Core.Security;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
+
+namespace GitHubBackup.App.Tests.ViewModels;
+
+/// <summary>
+/// Tests <see cref="RepositoriesViewModel"/>: reading the tree, the availability of the backup commands and the runs.
+/// </summary>
+public sealed class RepositoriesViewModelTests
+{
+    private static readonly DateTimeOffset _archivedAt = new(2026, 11, 5, 9, 7, 0, TimeSpan.FromHours(2));
+
+    private static readonly RepositoryOverview _overview = new(
+        [
+            new("octo", "https://github.com/octo",
+            [
+                new("octo", "tool", "octo", RepositoryOverviewStatus.Active, _archivedAt, null),
+                new("octo", "old", "octo", RepositoryOverviewStatus.Unavailable, null, null),
+                new("octo", "skip", "octo", RepositoryOverviewStatus.Excluded, null, "The state file is not valid JSON."),
+            ]),
+            new("empty", "https://github.com/empty", []),
+        ],
+        [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null)]);
+
+    private readonly IRepositoryOverviewProvider _provider = Substitute.For<IRepositoryOverviewProvider>();
+
+    private readonly IBackupRunService _runService = Substitute.For<IBackupRunService>();
+
+    private const int _backupRunFailedEventId = 4;
+
+    private const int _treeLoadFailedEventId = 5;
+
+    private const string _token = "ghp_AppTestTokenValue0123456789abcdefABC";
+
+    private readonly IDialogService _dialogs = Substitute.For<IDialogService>();
+
+    private readonly FakeLogger<RepositoriesViewModel> _logger = new();
+
+    private readonly RepositoriesViewModel _viewModel;
+
+    /// <summary>
+    /// Creates the ViewModel over a provider that returns <see cref="_overview"/> and a run that succeeds.
+    /// </summary>
+    public RepositoriesViewModelTests()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview);
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult([], [], []));
+        _viewModel = new(_provider, _runService, _dialogs, new SecretMasker(), _logger);
+    }
+
+    [Fact]
+    public async Task Refresh_AccountsAndStandalone_BuildsAccountNodesThenGroup()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.Nodes.Select(node => node.DisplayName).ShouldBe(["octo", "empty", RepositoryGroupNodeViewModel.GroupName]);
+        _viewModel.Nodes.ShouldAllBe(node => node.IsExpanded);
+        _viewModel.Nodes[0].Children.Select(node => node.DisplayName).ShouldBe(["tool", "old", "skip"]);
+        _viewModel.Nodes[1].Children.ShouldBeEmpty();
+        _viewModel.Nodes[2].Children.Select(node => node.DisplayName).ShouldBe(["other/lib"]);
+        _viewModel.LoadError.ShouldBeNull();
+        _viewModel.HasLoadError.ShouldBeFalse();
+        _viewModel.IsEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Refresh_RepositoryNodes_ShowStatusAndLastArchiveText()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        var tool = (RepositoryNodeViewModel)FindNode("octo/tool");
+        var old = (RepositoryNodeViewModel)FindNode("octo/old");
+        var skip = (RepositoryNodeViewModel)FindNode("octo/skip");
+        tool.Status.ShouldBe(RepositoryOverviewStatus.Active);
+        tool.LastArchiveText.ShouldBe("2026-11-05 09:07");
+        old.Status.ShouldBe(RepositoryOverviewStatus.Unavailable);
+        old.LastArchiveText.ShouldBe(RepositoryNodeViewModel.NeverText);
+        skip.Status.ShouldBe(RepositoryOverviewStatus.Excluded);
+        skip.LastArchiveText.ShouldBe(RepositoryNodeViewModel.UnknownText);
+        skip.StateError.ShouldBe("The state file is not valid JSON.");
+    }
+
+    [Fact]
+    public async Task Refresh_OnlyStandaloneRepositories_ShowsOnlyGroup()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>())
+            .Returns(new RepositoryOverview([], [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null)]));
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.Nodes.ShouldHaveSingleItem().ShouldBeOfType<RepositoryGroupNodeViewModel>();
+    }
+
+    [Fact]
+    public async Task Refresh_EmptyConfig_SetsIsEmpty()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(new RepositoryOverview([], []));
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.Nodes.ShouldBeEmpty();
+        _viewModel.IsEmpty.ShouldBeTrue();
+        _viewModel.HasLoadError.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Refresh_ConfigError_SetsLoadErrorAndClearsTree()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        var error = new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]);
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.Nodes.ShouldBeEmpty();
+        _viewModel.SelectedNode.ShouldBeNull();
+        _viewModel.LoadError.ShouldBe(error.Message);
+        _viewModel.HasLoadError.ShouldBeTrue();
+        _viewModel.IsEmpty.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Refresh_ErrorThenSuccess_ClearsLoadError()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(
+            _ => throw new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]),
+            _ => _overview);
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.LoadError.ShouldBeNull();
+        _viewModel.Nodes.Count.ShouldBe(3);
+    }
+
+    [Theory]
+    [InlineData(null, BackupScope.All, true)]
+    [InlineData(null, BackupScope.Account, false)]
+    [InlineData(null, BackupScope.Repository, false)]
+    [InlineData("octo", BackupScope.All, true)]
+    [InlineData("octo", BackupScope.Account, true)]
+    [InlineData("octo", BackupScope.Repository, false)]
+    [InlineData("octo/tool", BackupScope.Account, true)]
+    [InlineData("octo/tool", BackupScope.Repository, true)]
+    [InlineData("octo/old", BackupScope.Account, true)]
+    [InlineData("octo/old", BackupScope.Repository, false)]
+    [InlineData("octo/skip", BackupScope.Repository, false)]
+    [InlineData("group", BackupScope.Account, false)]
+    [InlineData("group", BackupScope.Repository, false)]
+    [InlineData("other/lib", BackupScope.Account, false)]
+    [InlineData("other/lib", BackupScope.Repository, true)]
+    public async Task CanStartBackup_BySelection_MatchesScope(string? selection, BackupScope scope, bool expected)
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        if (selection is not null)
+        {
+            FindNode(selection).IsSelected = true;
+        }
+
+        _viewModel.StartBackupCommand.CanExecute(scope).ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task SelectNode_ChangesSelection_RaisesCanExecuteChanged()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        var raised = 0;
+        _viewModel.StartBackupCommand.CanExecuteChanged += (_, _) => raised++;
+
+        FindNode("octo/tool").IsSelected = true;
+        FindNode("octo/tool").IsSelected = false;
+
+        raised.ShouldBe(2);
+        _viewModel.SelectedNode.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task StartBackup_WhileRunning_CannotExecuteAnyScope()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        FindNode("octo/tool").IsSelected = true;
+        var run = new TaskCompletionSource<BackupRunResult>();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).Returns(run.Task);
+
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.IsRunning.ShouldBeTrue();
+        _viewModel.IsIdle.ShouldBeFalse();
+        _viewModel.StartBackupCommand.CanExecute(BackupScope.All).ShouldBeFalse();
+        _viewModel.StartBackupCommand.CanExecute(BackupScope.Account).ShouldBeFalse();
+        _viewModel.StartBackupCommand.CanExecute(BackupScope.Repository).ShouldBeFalse();
+        run.SetResult(new([], [], []));
+        await execution;
+        _viewModel.IsRunning.ShouldBeFalse();
+        _viewModel.StartBackupCommand.CanExecute(BackupScope.All).ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(BackupScope.All, null, null, null)]
+    [InlineData(BackupScope.Account, "octo", null, null)]
+    [InlineData(BackupScope.Repository, null, "octo", "tool")]
+    public async Task StartBackup_Scope_PassesFilter(
+        BackupScope scope, string? accountLogin, string? repositoryOwner, string? repositoryName)
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        FindNode("octo/tool").IsSelected = true;
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(scope);
+
+        await _runService.Received(1).RunAsync(
+            Arg.Is<BackupRunFilter>(filter =>
+                filter.AccountLogin == accountLogin
+                && filter.RepositoryOwner == repositoryOwner
+                && filter.RepositoryName == repositoryName),
+            false,
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task StartBackup_DryRunToggle_PassesDryRun(bool dryRun)
+    {
+        _viewModel.IsDryRun = dryRun;
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        await _runService.Received(1).RunAsync(BackupRunFilter.All, dryRun, Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task StartBackup_RereadsConfigBeforeRun()
+    {
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        Received.InOrder(() =>
+        {
+            _ = _provider.LoadAsync(Arg.Any<CancellationToken>());
+            _ = _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>());
+            _ = _provider.LoadAsync(Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task StartBackup_RereadFails_StillStartsRun()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        await _runService.Received(1).RunAsync(BackupRunFilter.All, false, Arg.Any<CancellationToken>());
+        _viewModel.HasLoadError.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task StartBackup_CriticalErrors_ShowsErrorDialog()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(BackupRunResult.Stopped([BackupOrchestrator.RunLockHeldMessage, "Git was not found."], []));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _dialogs.Received(1).ShowError(
+            RepositoriesViewModel.RunStoppedTitle,
+            $"{BackupOrchestrator.RunLockHeldMessage}{Environment.NewLine}Git was not found.");
+        _viewModel.LastRunMessage.ShouldBeNull();
+        _viewModel.IsRunning.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task StartBackup_HistoryWarning_ShowsWarning()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult([], [], []) { HistoryWarning = "The run was not recorded in the run history." });
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _dialogs.Received(1).ShowError(
+            RepositoriesViewModel.HistoryWarningTitle, "The run was not recorded in the run history.");
+        _viewModel.LastRunMessage.ShouldBe("Backup finished with exit code 0.");
+    }
+
+    [Theory]
+    [InlineData(false, "Backup finished with exit code 0.")]
+    [InlineData(true, "Dry run finished with exit code 0.")]
+    public async Task StartBackup_Success_SetsLastRunMessageWithExitCode(bool dryRun, string expected)
+    {
+        _viewModel.IsDryRun = dryRun;
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.LastRunMessage.ShouldBe(expected);
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
+    }
+
+    [Fact]
+    public async Task StartBackup_FailedRepository_ReportsItsExitCode()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .Returns(new BackupRunResult(
+                [new("octo/tool", BackupItemStatus.Failed, null, TimeSpan.Zero, "The clone failed.")], [], []));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.LastRunMessage.ShouldBe("Backup finished with exit code 1.");
+    }
+
+    [Fact]
+    public async Task StartBackup_RunnerThrows_ShowsErrorAndResetsIsRunning()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Something broke."));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _dialogs.Received(1).ShowError(RepositoriesViewModel.RunFailedTitle, "Something broke.");
+        _viewModel.IsRunning.ShouldBeFalse();
+        _viewModel.LastRunMessage.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task StartBackup_RunnerThrowsWithToken_MasksTokenInDialog()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException($"Request failed with token {_token}."));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _dialogs.Received(1).ShowError(
+            RepositoriesViewModel.RunFailedTitle, $"Request failed with token {SecretMasker.Replacement}.");
+    }
+
+    [Fact]
+    public async Task StartBackup_RunnerThrows_LogsErrorWithException()
+    {
+        var error = new InvalidOperationException("Something broke.");
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>()).ThrowsAsync(error);
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        var record = _logger.Collector.GetSnapshot().Single(entry => entry.Id.Id == _backupRunFailedEventId);
+        record.Level.ShouldBe(LogLevel.Error);
+        record.Exception.ShouldBeSameAs(error);
+    }
+
+    [Fact]
+    public async Task Refresh_ErrorWithToken_MasksTokenInLoadErrorAndLogsWarning()
+    {
+        var error = new BackupConfigException(@"C:\app\backup-config.json", [$"The value {_token} is not valid."]);
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.LoadError.ShouldNotBeNull();
+        _viewModel.LoadError.ShouldNotContain(_token);
+        _viewModel.LoadError.ShouldContain(SecretMasker.Replacement);
+        var record = _logger.Collector.GetSnapshot().Single(entry => entry.Id.Id == _treeLoadFailedEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.Exception.ShouldBeSameAs(error);
+    }
+
+    [Fact]
+    public async Task StartBackup_RunnerCancelled_ShowsNothingAndResetsIsRunning()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
+        _viewModel.IsRunning.ShouldBeFalse();
+        _viewModel.LastRunMessage.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task StartBackup_Finished_RefreshesTreeAndRestoresSelection()
+    {
+        var newArchivedAt = new DateTimeOffset(2026, 11, 13, 18, 45, 0, TimeSpan.FromHours(2));
+        var afterRun = new RepositoryOverview(
+            [new("octo", "https://github.com/octo", [new("octo", "tool", "octo", RepositoryOverviewStatus.Active, newArchivedAt, null)])],
+            []);
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview, _overview, afterRun);
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        var before = FindNode("octo/tool");
+        before.IsSelected = true;
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.Repository);
+
+        var after = (RepositoryNodeViewModel)FindNode("octo/tool");
+        after.ShouldNotBeSameAs(before);
+        after.IsSelected.ShouldBeTrue();
+        after.LastArchiveText.ShouldBe("2026-11-13 18:45");
+        _viewModel.SelectedNode.ShouldBeSameAs(after);
+        await _provider.Received(3).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Refresh_CollapsedAccount_StaysCollapsed()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        FindNode("octo").IsExpanded = false;
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        FindNode("octo").IsExpanded.ShouldBeFalse();
+        FindNode("empty").IsExpanded.ShouldBeTrue();
+    }
+
+    /// <summary>
+    /// Finds a node of the tree: <c>group</c> for the group of standalone repositories, a login for an account, or
+    /// <c>owner/name</c> for a repository.
+    /// </summary>
+    /// <param name="path">The node to find.</param>
+    /// <returns>The node.</returns>
+    private TreeNodeViewModel FindNode(string path)
+    {
+        var key = path == "group" ? RepositoryGroupNodeViewModel.GroupKey
+            : path.Split('/') is [var owner, var name] ? RepositoryNodeViewModel.CreateKey(owner, name)
+            : AccountNodeViewModel.CreateKey(path);
+        return _viewModel.Nodes.Concat(_viewModel.Nodes.SelectMany(node => node.Children)).Single(node => node.Key == key);
+    }
+}

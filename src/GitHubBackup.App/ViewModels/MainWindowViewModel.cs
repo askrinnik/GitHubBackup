@@ -16,14 +16,14 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private ObservableObject? _currentViewModel;
 
     /// <summary>
-    /// Subscribes to the navigation and opens the home view.
+    /// Subscribes to the navigation and opens the repository tree.
     /// </summary>
     /// <param name="navigation">The navigation of the main window.</param>
     public MainWindowViewModel(INavigationService navigation)
     {
         _navigation = navigation;
         _navigation.CurrentViewModelChanged += OnNavigationChanged;
-        _navigation.NavigateTo<HomeViewModel>();
+        _navigation.NavigateTo<RepositoriesViewModel>();
     }
 
     /// <summary>
