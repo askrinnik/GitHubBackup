@@ -166,6 +166,7 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 | `quality-prd-first` | Соблюдение правила PRD-first на запрос новой функции |
 | `quality-service-convention` | Соблюдение соглашений при проектировании нового сервиса: слои, DI, `IFileSystem` и `TimeProvider`, XML-документация, тест в парном проекте |
 | `quality-security` | Ревью безопасности: находит ли ассистент семь уязвимостей, подброшенных `seed.patch` |
+| `quality-docs-sync` | Синхронизация документов: называет ли ассистент документы, которые нужно обновить для нового параметра CLI и новой настройки из `seed.patch`, без лишних |
 
 Остальные фикстуры, которым нужен код, — в отложенных задачах.
 
@@ -180,7 +181,6 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 
 | Issue | Когда | Что |
 |---|---|---|
-| [#48](https://github.com/askrinnik/GitHubBackup/issues/48) F3.11 | после #26 | Фикстура `quality-docs-sync` |
 | [#49](https://github.com/askrinnik/GitHubBackup/issues/49) F4.8 | после #36, до #37 | MCP для автоматизации WPF, фикстура `bench-xaml` |
 
 ## Перенос в другой проект

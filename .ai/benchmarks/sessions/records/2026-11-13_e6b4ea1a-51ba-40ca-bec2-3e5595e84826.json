@@ -1,0 +1,223 @@
+{
+  "schema": 2,
+  "profiler": "profile-session/8",
+  "session": "e6b4ea1a-51ba-40ca-bec2-3e5595e84826",
+  "workItem": "48",
+  "lane": "Feature",
+  "branch": "48-harness-fixture-documentation-sync",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-13 12:43",
+  "started": "2026-11-13 12:31",
+  "ended": "2026-11-13 12:43",
+  "duration": {
+    "wall": 737,
+    "active": 609,
+    "waiting": 128,
+    "waits": 2
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 50,
+  "humanTurns": 3,
+  "subagents": 2,
+  "subagentCalls": 10,
+  "tokens": {
+    "input": 138,
+    "cacheRead": 6711469,
+    "cacheWrite": 173655,
+    "output": 27252
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 1024614,
+    "main": 923010,
+    "subagents": 101604
+  },
+  "costUsd": {
+    "total": 2.7559,
+    "main": 2.7458,
+    "subagents": 0.0102
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite5m": 0.125,
+        "cacheWrite1h": 0.2,
+        "cacheRead": 0.01,
+        "longPrompt": {
+          "above": 100000,
+          "input": 0.5,
+          "output": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1,
+          "cacheRead": 0.05
+        }
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
+  "cacheReadShare": 65.5,
+  "unitsPerCall": {
+    "first40": 18342,
+    "first70": null,
+    "whole": 18460
+  },
+  "context": {
+    "first": 78278,
+    "max": 165677,
+    "last": 165677,
+    "first40": 153222,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 274866,
+  "diff": {
+    "files": 13,
+    "lines": 445
+  },
+  "byActivity": [
+    {
+      "activity": "bash (other)",
+      "calls": 19,
+      "cost": 328923,
+      "costUsd": 0.9272
+    },
+    {
+      "activity": "ship",
+      "calls": 9,
+      "cost": 149714,
+      "costUsd": 0.4406
+    },
+    {
+      "activity": "explore (read/search)",
+      "calls": 5,
+      "cost": 109793,
+      "costUsd": 0.4662
+    },
+    {
+      "activity": "implement",
+      "calls": 5,
+      "cost": 100830,
+      "costUsd": 0.2772
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 5,
+      "cost": 88498,
+      "costUsd": 0.2166
+    },
+    {
+      "activity": "other tool",
+      "calls": 3,
+      "cost": 54332,
+      "costUsd": 0.1487
+    },
+    {
+      "activity": "plan",
+      "calls": 1,
+      "cost": 37144,
+      "costUsd": 0.1342
+    },
+    {
+      "activity": "build/test",
+      "calls": 2,
+      "cost": 35864,
+      "costUsd": 0.0935
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 17913,
+      "costUsd": 0.0415
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-kit:build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 8,
+      "cost": 52260,
+      "costUsd": 0.0052
+    },
+    {
+      "type": "issue-kit:skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 2,
+      "cost": 49345,
+      "costUsd": 0.0049
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "Bash",
+      "cost": 33315
+    },
+    {
+      "tools": "PowerShell",
+      "cost": 26586
+    },
+    {
+      "tools": "Read",
+      "cost": 23127
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "cli",
+      "tokens": 614
+    },
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 484
+    },
+    {
+      "rule": "security",
+      "tokens": 1085
+    },
+    {
+      "rule": "update-docs-on-code-change",
+      "tokens": 460
+    }
+  ],
+  "rulesTokens": 5440,
+  "limit": {
+    "startPct": 85,
+    "startAt": "2026-11-13 12:31",
+    "endPct": 86,
+    "usedPct": 1,
+    "limitCost": 950641,
+    "unitsPerPct": 950641,
+    "reason": null
+  }
+}
