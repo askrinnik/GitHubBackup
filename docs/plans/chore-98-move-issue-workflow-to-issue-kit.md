@@ -95,5 +95,5 @@ M3 — профиль первой задачи после слияния, вн�
 - [x] `profile-session.config.json`
 - [x] `CLAUDE.md`, `docs/ai/*`, `update-docs-on-code-change.md`, `.ai/benchmarks/harness/README.md`
 - [x] `init-config check`, сборка и тесты
-- [ ] Коммит, хук плагина
-- [ ] M2 и сравнение с M0/M1
+- [x] Коммит, хук плагина
+- [x] M2 и сравнение с M0/M1

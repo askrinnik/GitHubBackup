@@ -1,0 +1,97 @@
+{
+  "run": "2026-11-13-11-57_m2-harness-migrated-to-issue-kit",
+  "note": "M2 harness migrated to issue-kit",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-13 11:57",
+  "commit": "f1ac01f5",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "c9ac989e-e1e8-4b64-ba2d-d04ab87b4036",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "28be1186-9c09-47c6-b474-5356a8e172dc",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "1dcfb1ab-f513-4eae-965b-d8ef0b864f06",
+      "hash": "cdc276b0",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "fc305d81-9acb-43d8-8a96-04ac5c396a10",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "0482fc43-e502-4938-90df-5753e0b1011a",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "e184398b-d0de-47eb-8aa2-8efd4d6ca8d6",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 1,
+      "session": "816440f7-2f77-43a9-a70c-215cf1b0fc13",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 2,
+      "session": "e4b26fed-0632-4c2c-aa75-06d8c4fd243b",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-security",
+      "rep": 3,
+      "session": "06907bde-1a2b-41ae-aa16-deb0f53a7c06",
+      "hash": "4b9b8042",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 1,
+      "session": "6205f8dc-92ed-4c27-b9c4-9611913bb8b8",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 2,
+      "session": "a7b7be90-1be4-4bed-a03d-27c15f1bbf7c",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 3,
+      "session": "f5c28447-dc4d-49b3-9518-990662de5d1f",
+      "hash": "4adcb057",
+      "judged": true
+    }
+  ]
+}
