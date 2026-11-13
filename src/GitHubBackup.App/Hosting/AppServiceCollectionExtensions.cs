@@ -1,0 +1,38 @@
+using GitHubBackup.App.Dialogs;
+using GitHubBackup.App.Navigation;
+using GitHubBackup.App.ViewModels;
+using GitHubBackup.App.Views;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+
+namespace GitHubBackup.App.Hosting;
+
+/// <summary>
+/// Registers the services of the WPF application.
+/// </summary>
+internal static class AppServiceCollectionExtensions
+{
+    /// <param name="services">The service collection of the host.</param>
+    extension(IServiceCollection services)
+    {
+        /// <summary>
+        /// Adds the desktop lifetime, the navigation, the dialogs, the main window and the ViewModels.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
+        /// replaced by <see cref="DesktopHostLifetime"/>.
+        /// </remarks>
+        /// <returns>The same service collection, for chaining.</returns>
+        public IServiceCollection AddGitHubBackupApp()
+        {
+            services.Replace(ServiceDescriptor.Singleton<IHostLifetime, DesktopHostLifetime>());
+            services.AddSingleton<INavigationService, NavigationService>();
+            services.AddSingleton<IDialogService, MessageBoxDialogService>();
+            services.AddSingleton<MainWindowViewModel>();
+            services.AddSingleton<MainWindow>();
+            services.AddTransient<HomeViewModel>();
+            return services;
+        }
+    }
+}

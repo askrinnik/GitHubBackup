@@ -1,6 +1,13 @@
 <Application x:Class="GitHubBackup.App.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             StartupUri="MainWindow.xaml">
-    <Application.Resources />
+             xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
+             xmlns:views="clr-namespace:GitHubBackup.App.Views"
+             ShutdownMode="OnExplicitShutdown">
+    <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes. -->
+    <Application.Resources>
+        <DataTemplate DataType="{x:Type vm:HomeViewModel}">
+            <views:HomeView />
+        </DataTemplate>
+    </Application.Resources>
 </Application>

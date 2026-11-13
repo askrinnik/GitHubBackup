@@ -42,6 +42,10 @@
     <PackageVersion Include="System.CommandLine" Version="2.0.15" />
   </ItemGroup>
 
+  <ItemGroup Label="UI">
+    <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+  </ItemGroup>
+
   <ItemGroup Label="File system">
     <PackageVersion Include="System.IO.Abstractions" Version="22.3.0" />
   </ItemGroup>

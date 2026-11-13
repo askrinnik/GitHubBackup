@@ -1,0 +1,13 @@
+<Window x:Class="GitHubBackup.App.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
+        mc:Ignorable="d"
+        d:DataContext="{d:DesignInstance Type=vm:MainWindowViewModel}"
+        Title="GitHub Backup" Height="450" Width="800"
+        AutomationProperties.AutomationId="MainWindow">
+    <ContentControl Content="{Binding CurrentViewModel, Mode=OneWay}"
+                    AutomationProperties.AutomationId="MainContent" />
+</Window>
