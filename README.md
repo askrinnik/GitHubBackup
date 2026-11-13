@@ -60,7 +60,7 @@ src/    решение GitHubBackup.slnx: проекты и парные тес�
 
 Тесты работают на Microsoft.Testing.Platform (xUnit v3). Решение и проект передаются через `--solution` и `--project`, а не позиционным аргументом.
 
-Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
+Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Сквозные тесты в `GitHubBackup.Cli.Tests` дополнительно помечены категорией `EndToEnd`: они запускают собранный `GitHubBackup.Cli.exe` отдельным процессом с настоящими git и 7-Zip на локальных bare-репозиториях, а GitHub API подменяют WireMock на loopback. Эти тесты входят в обычный прогон и в CI. Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
 
 UI-тесты (`GitHubBackup.App.UITests`) управляют запущенным WPF-приложением, поэтому обычный прогон решения их пропускает. Чтобы их запустить, передайте свойство `RunUITests` и в сборку, и в тесты:
 

@@ -18,4 +18,9 @@
     <PackageReference Include="Microsoft.AspNetCore.WebUtilities" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The end-to-end tests copy the output folder of the console project and run its executable from the copy. -->
+    <AssemblyMetadata Include="GitHubBackupCliOutputPath" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\GitHubBackup.Cli\bin\$(Configuration)\$(TargetFramework)'))" />
+  </ItemGroup>
+
 </Project>
