@@ -96,6 +96,8 @@ public sealed class RuleDetectionTests
     [InlineData("PresentationFramework")]
     [InlineData("Microsoft.Extensions.Configuration.Abstractions")]
     [InlineData("Microsoft.Extensions.Configuration.Binder")]
+    [InlineData("OpenTelemetry")]
+    [InlineData("OpenTelemetry.Exporter.OpenTelemetryProtocol")]
     public void Find_ForbiddenReference_IsReported(string referenceName)
     {
         var found = ForbiddenReferenceFinder.Find([new AssemblyName(referenceName)], LayerRules.CoreForbiddenAssemblies);
@@ -121,6 +123,8 @@ public sealed class RuleDetectionTests
     [InlineData("System.Runtime")]
     [InlineData("GitHubBackup.Core")]
     [InlineData("SerilogX")]
+    [InlineData("Microsoft.Extensions.Diagnostics")]
+    [InlineData("System.Diagnostics.DiagnosticSource")]
     public void Find_AllowedReference_IsNotReported(string referenceName)
     {
         var found = ForbiddenReferenceFinder.Find([new AssemblyName(referenceName)], LayerRules.CoreForbiddenAssemblies);

@@ -35,6 +35,12 @@ public static class LayerRules
     /// <summary>The configuration system: <c>Core</c> receives bound options and never reads configuration itself.</summary>
     private const string _configuration = "Microsoft.Extensions.Configuration";
 
+    /// <summary>
+    /// The OpenTelemetry SDK and its exporters: <c>Core</c> instruments through the BCL <c>ActivitySource</c> and
+    /// <c>Meter</c>, and only <c>Infrastructure</c> decides whether and where the telemetry is exported.
+    /// </summary>
+    private const string _openTelemetry = "OpenTelemetry";
+
     private static readonly string[] _wpfAssemblies = ["PresentationFramework", "PresentationCore", "WindowsBase", "System.Xaml"];
 
     /// <summary>
@@ -64,18 +70,18 @@ public static class LayerRules
     public static string Octokit { get; } = "Octokit";
 
     /// <summary>
-    /// Gets the namespaces whose types <c>Core</c> must not use: the outer layers, the I/O libraries and the
-    /// configuration system.
+    /// Gets the namespaces whose types <c>Core</c> must not use: the outer layers, the I/O libraries, the
+    /// configuration system and the OpenTelemetry SDK.
     /// </summary>
     public static IReadOnlyList<string> CoreForbiddenNamespaces { get; } =
-        [_infrastructure, .. _hostNamespaces, .. _ioLibraryNamespaces, _configuration];
+        [_infrastructure, .. _hostNamespaces, .. _ioLibraryNamespaces, _configuration, _openTelemetry];
 
     /// <summary>
     /// Gets the assemblies <c>Core</c> must not reference directly: the outer layers, the I/O libraries, the
-    /// configuration system and WPF.
+    /// configuration system, the OpenTelemetry SDK and WPF.
     /// </summary>
     public static IReadOnlyList<string> CoreForbiddenAssemblies { get; } =
-        [_infrastructure, .. _hostNamespaces, .. _ioLibraryAssemblies, _configuration, .. _wpfAssemblies];
+        [_infrastructure, .. _hostNamespaces, .. _ioLibraryAssemblies, _configuration, _openTelemetry, .. _wpfAssemblies];
 
     /// <summary>
     /// Gets the <c>System.IO</c> types that touch the disk directly; <c>Core</c> and <c>Infrastructure</c> use

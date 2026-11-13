@@ -1,16 +1,20 @@
+using System.Diagnostics;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
+using GitHubBackup.Core.Tests.Telemetry;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 
 namespace GitHubBackup.Core.Tests.Changes;
 
 /// <summary>
 /// Tests <see cref="ChangeDetector"/> against a substitute <see cref="IGitClient"/> and an in-memory file system.
 /// </summary>
-public sealed class ChangeDetectorTests
+public sealed class ChangeDetectorTests : IDisposable
 {
     private const string _archiveFolder = @"C:\backup\archives\owner\repo";
     private const string _clonePath = @"C:\backup\clones\owner\repo";
@@ -24,8 +28,12 @@ public sealed class ChangeDetectorTests
 
     private readonly IGitClient _git = Substitute.For<IGitClient>();
     private readonly MockFileSystem _fileSystem = new();
+    private readonly TelemetryCapture _capture = new();
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
+
+    /// <inheritdoc />
+    public void Dispose() => _capture.Dispose();
 
     private static RefSnapshot BaseRefs => Snapshot(("heads/main", "a"), ("heads/develop", "b"), ("tags/v1", "t1"));
 
@@ -350,7 +358,7 @@ public sealed class ChangeDetectorTests
     {
         var request = CreateRequest(last: null, "main") with { ArchiveFolder = @"archives\repo" };
 
-        await Should.ThrowAsync<ArgumentException>(() => new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+        await Should.ThrowAsync<ArgumentException>(() => new ChangeDetector(_git, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(request, CancellationToken));
     }
 
@@ -530,8 +538,103 @@ public sealed class ChangeDetectorTests
     {
         var request = CreateRequest(last: null, "main") with { ArchiveFolder = @"archives\repo" };
 
-        await Should.ThrowAsync<ArgumentException>(() => new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+        await Should.ThrowAsync<ArgumentException>(() => new ChangeDetector(_git, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
             .PreviewAsync(request, CancellationToken));
+    }
+
+    [Fact]
+    public async Task DetectAsync_NoClone_TracesCloneUnderCurrentSpan()
+    {
+        SetupClone(Sync("main", BaseRefs));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(last: null);
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.CloneOperation);
+        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.CloneOperation);
+        span.ParentSpanId.ShouldBe(test.SpanId);
+        span.Status.ShouldBe(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerUnchanged_TracesOnlyLsRemote()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+        using var test = _capture.StartTest();
+
+        await DetectAsync(Archive("main", BaseRefs));
+
+        Operations().ShouldBe([BackupTelemetry.LsRemoteOperation]);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerChanged_TracesLsRemoteThenFetch()
+    {
+        AddClone();
+        AddArchiveFile();
+        var changed = Snapshot(("heads/main", "a2"), ("heads/develop", "b"), ("tags/v1", "t1"));
+        SetupRemote(changed);
+        SetupUpdate(Sync("main", changed));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(Archive("main", BaseRefs));
+
+        Operations().ShouldBe([BackupTelemetry.LsRemoteOperation, BackupTelemetry.FetchOperation]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RequestedBranchMissing_TracesLsRemoteForRefsAndDefaultBranch()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch("main");
+        using var test = _capture.StartTest();
+
+        await PreviewAsync(last: null, branch: "gone");
+
+        Operations().ShouldBe([BackupTelemetry.LsRemoteOperation, BackupTelemetry.LsRemoteOperation]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoClone_TracesNoOperation()
+    {
+        using var test = _capture.StartTest();
+
+        await PreviewAsync(last: null);
+
+        _capture.Spans.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DetectAsync_CloneFails_MarksOperationFailedWithTypeOnly()
+    {
+        _git.CloneAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken)
+            .ThrowsAsync(new InvalidOperationException("git clone failed for secret-token"));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<InvalidOperationException>(() => DetectAsync(last: null));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.Status.ShouldBe(ActivityStatusCode.Error);
+        span.StatusDescription.ShouldBeNull();
+        span.GetTagItem(BackupTelemetry.ErrorTypeTag).ShouldBe(typeof(InvalidOperationException).FullName);
+        span.Events.ShouldBeEmpty();
+        span.TagObjects.ShouldAllBe(tag => !(tag.Value ?? string.Empty).ToString()!.Contains("secret-token"));
+    }
+
+    [Fact]
+    public async Task DetectAsync_CloneCancelled_LeavesOperationStatusUnset()
+    {
+        _git.CloneAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken)
+            .ThrowsAsync(new OperationCanceledException());
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<OperationCanceledException>(() => DetectAsync(last: null));
+
+        _capture.Spans.ShouldHaveSingleItem().Status.ShouldBe(ActivityStatusCode.Unset);
     }
 
     private static RefSnapshot Snapshot(params (string Name, string Id)[] refs) =>
@@ -551,11 +654,11 @@ public sealed class ChangeDetectorTests
     };
 
     private Task<ChangeDetection> DetectAsync(ArchiveRecord? last, string? branch = "main") =>
-        new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(CreateRequest(last, branch), CancellationToken);
 
     private Task<ChangeDetection> PreviewAsync(ArchiveRecord? last, string? branch = "main") =>
-        new ChangeDetector(_git, _fileSystem, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
             .PreviewAsync(CreateRequest(last, branch), CancellationToken);
 
     private void AddClone() => _fileSystem.AddDirectory(Path.Combine(_clonePath, ".git"));
@@ -579,6 +682,9 @@ public sealed class ChangeDetectorTests
         await _git.DidNotReceive().UpdateAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
         await _git.DidNotReceive().GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
     }
+
+    private List<string?> Operations() =>
+        [.. _capture.Spans.Select(span => span.GetTagItem(BackupTelemetry.OperationTag) as string)];
 
     private async Task NoCloneOrUpdate()
     {

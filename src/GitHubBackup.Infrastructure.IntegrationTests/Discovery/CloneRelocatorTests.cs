@@ -7,6 +7,7 @@ using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
+using GitHubBackup.TestUtilities.Telemetry;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
 
@@ -19,6 +20,7 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Discovery;
 public sealed class CloneRelocatorTests : IDisposable
 {
     private readonly LocalGitSandbox _sandbox = new();
+    private readonly TestTelemetry _telemetry = new();
     private readonly SecretMasker _masker = new();
     private readonly FakeLogger<ProcessRunner> _runnerLogger = new();
     private readonly FileSystem _fileSystem = new();
@@ -67,7 +69,7 @@ public sealed class CloneRelocatorTests : IDisposable
         Directory.Exists(oldFolder).ShouldBeFalse();
         Directory.Exists(newFolder).ShouldBeFalse();
 
-        var detection = await new ChangeDetector(CreateGitClient(), _fileSystem, NullLogger<ChangeDetector>.Instance)
+        var detection = await new ChangeDetector(CreateGitClient(), _fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(
                 new ChangeDetectionRequest
                 {
@@ -117,7 +119,11 @@ public sealed class CloneRelocatorTests : IDisposable
         (await GitAsync(newFolder, "remote", "get-url", "origin")).ShouldBe([renamedWiki.Url]);
     }
 
-    public void Dispose() => _sandbox.Dispose();
+    public void Dispose()
+    {
+        _telemetry.Dispose();
+        _sandbox.Dispose();
+    }
 
     /// <summary>
     /// Creates a git client over the real file system and the real process runner.
