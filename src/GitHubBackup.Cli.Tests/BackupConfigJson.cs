@@ -11,6 +11,7 @@ internal sealed class BackupConfigJson(string backupRoot)
 {
     private readonly List<string> _accounts = [];
     private readonly List<string> _repositories = [];
+    private bool _discoverAccessible;
 
     /// <summary>
     /// Adds a standalone repository on its default branch.
@@ -64,6 +65,16 @@ internal sealed class BackupConfigJson(string backupRoot)
     }
 
     /// <summary>
+    /// Sets <c>discoverAccessibleRepositories</c> to <see langword="true"/>.
+    /// </summary>
+    /// <returns>This builder.</returns>
+    public BackupConfigJson WithDiscoverAccessibleRepositories()
+    {
+        _discoverAccessible = true;
+        return this;
+    }
+
+    /// <summary>
     /// Returns the JSON text.
     /// </summary>
     /// <returns>The content of <c>backup-config.json</c>.</returns>
@@ -74,6 +85,7 @@ internal sealed class BackupConfigJson(string backupRoot)
           "backupRoot": {{JsonSerializer.Serialize(backupRoot)}},
           "sourcesRoot": null,
           "exclude": [],
+          "discoverAccessibleRepositories": {{(_discoverAccessible ? "true" : "false")}},
           "accounts": [ {{string.Join(",", _accounts)}} ],
           "repositories": [ {{string.Join(",", _repositories)}} ]
         }

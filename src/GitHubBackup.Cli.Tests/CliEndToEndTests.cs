@@ -80,6 +80,7 @@ public sealed class CliEndToEndTests : IDisposable
     [Fact]
     public async Task Backup_SilentNewRepositoryWithOpenInput_ExitsWithDiscoveryEventsAndAddsIt()
     {
+        _config.WithDiscoverAccessibleRepositories();
         await GivenTrackedRepositoriesAsync("a");
         await GivenNewRepositoryAsync("new", 3);
 
@@ -88,6 +89,35 @@ public sealed class CliEndToEndTests : IDisposable
         result.ExitCode.ShouldBe((int)ExitCode.DiscoveryEvents, result.ToString());
         (await ReadBackupConfigAsync()).ShouldContain($"https://github.com/{_owner}/new");
         _installation.FindArchives(_owner, "new").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Backup_SilentAccessibleRepositoryOfOtherOwner_AddsItToRepositoriesAndExitsWithDiscoveryEvents()
+    {
+        _config.WithDiscoverAccessibleRepositories();
+        await GivenTrackedRepositoriesAsync("a");
+        await GivenOtherOwnerRepositoryAsync("lib", 7);
+
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.DiscoveryEvents, result.ToString());
+        (await ReadBackupConfigAsync()).ShouldContain("https://github.com/other/lib");
+        _installation.FindArchives("other", "lib").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Backup_SilentStrictRepositoryOfOtherOwner_ExitsSuccessAndLeavesConfigUnchanged()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        await GivenOtherOwnerRepositoryAsync("lib", 7);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+        _installation.FindArchives("other", "lib").ShouldBeEmpty();
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -140,6 +170,7 @@ public sealed class CliEndToEndTests : IDisposable
     [Fact]
     public async Task Backup_DryRunBeforeFirstBackup_ChangesNothingOnDisk()
     {
+        _config.WithDiscoverAccessibleRepositories();
         await GivenTrackedRepositoriesAsync("a");
         await GivenNewRepositoryAsync("new", 3);
         var config = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
@@ -346,6 +377,20 @@ public sealed class CliEndToEndTests : IDisposable
     {
         await _sandbox.CreateRemoteAsync($"{_owner}/{name}", CancellationToken);
         GivenCurrentUserRepository(name, id);
+    }
+
+    /// <summary>
+    /// Creates a bare repository of the owner <c>other</c> and serves it in the list of the token's repositories,
+    /// without tracking it in the configuration.
+    /// </summary>
+    /// <param name="name">The name of the repository.</param>
+    /// <param name="id">The repository id.</param>
+    /// <returns>A task that completes when the repository is served.</returns>
+    private async Task GivenOtherOwnerRepositoryAsync(string name, long id)
+    {
+        await _sandbox.CreateRemoteAsync($"other/{name}", CancellationToken);
+        _currentUserRepositories.Add(_api.GivenRepository(id, "other", name));
+        _api.GivenCurrentUserRepositories([.. _currentUserRepositories]);
     }
 
     /// <summary>

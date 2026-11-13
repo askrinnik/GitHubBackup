@@ -45,12 +45,20 @@ public sealed class RepositoryDiscoveryService(
                 continue;
             }
 
+            var owningAccount = accounts.Find(login => IsSameName(login, repository.Owner));
+
+            // The collected list stays unfiltered because configured entries are matched against it by id; only the
+            // choice of new repositories drops owners outside the tracked accounts.
+            if (owningAccount is null && (accountLogin is not null || !config.DiscoverAccessibleRepositories))
+            {
+                continue;
+            }
+
             if (!HasValidName(repository))
             {
                 continue;
             }
 
-            var owningAccount = accounts.Find(login => IsSameName(login, repository.Owner));
             if (owningAccount is not null)
             {
                 if (scopeAccounts.Contains(owningAccount))

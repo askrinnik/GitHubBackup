@@ -27,6 +27,12 @@ public sealed class BackupConfig
     /// <summary>Gets or sets the exclusion masks applied to every repository.</summary>
     public List<string> Exclude { get; set; } = [];
 
+    /// <summary>
+    /// Gets or sets a value indicating whether repositories of owners that are not tracked accounts, which the token
+    /// can reach, are offered as new standalone repositories; <see langword="false"/> offers only tracked accounts.
+    /// </summary>
+    public bool DiscoverAccessibleRepositories { get; set; }
+
     /// <summary>Gets or sets the tracked accounts.</summary>
     public List<AccountConfig> Accounts { get; set; } = [];
 
