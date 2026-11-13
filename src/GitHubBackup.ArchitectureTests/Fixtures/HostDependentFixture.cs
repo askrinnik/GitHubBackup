@@ -1,4 +1,4 @@
-using GitHubBackup.App;
+using GitHubBackup.App.Views;
 
 namespace GitHubBackup.ArchitectureTests.Fixtures;
 

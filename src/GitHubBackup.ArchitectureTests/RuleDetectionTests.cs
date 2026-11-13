@@ -78,6 +78,33 @@ public sealed class RuleDetectionTests
     }
 
     [Fact]
+    public void Types_FixtureUsingWindow_ViolatesViewModelRule()
+    {
+        var result = Types.InAssembly(typeof(WpfDependentViewModelFixture).Assembly)
+            .That()
+            .HaveName(nameof(WpfDependentViewModelFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.ViewModelForbiddenWpfTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeFalse();
+        result.FailingTypeNames.ShouldContain(typeof(WpfDependentViewModelFixture).FullName!);
+    }
+
+    [Fact]
+    public void Types_FixtureUsingRelayCommand_SatisfiesViewModelRule()
+    {
+        var result = Types.InAssembly(typeof(RelayCommandViewModelFixture).Assembly)
+            .That()
+            .HaveName(nameof(RelayCommandViewModelFixture))
+            .ShouldNot()
+            .HaveDependencyOnAny([.. LayerRules.ViewModelForbiddenWpfTypes])
+            .GetResult();
+
+        result.IsSuccessful.ShouldBeTrue(string.Join(", ", result.FailingTypeNames ?? []));
+    }
+
+    [Fact]
     public void Find_FixtureAssembly_ReportsHostAssembly()
     {
         var found = ForbiddenReferenceFinder.Find(typeof(HostDependentFixture).Assembly, LayerRules.CoreForbiddenAssemblies);

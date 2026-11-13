@@ -113,6 +113,27 @@ public static class LayerRules
     public static string ProcessRunnerTypeName { get; } = _infrastructure + ".Processes.ProcessRunner";
 
     /// <summary>
+    /// Gets the namespace of the ViewModels of the WPF application.
+    /// </summary>
+    public static string AppViewModelsNamespace { get; } = _app + ".ViewModels";
+
+    /// <summary>
+    /// Gets the WPF UI types and namespaces that ViewModels must not use, so they stay testable without a window. The
+    /// rest of <c>System.Windows</c> is allowed, because <c>ICommand</c>, which every generated command implements,
+    /// lives in <c>System.Windows.Input</c>.
+    /// </summary>
+    public static IReadOnlyList<string> ViewModelForbiddenWpfTypes { get; } =
+    [
+        "System.Windows.Controls",
+        "System.Windows.Threading",
+        "System.Windows.Media",
+        "System.Windows.Window",
+        "System.Windows.MessageBox",
+        "System.Windows.Application",
+        "System.Windows.Visibility",
+    ];
+
+    /// <summary>
     /// Gets the namespaces whose types <c>Infrastructure</c> must not use: the hosts.
     /// </summary>
     public static IReadOnlyList<string> InfrastructureForbiddenNamespaces { get; } = _hostNamespaces;

@@ -2,6 +2,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.App\GitHubBackup.App.csproj" />
+    <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Diagnostics.Testing" />
   </ItemGroup>
 
 </Project>

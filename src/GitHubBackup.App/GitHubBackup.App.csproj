@@ -3,10 +3,21 @@
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
     <UseWPF>true</UseWPF>
+    <!-- Shared with the console host so both executables read the same secrets; must equal GitHubBackupHostBuilder.UserSecretsId. -->
+    <UserSecretsId>GitHubBackup</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Both executables read one settings file; the shared output folder of the publishing step will hold the single copy. -->
+    <None Include="..\GitHubBackup.Cli\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
