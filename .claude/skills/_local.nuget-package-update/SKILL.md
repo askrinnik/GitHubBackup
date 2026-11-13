@@ -17,7 +17,7 @@ description: 'Pin-aware NuGet dependency updates for GitHubBackup through Centra
 
 ## Scope
 
-NuGet only, apply-only, current branch only: no branch is created, nothing is committed or pushed, no CI run is triggered. The working tree is left with the applied edits for the user (or `/implement-issue`) to review and commit.
+NuGet only, apply-only, current branch only: no branch is created, nothing is committed or pushed, no CI run is triggered. The working tree is left with the applied edits for the user (or `/issue-kit:implement-issue`) to review and commit.
 
 ## Preflight
 

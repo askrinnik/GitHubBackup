@@ -1,0 +1,40 @@
+{
+  "commands": {
+    "build": "dotnet build src/GitHubBackup.slnx -t:Rebuild -clp:ErrorsOnly",
+    "testFull": "dotnet test --solution src/GitHubBackup.slnx --no-build",
+    "testProject": "dotnet test --project src/{project}/{project}.csproj --no-build",
+    "format": "dotnet format src/GitHubBackup.slnx --verify-no-changes"
+  },
+  "prd": {
+    "path": "docs/PRD.md",
+    "idPattern": "\\b(?:FR|NFR)-\\d+(?:\\.\\d+)?\\b"
+  },
+  "plans": {
+    "language": "Russian"
+  },
+  "issueSections": {
+    "requirements": "Источник требований",
+    "acceptance": "Критерии приёмки",
+    "dependencies": "Зависимости"
+  },
+  "ordering": {
+    "titleCodePattern": "^F(\\d+)\\.(\\d+)"
+  },
+  "roles": {
+    "architect": "architect",
+    "securityReviewer": "security-reviewer",
+    "debugSkill": "debug-issue",
+    "testsSkill": "write-tests"
+  },
+  "securityReview": {
+    "triggers": [
+      "src/GitHubBackup.Infrastructure/**",
+      "src/GitHubBackup.Cli/**",
+      ".github/workflows/**",
+      "src/Directory.Packages.props"
+    ]
+  },
+  "commentReview": {
+    "globs": ["*.cs", "*.xaml"]
+  }
+}

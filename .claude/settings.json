@@ -4,19 +4,20 @@
     "commit": "",
     "pr": ""
   },
+  "extraKnownMarketplaces": {
+    "ai-plugins": {
+      "source": {
+        "source": "github",
+        "repo": "askrinnik/ai-plugins"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "issue-kit@ai-plugins": true,
+    "harness-kit@ai-plugins": true
+  },
   "hooks": {
     "PostToolUse": [
-      {
-        "matcher": "Bash|PowerShell",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "pwsh -NoProfile -File \"$CLAUDE_PROJECT_DIR/.claude/hooks/Test-CommitMessageHook.ps1\"",
-            "timeout": 30,
-            "statusMessage": "Checking the commit message against the git-commit skill"
-          }
-        ]
-      },
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [
@@ -91,7 +92,9 @@
       "Bash(gh pr create *)",
       "Bash(gh api graphql *)",
       "Bash(gh api -X PATCH repos/askrinnik/GitHubBackup/issues/comments/*)",
-      "Bash(pwsh -NoProfile -File .claude/skills/_local.*)",
+      "Bash(pwsh -NoProfile -File *issue-kit*)",
+      "Bash(pwsh -NoProfile -File *harness-kit*)",
+      "Bash(pwsh -NoProfile -File .claude/skills/_local.nuget-package-update/*)",
       "PowerShell(git add *)",
       "PowerShell(git switch *)",
       "PowerShell(git pull --ff-only*)",
@@ -103,7 +106,9 @@
       "PowerShell(gh pr create *)",
       "PowerShell(gh api graphql *)",
       "PowerShell(gh api -X PATCH repos/askrinnik/GitHubBackup/issues/comments/*)",
-      "PowerShell(pwsh -NoProfile -File .claude/skills/_local.*)"
+      "PowerShell(pwsh -NoProfile -File *issue-kit*)",
+      "PowerShell(pwsh -NoProfile -File *harness-kit*)",
+      "PowerShell(pwsh -NoProfile -File .claude/skills/_local.nuget-package-update/*)"
     ],
     "ask": [
       "Bash(gh pr merge *)",
