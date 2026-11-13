@@ -29,6 +29,7 @@ public sealed class JsonBackupConfigStoreTests
         config.BackupRoot.ShouldBe(@"C:\Users\Sanya\OneDrive\GitHubBackups");
         config.SourcesRoot.ShouldBeNull();
         config.Exclude.ShouldBe(["someone/*"]);
+        config.DiscoverAccessibleRepositories.ShouldBeFalse();
         config.Accounts.Select(account => account.Url).ShouldBe(
             ["https://github.com/askrinnik", "https://github.com/AMTOSS", "https://github.com/get-the-manual"]);
         config.Accounts[0].Exclude.ShouldBe(["test-*"]);
@@ -44,6 +45,15 @@ public sealed class JsonBackupConfigStoreTests
         library.Id.ShouldBe(323456789);
         library.Branch.ShouldBe("develop");
         library.Path.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_DiscoverAccessibleRepositoriesTrue_ReadsTrue()
+    {
+        var result = await LoadAsync(
+            """{ "schemaVersion": 1, "backupRoot": "D:\\B", "discoverAccessibleRepositories": true }""");
+
+        result.Config.DiscoverAccessibleRepositories.ShouldBeTrue();
     }
 
     [Fact]
@@ -72,6 +82,7 @@ public sealed class JsonBackupConfigStoreTests
         var config = result.Config;
         config.SourcesRoot.ShouldBeNull();
         config.Exclude.ShouldBeEmpty();
+        config.DiscoverAccessibleRepositories.ShouldBeFalse();
         config.Repositories.ShouldBeEmpty();
         config.Accounts[0].Exclude.ShouldBeEmpty();
         var repository = config.Accounts[0].Repositories.ShouldHaveSingleItem();
@@ -191,6 +202,8 @@ public sealed class JsonBackupConfigStoreTests
     [InlineData("""{ "schemaVersion": 1, "backupRoot": "D:\\B", "accounts": {} }""", "$.accounts")]
     [InlineData("""{ "schemaVersion": 1, "backupRoot": null }""", "$.backupRoot")]
     [InlineData("""{ "schemaVersion": 1, "backupRoot": "D:\\B", "exclude": null }""", "$.exclude")]
+    [InlineData("""{ "schemaVersion": 1, "backupRoot": "D:\\B", "discoverAccessibleRepositories": null }""", "$.discoverAccessibleRepositories")]
+    [InlineData("""{ "schemaVersion": 1, "backupRoot": "D:\\B", "discoverAccessibleRepositories": "yes" }""", "$.discoverAccessibleRepositories")]
     public async Task LoadAsync_ValueOfWrongTypeOrNull_ThrowsNamingJsonPath(string json, string jsonPath)
     {
         var exception = await Should.ThrowAsync<BackupConfigException>(() => LoadAsync(json));

@@ -28,6 +28,7 @@ public sealed class JsonBackupConfigStoreSaveTests
                 "someone/*",
                 "*-archive"
               ],
+              "discoverAccessibleRepositories": true,
               "accounts": [
                 {
                   "url": "https://github.com/askrinnik",
@@ -93,6 +94,7 @@ public sealed class JsonBackupConfigStoreSaveTests
               "backupRoot": "D:\\Backups",
               "sourcesRoot": null,
               "exclude": [],
+              "discoverAccessibleRepositories": false,
               "accounts": [
                 {
                   "url": "https://github.com/askrinnik",
@@ -157,6 +159,31 @@ public sealed class JsonBackupConfigStoreSaveTests
 
         var saved = fileSystem.File.ReadAllText(ConfigPath);
         Canonical(saved).ShouldBe(Canonical(DocumentedSample));
+    }
+
+    [Fact]
+    public async Task SaveAsync_FileWithoutKey_WritesFalse()
+    {
+        var fileSystem = CreateFileSystem("""{ "schemaVersion": 1, "backupRoot": "D:\\B" }""");
+        var store = CreateStore(fileSystem);
+        var loaded = await store.LoadAsync(TestContext.Current.CancellationToken);
+
+        await store.SaveAsync(loaded.Config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldContain("\"discoverAccessibleRepositories\": false,");
+    }
+
+    [Fact]
+    public async Task SaveAsync_KeyTrue_IsKeptAfterLoadAndSave()
+    {
+        var fileSystem = CreateFileSystem(
+            """{ "schemaVersion": 1, "backupRoot": "D:\\B", "discoverAccessibleRepositories": true }""");
+        var store = CreateStore(fileSystem);
+        var loaded = await store.LoadAsync(TestContext.Current.CancellationToken);
+
+        await store.SaveAsync(loaded.Config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldContain("\"discoverAccessibleRepositories\": true,");
     }
 
     [Fact]
@@ -315,6 +342,7 @@ public sealed class JsonBackupConfigStoreSaveTests
         BackupRoot = @"D:\Backups\GitHub",
         SourcesRoot = @"E:\Клоны",
         Exclude = ["someone/*", "*-archive"],
+        DiscoverAccessibleRepositories = true,
         Accounts =
         [
             new()

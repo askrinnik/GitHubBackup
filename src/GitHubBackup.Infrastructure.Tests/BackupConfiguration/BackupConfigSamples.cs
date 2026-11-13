@@ -32,6 +32,7 @@ internal static class BackupConfigSamples
           "backupRoot": "C:\\Users\\Sanya\\OneDrive\\GitHubBackups",
           "sourcesRoot": null,
           "exclude": [ "someone/*" ],
+          "discoverAccessibleRepositories": false,
           "accounts": [
             {
               "url": "https://github.com/askrinnik",

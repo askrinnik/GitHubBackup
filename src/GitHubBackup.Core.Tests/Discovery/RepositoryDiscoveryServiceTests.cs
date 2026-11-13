@@ -118,10 +118,149 @@ public sealed class RepositoryDiscoveryServiceTests
         SetCurrentUser(Repo(5, "friend", "shared"));
         SetAccount("octo", GitHubAccountType.User);
 
-        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+        var result = await _service.DiscoverAsync(Accessible(Config(Account("octo"))), null, Token);
 
         result.NewStandalone.ShouldHaveSingleItem().FullName.ShouldBe("friend/shared");
         result.NewInAccounts.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_StrictNoAccountsTwoStandalone_ReturnsNoNewDespiteOtherUserRepositories()
+    {
+        SetCurrentUser(Repo(5, "octo", "mine"), Repo(6, "acme", "lib"), Repo(2, "friend", "shared"), Repo(3, "friend", "other"));
+        var config = Config();
+        config.Repositories.Add(Standalone("friend", "shared", 2));
+        config.Repositories.Add(Standalone("friend", "other", 3));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        result.NewStandalone.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_StrictOrganizationAndOtherOwnerRepositories_AreNotNew()
+    {
+        SetCurrentUser(Repo(5, "acme", "lib"), Repo(6, "friend", "shared"), Repo(7, "octo", "tool"));
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+
+        result.NewStandalone.ShouldBeEmpty();
+        result.NewInAccounts.ShouldHaveSingleItem().Repository.Id.ShouldBe(7);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_StrictPrivateTrackedAccountRepositoryOnlyFromUserRepos_IsNew()
+    {
+        SetCurrentUser(Repo(5, "OCTO", "secret") with { IsPrivate = true });
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+
+        result.NewInAccounts.ShouldHaveSingleItem().Repository.Id.ShouldBe(5);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_StrictOtherOwnerWithInvalidName_LogsNoInvalidNameWarning()
+    {
+        SetCurrentUser(Repo(1, "friend", "con"), Repo(2, "nul", "shared"));
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == _invalidNameEventId);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_AccessibleOtherOwnerRepository_IsNewStandalone()
+    {
+        SetCurrentUser(Repo(5, "acme", "lib"));
+        SetAccount("octo", GitHubAccountType.User);
+
+        var result = await _service.DiscoverAsync(Accessible(Config(Account("octo"))), null, Token);
+
+        result.NewStandalone.ShouldHaveSingleItem().FullName.ShouldBe("acme/lib");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_StandaloneRecordNotFound_IsMissing(bool accessible)
+    {
+        var config = Config();
+        config.DiscoverAccessibleRepositories = accessible;
+        config.Repositories.Add(Standalone("friend", "shared", 2));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.Missing.ShouldHaveSingleItem().Id.ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_StandaloneRecordInUserRepos_MatchedWithoutLookup(bool accessible)
+    {
+        SetCurrentUser(Repo(2, "friend", "shared"));
+        var config = Config();
+        config.DiscoverAccessibleRepositories = accessible;
+        config.Repositories.Add(Standalone("friend", "shared", 2));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_StandaloneRecordRenamedInUserRepos_IsRenamed(bool accessible)
+    {
+        SetCurrentUser(Repo(2, "friend", "shared-v2"));
+        var config = Config();
+        config.DiscoverAccessibleRepositories = accessible;
+        config.Repositories.Add(Standalone("friend", "shared", 2));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.Renamed.ShouldHaveSingleItem().Current.FullName.ShouldBe("friend/shared-v2");
+        result.NewStandalone.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_StandaloneRecordTransferredToOtherOwner_IsRenamedThroughIdLookup(bool accessible)
+    {
+        _api.GetRepositoryByIdAsync(2, Arg.Any<CancellationToken>()).Returns(Repo(2, "acme", "shared"));
+        var config = Config();
+        config.DiscoverAccessibleRepositories = accessible;
+        config.Repositories.Add(Standalone("friend", "shared", 2));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.Renamed.ShouldHaveSingleItem().Current.FullName.ShouldBe("acme/shared");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_UnavailableStandaloneRecordInUserRepos_IsReturned(bool accessible)
+    {
+        SetCurrentUser(Repo(2, "friend", "shared"));
+        var config = Config();
+        config.DiscoverAccessibleRepositories = accessible;
+        var record = Standalone("friend", "shared", 2);
+        record.Status = RepositoryStatus.Unavailable;
+        config.Repositories.Add(record);
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.Returned.ShouldHaveSingleItem().Current.Id.ShouldBe(2);
     }
 
     [Fact]
@@ -154,7 +293,7 @@ public sealed class RepositoryDiscoveryServiceTests
     {
         SetCurrentUser(Repo(5, "friend", "skip-me"));
         SetAccount("octo", GitHubAccountType.User, Repo(1, "octo", "skip-tool"));
-        var config = Config(Account("octo"));
+        var config = Accessible(Config(Account("octo")));
         config.Exclude.Add("*/skip-*");
 
         var result = await _service.DiscoverAsync(config, null, Token);
@@ -244,7 +383,7 @@ public sealed class RepositoryDiscoveryServiceTests
         SetAccount("octo", GitHubAccountType.User, listed);
         _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(lookedUp);
 
-        var result = await _service.DiscoverAsync(Config(Account("octo", Active(1, "tool"), Active(2, "listed"))), null, Token);
+        var result = await _service.DiscoverAsync(Accessible(Config(Account("octo", Active(1, "tool"), Active(2, "listed")))), null, Token);
 
         result.Repositories.Keys.Order().ShouldBe([1L, 2L, 3L]);
         result.Repositories[1].ShouldBe(lookedUp);
@@ -404,7 +543,7 @@ public sealed class RepositoryDiscoveryServiceTests
         SetCurrentUser(Repo(1, owner, name), Repo(2, "friend", "shared"));
         SetAccount("octo", GitHubAccountType.User);
 
-        var result = await _service.DiscoverAsync(Config(Account("octo")), null, Token);
+        var result = await _service.DiscoverAsync(Accessible(Config(Account("octo"))), null, Token);
 
         result.NewStandalone.ShouldHaveSingleItem().Id.ShouldBe(2);
         result.NewInAccounts.ShouldBeEmpty();
@@ -543,7 +682,7 @@ public sealed class RepositoryDiscoveryServiceTests
         SetCurrentUser(Repo(5, "friend", "shared"), Repo(6, "acme", "lib"));
         SetAccount("octo", GitHubAccountType.User);
 
-        var result = await _service.DiscoverAsync(Config(Account("octo"), Account("acme")), "octo", Token);
+        var result = await _service.DiscoverAsync(Accessible(Config(Account("octo"), Account("acme"))), "octo", Token);
 
         result.HasChanges.ShouldBeFalse();
     }
@@ -794,6 +933,12 @@ public sealed class RepositoryDiscoveryServiceTests
         new("rate limit", "repos", 403, null, 60, 0);
 
     private static BackupConfig Config(params AccountConfig[] accounts) => new() { Accounts = [.. accounts] };
+
+    private static BackupConfig Accessible(BackupConfig config)
+    {
+        config.DiscoverAccessibleRepositories = true;
+        return config;
+    }
 
     private static AccountConfig Account(string login, params AccountRepositoryConfig[] repositories) =>
         new() { Url = $"https://github.com/{login}", Repositories = [.. repositories] };

@@ -51,7 +51,7 @@ public sealed class BackupHistoryEndToEndTests : IDisposable
     public async Task Backup_DryRun_RecordsDryRunWithEventsWithoutDecisions()
     {
         _api.GivenCurrentUserRepositories(GitHubApiStub.Repository(5, "other", "fresh"));
-        WriteBackupConfig(config => config.WithRepository("owner", "gone", 1));
+        WriteBackupConfig(config => config.WithDiscoverAccessibleRepositories().WithRepository("owner", "gone", 1));
 
         var exitCode = await RunAsync("backup", "--dry-run");
 
@@ -65,6 +65,19 @@ public sealed class BackupHistoryEndToEndTests : IDisposable
             new("other/fresh", DiscoveryEventKind.New),
             new("owner/gone", DiscoveryEventKind.Missing),
         ]);
+    }
+
+    [Fact]
+    public async Task Backup_DryRunStrict_DoesNotRecordRepositoryOfOtherOwnerAsNew()
+    {
+        _api.GivenCurrentUserRepositories(GitHubApiStub.Repository(5, "other", "fresh"));
+        WriteBackupConfig(config => config.WithRepository("owner", "gone", 1));
+
+        var exitCode = await RunAsync("backup", "--dry-run");
+
+        exitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        var entry = await ReadRecordedRunAsync();
+        entry.DiscoveryEvents.ShouldBe([new("owner/gone", DiscoveryEventKind.Missing)]);
     }
 
     [Fact]
