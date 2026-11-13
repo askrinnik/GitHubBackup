@@ -1,7 +1,10 @@
 using GitHubBackup.App.Dialogs;
+using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Navigation;
+using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.App.Views;
+using GitHubBackup.Core.Discovery;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -17,7 +20,8 @@ internal static class AppServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the desktop lifetime, the navigation, the dialogs, the main window and the ViewModels.
+        /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandler"/> and the
+        /// <see cref="IBackupRunService"/> of a run started from the window, the main window and the ViewModels.
         /// </summary>
         /// <remarks>
         /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
@@ -31,7 +35,9 @@ internal static class AppServiceCollectionExtensions
             services.AddSingleton<IDialogService, MessageBoxDialogService>();
             services.AddSingleton<MainWindowViewModel>();
             services.AddSingleton<MainWindow>();
-            services.AddTransient<HomeViewModel>();
+            services.AddSingleton<IDiscoveryDecisionHandler, DeferredDiscoveryDecisionHandler>();
+            services.AddSingleton<IBackupRunService, BackupRunService>();
+            services.AddTransient<RepositoriesViewModel>();
             return services;
         }
     }

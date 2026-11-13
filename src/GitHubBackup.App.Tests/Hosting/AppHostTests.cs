@@ -1,6 +1,9 @@
+using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Hosting;
+using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Discovery;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -22,7 +25,7 @@ public sealed class AppHostTests : IDisposable
 
         var viewModel = host.Services.GetRequiredService<MainWindowViewModel>();
 
-        viewModel.CurrentViewModel.ShouldBeOfType<HomeViewModel>();
+        viewModel.CurrentViewModel.ShouldBeOfType<RepositoriesViewModel>();
         host.Services.GetRequiredService<MainWindowViewModel>().ShouldBeSameAs(viewModel);
     }
 
@@ -44,14 +47,30 @@ public sealed class AppHostTests : IDisposable
     }
 
     [Fact]
-    public void BuildHost_HomeViewModel_IsTransient()
+    public void BuildHost_RepositoriesViewModel_IsTransient()
     {
         using var host = BuildHost();
 
-        var first = host.Services.GetRequiredService<HomeViewModel>();
-        var second = host.Services.GetRequiredService<HomeViewModel>();
+        var first = host.Services.GetRequiredService<RepositoriesViewModel>();
+        var second = host.Services.GetRequiredService<RepositoriesViewModel>();
 
         second.ShouldNotBeSameAs(first);
+    }
+
+    [Fact]
+    public void BuildHost_DiscoveryDecisionHandler_IsDeferredHandler()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IDiscoveryDecisionHandler>().ShouldBeOfType<DeferredDiscoveryDecisionHandler>();
+    }
+
+    [Fact]
+    public void BuildHost_BackupRunService_IsResolved()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IBackupRunService>().ShouldBeOfType<BackupRunService>();
     }
 
     /// <summary>

@@ -14,6 +14,8 @@ public sealed class RunIdEnricherTests
 {
     private static readonly Guid _runId = new("0f8fad5b-d9cb-469f-a165-70867728950e");
 
+    private readonly IRunContext _runContext = Substitute.For<IRunContext>();
+
     private readonly RunIdEnricher _enricher;
 
     /// <summary>
@@ -21,9 +23,22 @@ public sealed class RunIdEnricherTests
     /// </summary>
     public RunIdEnricherTests()
     {
-        var runContext = Substitute.For<IRunContext>();
-        runContext.RunId.Returns(_runId);
-        _enricher = new(runContext);
+        _runContext.RunId.Returns(_runId);
+        _enricher = new(_runContext);
+    }
+
+    [Fact]
+    public void Enrich_AfterRunIdChanges_AddsCurrentRunId()
+    {
+        var first = LogEvents.Create("Started");
+        _enricher.Enrich(first, Substitute.For<ILogEventPropertyFactory>());
+        _runContext.RunId.Returns(new Guid("6f9619ff-8b86-d011-b42d-00c04fc964ff"));
+        var second = LogEvents.Create("Started");
+
+        _enricher.Enrich(second, Substitute.For<ILogEventPropertyFactory>());
+
+        first.Properties[LogProperties.RunId].ShouldBe(new ScalarValue("0f8fad5b-d9cb-469f-a165-70867728950e"));
+        second.Properties[LogProperties.RunId].ShouldBe(new ScalarValue("6f9619ff-8b86-d011-b42d-00c04fc964ff"));
     }
 
     [Fact]
