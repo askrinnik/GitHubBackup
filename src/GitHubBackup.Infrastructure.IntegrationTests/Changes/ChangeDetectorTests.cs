@@ -7,6 +7,7 @@ using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
+using GitHubBackup.TestUtilities.Telemetry;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
 
@@ -22,6 +23,7 @@ public sealed class ChangeDetectorTests : IDisposable
     private const int _startingEventId = 1;
 
     private readonly LocalGitSandbox _sandbox = new();
+    private readonly TestTelemetry _telemetry = new();
     private readonly SecretMasker _masker = new();
     private readonly FakeLogger<ProcessRunner> _runnerLogger = new();
     private readonly string _clonePath;
@@ -136,7 +138,11 @@ public sealed class ChangeDetectorTests : IDisposable
     }
 
     /// <inheritdoc />
-    public void Dispose() => _sandbox.Dispose();
+    public void Dispose()
+    {
+        _telemetry.Dispose();
+        _sandbox.Dispose();
+    }
 
     /// <summary>
     /// Detects the first state of the remote and records the archive the orchestrator would create for it.
@@ -178,6 +184,6 @@ public sealed class ChangeDetectorTests : IDisposable
             LastArchive = last,
         };
 
-        return new ChangeDetector(client, fileSystem, NullLogger<ChangeDetector>.Instance).DetectAsync(request, CancellationToken);
+        return new ChangeDetector(client, fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance).DetectAsync(request, CancellationToken);
     }
 }

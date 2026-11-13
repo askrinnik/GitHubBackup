@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
@@ -8,7 +9,10 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
+using GitHubBackup.Core.Tests.Telemetry;
 using GitHubBackup.Core.Tools;
+using Microsoft.Extensions.Diagnostics.Metrics.Testing;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
@@ -21,7 +25,7 @@ namespace GitHubBackup.Core.Tests.Runs;
 /// Tests <see cref="BackupOrchestrator"/> with substitutes for the stores, the tools, discovery, the detector and the
 /// archiver, an in-memory file system and a fake clock.
 /// </summary>
-public sealed class BackupOrchestratorTests
+public sealed class BackupOrchestratorTests : IDisposable
 {
     private const string _sourcesRoot = @"C:\sources";
     private const string _temporaryFolder = @"C:\sources\.tmp";
@@ -67,6 +71,7 @@ public sealed class BackupOrchestratorTests
     private readonly MockFileSystem _fileSystem = new();
     private readonly FakeTimeProvider _timeProvider = new(_createdAt);
     private readonly FakeLogger<BackupOrchestrator> _logger = new();
+    private readonly TelemetryCapture _capture = new();
     private readonly BackupConfig _config = new() { BackupRoot = @"C:\backup", SourcesRoot = _sourcesRoot };
 
     /// <summary>
@@ -97,6 +102,9 @@ public sealed class BackupOrchestratorTests
     }
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
+
+    /// <inheritdoc />
+    public void Dispose() => _capture.Dispose();
 
     [Fact]
     public async Task RunAsync_ArchiveNeeded_ArchivesAndRecordsState()
@@ -1406,6 +1414,252 @@ public sealed class BackupOrchestratorTests
         item.ChangedRefs.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task RunAsync_Archived_TracesRunDiscoveryRepositoryAndArchiveHierarchy()
+    {
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var run = _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem();
+        var discovery = _capture.Named(BackupTelemetry.DiscoverySpanName).ShouldHaveSingleItem();
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        var archive = _capture.Named(BackupTelemetry.ArchiveOperation).ShouldHaveSingleItem();
+        run.ParentSpanId.ShouldBe(test.SpanId);
+        run.GetTagItem(BackupTelemetry.DryRunTag).ShouldBe(false);
+        run.GetTagItem(BackupTelemetry.RunOutcomeTag).ShouldBe(BackupTelemetry.CompletedOutcome);
+        run.Status.ShouldBe(ActivityStatusCode.Unset);
+        discovery.ParentSpanId.ShouldBe(run.SpanId);
+        repository.ParentSpanId.ShouldBe(run.SpanId);
+        repository.GetTagItem(BackupTelemetry.RepositoryTag).ShouldBe("owner/repo");
+        repository.GetTagItem(BackupTelemetry.TargetTag).ShouldBe(nameof(BackupTarget.Repository));
+        repository.GetTagItem(BackupTelemetry.StatusTag).ShouldBe(nameof(BackupItemStatus.Archived));
+        archive.ParentSpanId.ShouldBe(repository.SpanId);
+        archive.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.ArchiveOperation);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFails_MarksRepositorySpanFailedWithTypeOnly()
+    {
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitCommandException("'git fetch' failed for secret-token", "git fetch", 128));
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.StatusTag).ShouldBe(nameof(BackupItemStatus.Failed));
+        repository.Status.ShouldBe(ActivityStatusCode.Error);
+        repository.StatusDescription.ShouldBeNull();
+        repository.GetTagItem(BackupTelemetry.ErrorTypeTag).ShouldBe(typeof(GitCommandException).FullName);
+        _capture.Spans.ShouldAllBe(span => !span.Events.Any());
+        _capture.Spans.SelectMany(span => span.TagObjects)
+            .ShouldAllBe(tag => !(tag.Value ?? string.Empty).ToString()!.Contains("secret-token"));
+        var run = _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem();
+        run.Status.ShouldBe(ActivityStatusCode.Unset);
+        run.GetTagItem(BackupTelemetry.RunOutcomeTag).ShouldBe(BackupTelemetry.CompletedOutcome);
+    }
+
+    [Fact]
+    public async Task RunAsync_Cancelled_TagsCurrentRepositoryAndCountsNotStartedAsSkipped()
+    {
+        AddRepository("other");
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+        });
+        using var repositories = _capture.Collect<long>(BackupTelemetry.RepositoriesMetric);
+        using var test = _capture.StartTest();
+
+        await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.RepositoryTag).ShouldBe("owner/repo");
+        repository.GetTagItem(BackupTelemetry.StatusTag).ShouldBe(nameof(BackupItemStatus.Cancelled));
+        repository.Status.ShouldBe(ActivityStatusCode.Unset);
+        _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem()
+            .GetTagItem(BackupTelemetry.RunOutcomeTag).ShouldBe(BackupTelemetry.CancelledOutcome);
+        Statuses(repositories).ShouldBe([nameof(BackupItemStatus.Cancelled), nameof(BackupItemStatus.Skipped)]);
+    }
+
+    [Fact]
+    public async Task RunAsync_UnavailableRepository_TracesSkippedRepository()
+    {
+        _config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.StatusTag).ShouldBe(nameof(BackupItemStatus.Skipped));
+        _capture.Named(BackupTelemetry.ArchiveOperation).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(ChangeDecision.CloneNeeded, BackupItemStatus.WouldClone)]
+    [InlineData(ChangeDecision.ArchiveNeeded, BackupItemStatus.WouldArchive)]
+    public async Task RunAsync_DryRun_TracesPlannedStatusWithoutArchive(ChangeDecision decision, BackupItemStatus expected)
+    {
+        SetupPreview(decision);
+        using var repositories = _capture.Collect<long>(BackupTelemetry.RepositoriesMetric);
+        using var sizes = _capture.Collect<long>(BackupTelemetry.ArchiveSizeMetric);
+        using var test = _capture.StartTest();
+
+        await DryRunAsync();
+
+        _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem().GetTagItem(BackupTelemetry.DryRunTag).ShouldBe(true);
+        _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem()
+            .GetTagItem(BackupTelemetry.StatusTag).ShouldBe(expected.ToString());
+        _capture.Named(BackupTelemetry.ArchiveOperation).ShouldBeEmpty();
+        repositories.GetMeasurementSnapshot().ShouldHaveSingleItem().Tags[BackupTelemetry.DryRunTag].ShouldBe(true);
+        sizes.GetMeasurementSnapshot().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunMissingRepository_CountsSkippedWithoutRepositorySpan()
+    {
+        SetupDiscovery(MissingRepository());
+        using var repositories = _capture.Collect<long>(BackupTelemetry.RepositoriesMetric);
+        using var test = _capture.StartTest();
+
+        await DryRunAsync();
+
+        _capture.Named(BackupTelemetry.RepositorySpanName).ShouldBeEmpty();
+        Statuses(repositories).ShouldBe([nameof(BackupItemStatus.Skipped)]);
+    }
+
+    [Fact]
+    public async Task RunAsync_NewRepositoryNotConfirmed_CountsSkipped()
+    {
+        SetupApply(Applied(skipped: ["owner/new"]));
+        using var repositories = _capture.Collect<long>(BackupTelemetry.RepositoriesMetric);
+        using var test = _capture.StartTest();
+
+        var result = await RunAsync();
+
+        Statuses(repositories).ShouldBe([.. result.Items.Select(item => item.Status.ToString())]);
+        Statuses(repositories).ShouldContain(nameof(BackupItemStatus.Skipped));
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilter_TracesNoDiscovery()
+    {
+        using var test = _capture.StartTest();
+
+        await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        _capture.Named(BackupTelemetry.DiscoverySpanName).ShouldBeEmpty();
+        _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem()
+            .ParentSpanId.ShouldBe(_capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem().SpanId);
+    }
+
+    [Theory]
+    [InlineData("config", typeof(BackupConfigException))]
+    [InlineData("lock", null)]
+    [InlineData("tool", typeof(ToolUnavailableException))]
+    [InlineData("discovery", typeof(GitHubApiException))]
+    public async Task RunAsync_Stopped_MarksRunFailedAndRecordsStoppedOutcome(string cause, Type? errorType)
+    {
+        switch (cause)
+        {
+            case "config":
+                _configStore.LoadAsync(Arg.Any<CancellationToken>())
+                    .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]));
+                break;
+            case "lock":
+                _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns((IDisposable?)null);
+                break;
+            case "tool":
+                _toolLocator.LocateAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new ToolUnavailableException("git was not found."));
+                break;
+            default:
+                _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+                    .ThrowsAsync(DiscoveryFailure("server"));
+                break;
+        }
+
+        using var runs = _capture.Collect<double>(BackupTelemetry.RunDurationMetric);
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var run = _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem();
+        run.Status.ShouldBe(ActivityStatusCode.Error);
+        run.StatusDescription.ShouldBeNull();
+        run.GetTagItem(BackupTelemetry.ErrorTypeTag).ShouldBe(errorType?.FullName);
+        run.GetTagItem(BackupTelemetry.RunOutcomeTag).ShouldBe(BackupTelemetry.StoppedOutcome);
+        _capture.Named(BackupTelemetry.RepositorySpanName).ShouldBeEmpty();
+        runs.GetMeasurementSnapshot().ShouldHaveSingleItem().Tags[BackupTelemetry.RunOutcomeTag]
+            .ShouldBe(BackupTelemetry.StoppedOutcome);
+        if (cause == "discovery")
+        {
+            _capture.Named(BackupTelemetry.DiscoverySpanName).ShouldHaveSingleItem().Status.ShouldBe(ActivityStatusCode.Error);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_Archived_RecordsRepositoryCountDurationsAndArchiveSize()
+    {
+        AddRepository("other");
+        _config.Repositories[1].Status = RepositoryStatus.Unavailable;
+        using var repositories = _capture.Collect<long>(BackupTelemetry.RepositoriesMetric);
+        using var durations = _capture.Collect<double>(BackupTelemetry.RepositoryDurationMetric);
+        using var runs = _capture.Collect<double>(BackupTelemetry.RunDurationMetric);
+        using var sizes = _capture.Collect<long>(BackupTelemetry.ArchiveSizeMetric);
+
+        var result = await RunAsync();
+
+        Statuses(repositories).ShouldBe([.. result.Items.Select(item => item.Status.ToString())]);
+        repositories.GetMeasurementSnapshot().ShouldAllBe(measurement => measurement.Value == 1);
+        repositories.GetMeasurementSnapshot()[0].Tags[BackupTelemetry.TargetTag].ShouldBe(nameof(BackupTarget.Repository));
+        repositories.GetMeasurementSnapshot()[0].Tags[BackupTelemetry.DryRunTag].ShouldBe(false);
+        durations.GetMeasurementSnapshot().Select(measurement => measurement.Value).ShouldBe([5.0, 0.0]);
+        var run = runs.GetMeasurementSnapshot().ShouldHaveSingleItem();
+        run.Value.ShouldBe(5.0);
+        run.Tags[BackupTelemetry.RunOutcomeTag].ShouldBe(BackupTelemetry.CompletedOutcome);
+        var size = sizes.GetMeasurementSnapshot().ShouldHaveSingleItem();
+        size.Value.ShouldBe(1234);
+        size.Tags[BackupTelemetry.TargetTag].ShouldBe(nameof(BackupTarget.Repository));
+    }
+
+    [Fact]
+    public async Task RunAsync_Wiki_TracesWikiAsSiblingOfRepositoryAndRecordsItsArchive()
+    {
+        SetupWiki(hasWiki: true);
+        using var sizes = _capture.Collect<long>(BackupTelemetry.ArchiveSizeMetric);
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var run = _capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem();
+        var items = _capture.Named(BackupTelemetry.RepositorySpanName);
+        items.Select(span => $"{span.GetTagItem(BackupTelemetry.RepositoryTag)} {span.GetTagItem(BackupTelemetry.TargetTag)}")
+            .ShouldBe(["owner/repo Repository", "owner/repo.wiki Wiki"]);
+        items.ShouldAllBe(span => span.ParentSpanId == run.SpanId);
+        _capture.Named(BackupTelemetry.ArchiveOperation).Select(span => span.ParentSpanId)
+            .ShouldBe([items[0].SpanId, items[1].SpanId]);
+        sizes.GetMeasurementSnapshot().Select(measurement => measurement.Tags[BackupTelemetry.TargetTag] as string)
+            .ShouldBe([nameof(BackupTarget.Repository), nameof(BackupTarget.Wiki)]);
+    }
+
+    [Fact]
+    public async Task RunAsync_WikiLookupFails_TracesFailedWikiSpan()
+    {
+        _gitHubApi.GetRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(DiscoveryFailure("server"));
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var wiki = _capture.Named(BackupTelemetry.RepositorySpanName)
+            .Where(span => span.GetTagItem(BackupTelemetry.TargetTag) as string == nameof(BackupTarget.Wiki))
+            .ShouldHaveSingleItem();
+        wiki.GetTagItem(BackupTelemetry.StatusTag).ShouldBe(nameof(BackupItemStatus.Failed));
+        wiki.Status.ShouldBe(ActivityStatusCode.Error);
+    }
+
     /// <summary>
     /// Adds the branch <c>main</c> and its commit from <see cref="_refs"/> to an expected result, and every ref of
     /// <see cref="_refs"/> as changed when the item has its first archive.
@@ -1512,7 +1766,16 @@ public sealed class BackupOrchestratorTests
         _stateStore,
         _fileSystem,
         _timeProvider,
+        _capture.Telemetry,
         _logger);
+
+    /// <summary>
+    /// Returns the status tag of each measurement of the repository counter, in the order they were recorded.
+    /// </summary>
+    /// <param name="collector">The collector of <see cref="BackupTelemetry.RepositoriesMetric"/>.</param>
+    /// <returns>The statuses.</returns>
+    private static List<string?> Statuses(MetricCollector<long> collector) =>
+        [.. collector.GetMeasurementSnapshot().Select(measurement => measurement.Tags[BackupTelemetry.StatusTag] as string)];
 
     /// <summary>
     /// Creates the request of a run with the substitute decision handler.

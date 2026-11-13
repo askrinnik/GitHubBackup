@@ -181,6 +181,48 @@ Wiki проверяется так же, как репозиторий. Над �
 
 Прогон ничего не клонирует, не обновляет и не архивирует, не пишет `backup-config.json` и `.backup-state.json`, не очищает `<sourcesRoot>\.tmp\` и не задаёт вопросов. Поэтому он работает и с перенаправленным вводом, а `--silent` вывод не меняет. Код возврата — как у обычного запуска: `3`, если найдены новые, пропавшие или переименованные репозитории.
 
+#### Телеметрия (OpenTelemetry)
+
+По умолчанию телеметрия выключена (`OpenTelemetry:Enabled=false`): SDK OpenTelemetry и экспортер не регистрируются. При `OpenTelemetry:Enabled=true` программа отправляет трейсы и метрики по OTLP (gRPC) на адрес `OpenTelemetry:OtlpEndpoint` (по умолчанию `http://localhost:4317`). Ресурс называется `GitHubBackup`.
+
+Трейсы:
+
+```
+backup.run                      githubbackup.dry_run, githubbackup.run.outcome
+├── backup.discovery            нет при --repo
+├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status
+│   ├── ls-remote | clone | fetch
+│   └── archive
+└── backup.repository           wiki того же репозитория (githubbackup.target = Wiki)
+```
+
+- `githubbackup.run.outcome`: `completed`, `stopped` (критическая ошибка), `cancelled` или `failed` (непредвиденное исключение).
+- Ошибка отмечается статусом `Error` и тегом `error.type` (имя типа исключения). Текста исключения и токена в трейсах нет.
+- Тег `githubbackup.repository` содержит имена репозиториев (`owner/name`), в том числе приватных. Адрес по схеме `http` передаёт их без шифрования, поэтому удалённый коллектор подключайте по `https`. Учётные данные коллектора задаются переменной `OTEL_EXPORTER_OTLP_HEADERS`, а не в `OtlpEndpoint`.
+- Репозитории, которые не обрабатывались (не начатые из-за отмены, пропавшие при `--dry-run`, новые неподтверждённые), есть только в метриках.
+
+Метрики (meter `GitHubBackup`):
+
+| Метрика | Тип и единица | Теги |
+|---|---|---|
+| `githubbackup.repositories` | Counter, `{repository}` | `githubbackup.status`, `githubbackup.target`, `githubbackup.dry_run` |
+| `githubbackup.repository.duration` | Histogram, `s` | те же |
+| `githubbackup.run.duration` | Histogram, `s` | `githubbackup.run.outcome`, `githubbackup.dry_run` |
+| `githubbackup.archive.size` | Histogram, `By` | `githubbackup.target`; только созданные архивы |
+
+Ручная проверка через .NET Aspire Dashboard:
+
+1. Запустите дашборд в Docker. Порт OTLP дашборда `18889` публикуется как `4317`:
+
+   ```
+   docker run --rm -it -p 18888:18888 -p 4317:18889 --name aspire-dashboard mcr.microsoft.com/dotnet/aspire-dashboard:latest
+   ```
+
+2. Откройте ссылку `http://localhost:18888/login?t=…` из вывода контейнера.
+3. Запустите бэкап с включённой телеметрией: `dotnet run --project src/GitHubBackup.Cli -- backup --dry-run --OpenTelemetry:Enabled=true`. Другой адрес задаётся ключом `--OpenTelemetry:OtlpEndpoint=<uri>`.
+4. На вкладке **Traces** выберите ресурс `GitHubBackup`: у трейса `backup.run` видна иерархия выше и теги spans.
+5. На вкладке **Metrics** выберите meter `GitHubBackup`. Счётчик и длительности записываются в конце запуска, а последняя порция метрик отправляется при завершении программы, поэтому они появляются после окончания запуска.
+
 ## CI
 
 | Workflow | Запуск | Что делает |

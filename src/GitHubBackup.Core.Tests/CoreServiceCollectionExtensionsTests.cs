@@ -1,3 +1,4 @@
+using System.Diagnostics.Metrics;
 using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.Archiving;
@@ -11,6 +12,7 @@ using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -56,6 +58,15 @@ public sealed class CoreServiceCollectionExtensionsTests
 
         provider.GetRequiredService<IRunContext>().ShouldBeSameAs(runContext);
         otherProvider.GetRequiredService<IRunContext>().RunId.ShouldNotBe(runContext.RunId);
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_BackupTelemetry_IsOneInstancePerProviderWithMeterFactory()
+    {
+        using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
+
+        provider.GetRequiredService<IMeterFactory>().ShouldNotBeNull();
+        provider.GetRequiredService<BackupTelemetry>().ShouldBeSameAs(provider.GetRequiredService<BackupTelemetry>());
     }
 
     [Fact]

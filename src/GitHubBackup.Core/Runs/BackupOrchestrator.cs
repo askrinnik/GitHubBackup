@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO.Abstractions;
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
@@ -8,6 +9,7 @@ using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using Microsoft.Extensions.Logging;
 
@@ -39,7 +41,10 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="archiver">Creates each archive.</param>
 /// <param name="stateStore">Reads and records the archives of each repository.</param>
 /// <param name="fileSystem">Empties the folder of temporary archives.</param>
-/// <param name="timeProvider">Measures the time spent on each repository and wiki.</param>
+/// <param name="timeProvider">Measures the time spent on the run and on each repository and wiki.</param>
+/// <param name="telemetry">
+/// Traces the run, the discovery, each repository and wiki and the archiving, and records the metrics of the run.
+/// </param>
 /// <param name="logger">The logger.</param>
 public sealed class BackupOrchestrator(
     IBackupConfigStore configStore,
@@ -58,6 +63,7 @@ public sealed class BackupOrchestrator(
     IBackupStateStore stateStore,
     IFileSystem fileSystem,
     TimeProvider timeProvider,
+    BackupTelemetry telemetry,
     ILogger<BackupOrchestrator> logger) : IBackupOrchestrator
 {
     /// <summary>The error that stops a run while another run holds the lock.</summary>
@@ -70,7 +76,50 @@ public sealed class BackupOrchestrator(
     public const string NotProcessedMessage = "Not processed: the run was cancelled.";
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The run is traced as one span, with the discovery and each repository and wiki as its children, and every
+    /// item of the result is counted, so the metrics account for the same items as the summary.
+    /// </remarks>
     public async Task<BackupRunResult> RunAsync(BackupRunRequest request, CancellationToken cancellationToken)
+    {
+        using var activity = telemetry.StartRun(request.DryRun);
+        var started = timeProvider.GetTimestamp();
+        var outcome = BackupTelemetry.CancelledOutcome;
+        try
+        {
+            var result = await RunCoreAsync(request, activity, cancellationToken);
+            outcome = result.CriticalErrors.Count > 0 ? BackupTelemetry.StoppedOutcome
+                : result.IsCancelled ? BackupTelemetry.CancelledOutcome
+                : BackupTelemetry.CompletedOutcome;
+            foreach (var item in result.Items)
+            {
+                telemetry.RecordItem(item, request.DryRun);
+            }
+
+            return result;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            outcome = BackupTelemetry.FailedOutcome;
+            BackupTelemetry.SetError(activity, exception);
+            throw;
+        }
+        finally
+        {
+            activity?.SetTag(BackupTelemetry.RunOutcomeTag, outcome);
+            telemetry.RecordRun(outcome, request.DryRun, timeProvider.GetElapsedTime(started));
+        }
+    }
+
+    /// <summary>
+    /// Loads the configuration, locates the tools, takes the lock and runs the backup.
+    /// </summary>
+    /// <param name="request">The repositories the run covers, the handler of discovery decisions and the mode.</param>
+    /// <param name="run">The span of the run, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels the run.</param>
+    /// <returns>The result of the run.</returns>
+    private async Task<BackupRunResult> RunCoreAsync(
+        BackupRunRequest request, Activity? run, CancellationToken cancellationToken)
     {
         BackupConfigLoadResult loaded;
         try
@@ -79,7 +128,7 @@ public sealed class BackupOrchestrator(
         }
         catch (BackupConfigException exception)
         {
-            return Stop(exception.Errors, [], exception);
+            return Stop(run, exception.Errors, [], exception);
         }
 
         var config = loaded.Config;
@@ -93,12 +142,12 @@ public sealed class BackupOrchestrator(
         }
         catch (Exception exception) when (exception is ToolUnavailableException or ArgumentException)
         {
-            return Stop([exception.Message], loaded.Warnings, exception);
+            return Stop(run, [exception.Message], loaded.Warnings, exception);
         }
 
         if (filter.IsRepository && !items.Any(filter.Includes))
         {
-            return Stop([$"The repository '{filter.RepositoryFullName}' is not in backup-config.json."], loaded.Warnings, null);
+            return Stop(run, [$"The repository '{filter.RepositoryFullName}' is not in backup-config.json."], loaded.Warnings, null);
         }
 
         var token = await tokenProvider.GetTokenAsync(cancellationToken);
@@ -108,12 +157,12 @@ public sealed class BackupOrchestrator(
         using var runLockHandle = await runLock.TryAcquireAsync(cancellationToken);
         if (runLockHandle is null)
         {
-            return Stop([RunLockHeldMessage], loaded.Warnings, null);
+            return Stop(run, [RunLockHeldMessage], loaded.Warnings, null);
         }
 
         try
         {
-            return await RunLockedAsync(request, loaded, tools, items, token, cancellationToken);
+            return await RunLockedAsync(request, run, loaded, tools, items, token, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -127,6 +176,7 @@ public sealed class BackupOrchestrator(
     /// decisions and processes the repositories.
     /// </summary>
     /// <param name="request">The repositories the run covers, the handler of discovery decisions and the mode.</param>
+    /// <param name="run">The span of the run, or <see langword="null"/>.</param>
     /// <param name="loaded">The configuration and its warnings.</param>
     /// <param name="tools">The located tools.</param>
     /// <param name="items">The repositories of the configuration.</param>
@@ -138,6 +188,7 @@ public sealed class BackupOrchestrator(
     /// <returns>The result of the run.</returns>
     private async Task<BackupRunResult> RunLockedAsync(
         BackupRunRequest request,
+        Activity? run,
         BackupConfigLoadResult loaded,
         ToolSet tools,
         IReadOnlyList<BackupWorkItem> items,
@@ -160,29 +211,34 @@ public sealed class BackupOrchestrator(
 
         DiscoveryResult discovery;
         DiscoveryApplyResult? applied = null;
-        try
+        using (var discoveryActivity = filter.IsRepository ? null : telemetry.StartDiscovery())
         {
-            discovery = await DiscoverAsync(config, filter, cancellationToken);
-
-            // The applier always saves the configuration and may move folders, so a dry run only shows what
-            // discovery found and leaves the decisions to a backup run.
-            if (discovery.HasChanges && !dryRun)
+            try
             {
-                applied = await decisionApplier.ApplyAsync(
-                    config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
-                items = BackupWorkItem.CreateAll(config, pathResolver);
+                discovery = await DiscoverAsync(config, filter, cancellationToken);
+
+                // The applier always saves the configuration and may move folders, so a dry run only shows what
+                // discovery found and leaves the decisions to a backup run.
+                if (discovery.HasChanges && !dryRun)
+                {
+                    applied = await decisionApplier.ApplyAsync(
+                        config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
+                    items = BackupWorkItem.CreateAll(config, pathResolver);
+                }
             }
-        }
-        catch (BackupConfigException exception)
-        {
-            return Stop(exception.Errors, loaded.Warnings, exception);
-        }
-        catch (Exception exception) when (
-            exception is GitHubApiException or ArgumentException or IOException or UnauthorizedAccessException)
-        {
-            // Without a complete discovery the run cannot tell which repositories to back up, and a failed save
-            // leaves the configuration in memory out of step with the file, so neither may lead to a partial run.
-            return Stop([exception.Message], loaded.Warnings, exception);
+            catch (BackupConfigException exception)
+            {
+                BackupTelemetry.SetError(discoveryActivity, exception);
+                return Stop(run, exception.Errors, loaded.Warnings, exception);
+            }
+            catch (Exception exception) when (
+                exception is GitHubApiException or ArgumentException or IOException or UnauthorizedAccessException)
+            {
+                // Without a complete discovery the run cannot tell which repositories to back up, and a failed save
+                // leaves the configuration in memory out of step with the file, so neither may lead to a partial run.
+                BackupTelemetry.SetError(discoveryActivity, exception);
+                return Stop(run, [exception.Message], loaded.Warnings, exception);
+            }
         }
 
         if (dryRun)
@@ -402,14 +458,17 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Logs the errors that stop the run and returns its result.
+    /// Logs the errors that stop the run, marks its span failed and returns its result.
     /// </summary>
+    /// <param name="run">The span of the run, or <see langword="null"/>.</param>
     /// <param name="errors">The errors, one sentence each.</param>
     /// <param name="configWarnings">The warnings about <c>backup-config.json</c> found so far.</param>
     /// <param name="exception">The exception that reported the errors, or <see langword="null"/> when the run found them itself.</param>
     /// <returns>The result with <see cref="BackupRunResult.CriticalErrors"/> set.</returns>
-    private BackupRunResult Stop(IReadOnlyList<string> errors, IReadOnlyList<string> configWarnings, Exception? exception)
+    private BackupRunResult Stop(
+        Activity? run, IReadOnlyList<string> errors, IReadOnlyList<string> configWarnings, Exception? exception)
     {
+        BackupTelemetry.SetError(run, exception);
         var reported = errors.Count > 0 || exception is null ? errors : [exception.Message];
         foreach (var error in reported)
         {
@@ -486,8 +545,10 @@ public sealed class BackupOrchestrator(
         BackupWorkItem item, RunSettings settings, CancellationToken cancellationToken)
     {
         using var scope = logger.BeginRepositoryScope(item.FullName);
+        using var activity = telemetry.StartRepository(item.FullName, BackupTarget.Repository);
         var started = timeProvider.GetTimestamp();
         BackupOutcome outcome;
+        Exception? failure = null;
         if (!item.IsActive)
         {
             BackupOrchestratorLog.RepositorySkipped(logger);
@@ -506,15 +567,22 @@ public sealed class BackupOrchestrator(
                     item.Branch);
                 outcome = await BackupAsync(item, source, settings, cancellationToken);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                BackupTelemetry.SetStatus(activity, BackupItemStatus.Cancelled);
+                throw;
+            }
             catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
                 // The failure of one repository must not stop the run, so every exception except the requested
                 // cancellation becomes the result of this repository.
                 BackupOrchestratorLog.RepositoryFailed(logger, exception);
                 outcome = new(BackupItemStatus.Failed, null, exception.Message);
+                failure = exception;
             }
         }
 
+        BackupTelemetry.SetStatus(activity, outcome.Status, failure);
         var duration = timeProvider.GetElapsedTime(started);
         BackupOrchestratorLog.RepositoryFinished(logger, outcome.Status, outcome.Archive, duration);
         return outcome.ToResult(item.FullName, BackupTarget.Repository, duration);
@@ -527,7 +595,8 @@ public sealed class BackupOrchestrator(
     /// <remarks>
     /// The wiki is cloned on the server's default branch: the branch configured for the repository names a branch of
     /// the code, not of the wiki. An enabled wiki that nobody has edited has no git repository; it is logged and
-    /// skipped, and its clone and archives from earlier runs are kept.
+    /// skipped, and its clone and archives from earlier runs are kept. The span of the wiki starts once the wiki is
+    /// known to be enabled, so a repository without a wiki adds no span; a failed lookup gets a span of its own.
     /// </remarks>
     /// <param name="item">The repository that owns the wiki.</param>
     /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
@@ -550,24 +619,30 @@ public sealed class BackupOrchestrator(
 
         using var scope = logger.BeginRepositoryScope(item.WikiFullName);
         var started = timeProvider.GetTimestamp();
+        bool enabled;
         try
         {
-            if (!await IsWikiEnabledAsync(item, discovered, cancellationToken))
-            {
-                BackupOrchestratorLog.WikiDisabled(logger);
-                return null;
-            }
+            enabled = await IsWikiEnabledAsync(item, discovered, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             // Without the answer the wiki may go unprotected, so the failed lookup is the failure of the wiki; the
             // repository keeps its own result.
             BackupOrchestratorLog.WikiLookupFailed(logger, exception);
-            return FinishWiki(item, started, new(BackupItemStatus.Failed, null, exception.Message));
+            using var failed = telemetry.StartRepository(item.WikiFullName, BackupTarget.Wiki);
+            return FinishWiki(item, started, new(BackupItemStatus.Failed, null, exception.Message), failed, exception);
         }
 
+        if (!enabled)
+        {
+            BackupOrchestratorLog.WikiDisabled(logger);
+            return null;
+        }
+
+        using var activity = telemetry.StartRepository(item.WikiFullName, BackupTarget.Wiki);
         BackupOrchestratorLog.RepositoryStarted(logger, item.WikiCloneFolder, item.ArchiveFolder);
         BackupOutcome outcome;
+        Exception? failure = null;
         try
         {
             var source = new BackupSource(
@@ -583,24 +658,34 @@ public sealed class BackupOrchestrator(
             BackupOrchestratorLog.WikiNotFound(logger);
             return null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            BackupTelemetry.SetStatus(activity, BackupItemStatus.Cancelled);
+            throw;
+        }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             BackupOrchestratorLog.RepositoryFailed(logger, exception);
             outcome = new(BackupItemStatus.Failed, null, exception.Message);
+            failure = exception;
         }
 
-        return FinishWiki(item, started, outcome);
+        return FinishWiki(item, started, outcome, activity, failure);
     }
 
     /// <summary>
-    /// Logs the outcome of a wiki and returns its result.
+    /// Logs the outcome of a wiki, tags its span and returns its result.
     /// </summary>
     /// <param name="item">The repository that owns the wiki.</param>
     /// <param name="started">The timestamp taken when the wiki was started.</param>
     /// <param name="outcome">What the backup of the wiki did.</param>
+    /// <param name="activity">The span of the wiki, or <see langword="null"/>.</param>
+    /// <param name="failure">The exception that failed the wiki, or <see langword="null"/>.</param>
     /// <returns>The result of the wiki.</returns>
-    private BackupItemResult FinishWiki(BackupWorkItem item, long started, BackupOutcome outcome)
+    private BackupItemResult FinishWiki(
+        BackupWorkItem item, long started, BackupOutcome outcome, Activity? activity, Exception? failure)
     {
+        BackupTelemetry.SetStatus(activity, outcome.Status, failure);
         var duration = timeProvider.GetElapsedTime(started);
         BackupOrchestratorLog.RepositoryFinished(logger, outcome.Status, outcome.Archive, duration);
         return outcome.ToResult(item.WikiFullName, BackupTarget.Wiki, duration);
@@ -713,30 +798,32 @@ public sealed class BackupOrchestrator(
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>The file name of the new archive.</returns>
     /// <exception cref="InvalidOperationException">The refs of the clone hold no commit for the checked-out branch.</exception>
-    private async Task<string> ArchiveAsync(
+    private Task<string> ArchiveAsync(
         BackupWorkItem item,
         BackupSource source,
         RunSettings settings,
         ChangeDetection detection,
-        CancellationToken cancellationToken)
-    {
-        var (branch, headCommit) = GetHeadCommit(source, detection);
-        var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
-        var result = await archiver.CreateAsync(
-            new()
-            {
-                SevenZipPath = settings.Tools.SevenZip.Path,
-                SourceFolder = source.CloneFolder,
-                TemporaryFolder = settings.TemporaryFolder,
-                DestinationFolder = item.ArchiveFolder,
-                FileName = name.FileName,
-            },
-            cancellationToken);
+        CancellationToken cancellationToken) =>
+        telemetry.TraceOperationAsync(BackupTelemetry.ArchiveOperation, async () =>
+        {
+            var (branch, headCommit) = GetHeadCommit(source, detection);
+            var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
+            var result = await archiver.CreateAsync(
+                new()
+                {
+                    SevenZipPath = settings.Tools.SevenZip.Path,
+                    SourceFolder = source.CloneFolder,
+                    TemporaryFolder = settings.TemporaryFolder,
+                    DestinationFolder = item.ArchiveFolder,
+                    FileName = name.FileName,
+                },
+                cancellationToken);
+            telemetry.RecordArchiveSize(result.SizeBytes, source.Target);
 
-        var record = new ArchiveRecord(name.FileName, name.CreatedAt, branch, headCommit, result.SizeBytes, detection.Refs);
-        await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, CancellationToken.None);
-        return name.FileName;
-    }
+            var record = new ArchiveRecord(name.FileName, name.CreatedAt, branch, headCommit, result.SizeBytes, detection.Refs);
+            await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, CancellationToken.None);
+            return name.FileName;
+        });
 
     /// <summary>
     /// Returns the branch to archive and the commit it points at.

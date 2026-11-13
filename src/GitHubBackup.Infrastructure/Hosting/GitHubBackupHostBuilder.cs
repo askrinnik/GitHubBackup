@@ -1,6 +1,7 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.Logging;
+using GitHubBackup.Infrastructure.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -34,8 +35,8 @@ public static class GitHubBackupHostBuilder
 
     /// <summary>
     /// Creates a host builder with the configuration sources, the service provider checks, the services of
-    /// <c>Core</c> and <c>Infrastructure</c> and the file logging registered; the caller adds its own services and
-    /// builds the host.
+    /// <c>Core</c> and <c>Infrastructure</c>, the file logging and, when enabled, the OpenTelemetry export
+    /// registered; the caller adds its own services and builds the host.
     /// </summary>
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
@@ -88,7 +89,8 @@ public static class GitHubBackupHostBuilder
         builder.Services
             .AddGitHubBackupCore()
             .AddGitHubBackupInfrastructure(configuration)
-            .AddGitHubBackupLogging(configuration);
+            .AddGitHubBackupLogging(configuration)
+            .AddGitHubBackupTelemetry(configuration);
 
         return builder;
     }

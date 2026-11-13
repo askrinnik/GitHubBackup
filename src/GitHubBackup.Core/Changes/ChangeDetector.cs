@@ -1,6 +1,7 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
 using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.Core.Changes;
@@ -10,8 +11,10 @@ namespace GitHubBackup.Core.Changes;
 /// </summary>
 /// <param name="gitClient">Clones and updates the clone and reads the refs of the server.</param>
 /// <param name="fileSystem">Checks that the clone and the last archive exist; no file is read.</param>
+/// <param name="telemetry">Traces each git operation as a child of the span of the repository.</param>
 /// <param name="logger">The logger.</param>
-public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem, ILogger<ChangeDetector> logger)
+public sealed class ChangeDetector(
+    IGitClient gitClient, IFileSystem fileSystem, BackupTelemetry telemetry, ILogger<ChangeDetector> logger)
     : IChangeDetector
 {
     /// <inheritdoc />
@@ -27,7 +30,9 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
         GitSyncResult sync;
         if (!cloneExists)
         {
-            sync = await gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken);
+            sync = await telemetry.TraceOperationAsync(
+                BackupTelemetry.CloneOperation,
+                () => gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken));
         }
         else
         {
@@ -40,7 +45,8 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
                 }
             }
 
-            sync = await gitClient.UpdateAsync(request.Git, cancellationToken);
+            sync = await telemetry.TraceOperationAsync(
+                BackupTelemetry.FetchOperation, () => gitClient.UpdateAsync(request.Git, cancellationToken));
         }
 
         return Log(request, Decide(sync, last, archiveMissing));
@@ -59,7 +65,7 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
         }
 
         var git = request.Git;
-        var remote = await gitClient.GetRemoteRefsAsync(git, cancellationToken);
+        var remote = await GetRemoteRefsAsync(git, cancellationToken);
         var sync = remote.HasBranches
             ? await ChooseBranchAsync(git, remote, cancellationToken)
             : new GitSyncResult(null, false, remote);
@@ -89,7 +95,7 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
             return new(git.Branch, false, remote);
         }
 
-        var defaultBranch = await gitClient.GetDefaultBranchAsync(git, cancellationToken);
+        var defaultBranch = await GetDefaultBranchAsync(git, cancellationToken);
         if (defaultBranch is null || !remote.ContainsBranch(defaultBranch))
         {
             var requested = git.Branch is null ? "No branch was requested" : $"Branch '{git.Branch}' does not exist";
@@ -103,6 +109,26 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
         ValidateBranch(defaultBranch, git);
         return new(defaultBranch, git.Branch is not null, remote);
     }
+
+    /// <summary>
+    /// Reads the refs of the server inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
+    /// </summary>
+    /// <param name="git">The clone whose server is asked.</param>
+    /// <param name="cancellationToken">Cancels the git command.</param>
+    /// <returns>The branches and tags of the server.</returns>
+    private Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest git, CancellationToken cancellationToken) =>
+        telemetry.TraceOperationAsync(
+            BackupTelemetry.LsRemoteOperation, () => gitClient.GetRemoteRefsAsync(git, cancellationToken));
+
+    /// <summary>
+    /// Asks the server for its default branch inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
+    /// </summary>
+    /// <param name="git">The clone whose server is asked.</param>
+    /// <param name="cancellationToken">Cancels the git command.</param>
+    /// <returns>The default branch, or <see langword="null"/> when the server's <c>HEAD</c> names no branch.</returns>
+    private Task<string?> GetDefaultBranchAsync(GitRepositoryRequest git, CancellationToken cancellationToken) =>
+        telemetry.TraceOperationAsync(
+            BackupTelemetry.LsRemoteOperation, () => gitClient.GetDefaultBranchAsync(git, cancellationToken));
 
     /// <summary>
     /// Rejects a branch name that an update would refuse, so a preview reports the same failure as a backup run.
@@ -167,7 +193,7 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
     private async Task<ChangeDetection?> TryConfirmUnchangedAsync(
         GitRepositoryRequest git, ArchiveRecord last, CancellationToken cancellationToken)
     {
-        var remote = await gitClient.GetRemoteRefsAsync(git, cancellationToken);
+        var remote = await GetRemoteRefsAsync(git, cancellationToken);
         if (!remote.Equals(last.Refs))
         {
             return null;
@@ -181,7 +207,7 @@ public sealed class ChangeDetector(IGitClient gitClient, IFileSystem fileSystem,
         }
         else
         {
-            branch = await gitClient.GetDefaultBranchAsync(git, cancellationToken);
+            branch = await GetDefaultBranchAsync(git, cancellationToken);
             if (branch is null || !remote.ContainsBranch(branch))
             {
                 return null;

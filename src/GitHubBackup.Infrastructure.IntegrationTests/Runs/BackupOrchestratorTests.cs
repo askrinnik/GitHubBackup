@@ -26,6 +26,7 @@ using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
+using GitHubBackup.TestUtilities.Telemetry;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -44,6 +45,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const string _owner = "owner";
 
     private readonly LocalGitSandbox _sandbox = new();
+    private readonly TestTelemetry _telemetry = new();
     private readonly FileSystem _fileSystem = new();
     private readonly FakeTimeProvider _timeProvider = new(new DateTimeOffset(2026, 11, 11, 12, 0, 0, TimeSpan.Zero));
     private readonly Dictionary<string, string> _remoteUrls = new(StringComparer.Ordinal);
@@ -435,7 +437,11 @@ public sealed class BackupOrchestratorTests : IDisposable
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
-    public void Dispose() => _sandbox.Dispose();
+    public void Dispose()
+    {
+        _telemetry.Dispose();
+        _sandbox.Dispose();
+    }
 
     /// <summary>
     /// Returns a <c>file://</c> URL inside the sandbox where no repository exists.
@@ -626,12 +632,13 @@ public sealed class BackupOrchestratorTests : IDisposable
             decisionApplier,
             remoteUrlProvider,
             _gitHubApi,
-            new ChangeDetector(gitClient, _fileSystem, NullLogger<ChangeDetector>.Instance),
+            new ChangeDetector(gitClient, _fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance),
             new ArchiveNameBuilder(_timeProvider, backupOptions),
             new SevenZipArchiver(runner, _fileSystem, backupOptions, NullLogger<SevenZipArchiver>.Instance),
             _stateStore,
             _fileSystem,
             _timeProvider,
+            _telemetry.Telemetry,
             NullLogger<BackupOrchestrator>.Instance);
     }
 }

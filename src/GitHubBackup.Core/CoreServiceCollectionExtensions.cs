@@ -6,6 +6,7 @@ using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
+using GitHubBackup.Core.Telemetry;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -28,7 +29,8 @@ public static class CoreServiceCollectionExtensions
         /// <see cref="IDiscoveryDecisionApplier"/>, the <see cref="AutomaticDiscoveryDecisionHandler"/> that hosts pass
         /// to a run in silent mode, the <see cref="IBackupOrchestrator"/> as a <see cref="RecordingBackupOrchestrator"/>
         /// that adds each run of the <see cref="BackupOrchestrator"/> to the <see cref="IRunHistoryStore"/>, and
-        /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, and registers <see cref="BackupOptions"/> with
+        /// <see cref="TimeProvider.System"/> as the <see cref="TimeProvider"/>, the <see cref="BackupTelemetry"/> with the
+        /// meter factory it needs, and registers <see cref="BackupOptions"/> with
         /// <see cref="BackupOptionsValidator"/>, validated when the host starts.
         /// </summary>
         /// <remarks>
@@ -41,6 +43,8 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton<IRunContext, RunContext>();
             services.TryAddSingleton<IBackupConfigValidator, BackupConfigValidator>();
             services.TryAddSingleton(TimeProvider.System);
+            services.AddMetrics();
+            services.TryAddSingleton<BackupTelemetry>();
             services.TryAddSingleton<IChangeDetector, ChangeDetector>();
             services.TryAddSingleton<IArchiveNameBuilder, ArchiveNameBuilder>();
             services.TryAddSingleton<IRemoteUrlProvider, GitHubRemoteUrlProvider>();
