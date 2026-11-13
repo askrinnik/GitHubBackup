@@ -1,4 +1,3 @@
-using System.Text.Json;
 using GitHubBackup.Core;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Logging;
@@ -7,9 +6,6 @@ using GitHubBackup.Core.State;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Spectre.Console.Testing;
-using WireMock.RequestBuilders;
-using WireMock.ResponseBuilders;
-using WireMock.Server;
 
 namespace GitHubBackup.Cli.Tests;
 
@@ -22,35 +18,20 @@ namespace GitHubBackup.Cli.Tests;
 /// located, never asked to clone or archive.
 /// </remarks>
 [Trait("Category", "EndToEnd")]
+[Collection(BackupRunLockTestGroup.Name)]
 public sealed class BackupHistoryEndToEndTests : IDisposable
 {
-    private readonly WireMockServer _server = WireMockServer.Start();
+    private readonly GitHubApiStub _api = new();
     private readonly TemporaryContentRoot _contentRoot = new();
     private readonly TestConsole _output = TestCliConsole.CreateOutput();
     private readonly StringWriter _error = new();
-
-    /// <summary>
-    /// Serves an empty list of the token's repositories and a 404 for every repository lookup.
-    /// </summary>
-    public BackupHistoryEndToEndTests()
-    {
-        GivenCurrentUserRepositories();
-        _server
-            .Given(Request.Create().WithPath(path => path.StartsWith("/repos/", StringComparison.Ordinal)
-                || path.StartsWith("/repositories/", StringComparison.Ordinal)).UsingGet())
-            .AtPriority(10)
-            .RespondWith(Response.Create()
-                .WithStatusCode(404)
-                .WithHeader("Content-Type", "application/json")
-                .WithBody("""{ "message": "Not Found", "documentation_url": "https://docs.github.com/rest" }"""));
-    }
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
     [Fact]
     public async Task Backup_SilentWithMissingRepository_RecordsSilentRunWithSkippedItemAndMissingEvent()
     {
-        WriteBackupConfig(("owner", "gone", 1, "Active"));
+        WriteBackupConfig(config => config.WithRepository("owner", "gone", 1));
 
         var exitCode = await RunAsync("backup", "--silent");
 
@@ -69,8 +50,8 @@ public sealed class BackupHistoryEndToEndTests : IDisposable
     [Fact]
     public async Task Backup_DryRun_RecordsDryRunWithEventsWithoutDecisions()
     {
-        GivenCurrentUserRepositories(Repository(5, "other", "fresh"));
-        WriteBackupConfig(("owner", "gone", 1, "Active"));
+        _api.GivenCurrentUserRepositories(GitHubApiStub.Repository(5, "other", "fresh"));
+        WriteBackupConfig(config => config.WithRepository("owner", "gone", 1));
 
         var exitCode = await RunAsync("backup", "--dry-run");
 
@@ -89,7 +70,9 @@ public sealed class BackupHistoryEndToEndTests : IDisposable
     [Fact]
     public async Task Backup_SilentWithRepositoryFilter_RecordsFilter()
     {
-        WriteBackupConfig(("owner", "off", 1, "Unavailable"), ("owner", "other", 2, "Unavailable"));
+        WriteBackupConfig(config => config
+            .WithRepository("owner", "off", 1, "Unavailable")
+            .WithRepository("owner", "other", 2, "Unavailable"));
 
         var exitCode = await RunAsync("backup", "--silent", "--repo", "owner/off");
 
@@ -101,84 +84,31 @@ public sealed class BackupHistoryEndToEndTests : IDisposable
     }
 
     /// <summary>
-    /// Stops the server, disposes the outputs and deletes the content root.
+    /// Stops the API stub, disposes the outputs and deletes the content root.
     /// </summary>
     public void Dispose()
     {
-        _server.Dispose();
+        _api.Dispose();
         _output.Dispose();
         _error.Dispose();
         _contentRoot.Dispose();
     }
 
     /// <summary>
-    /// Builds the JSON of one repository as GitHub returns it.
+    /// Writes <c>backup-config.json</c> into the content root with an archive root inside the content root.
     /// </summary>
-    /// <param name="id">The repository id.</param>
-    /// <param name="owner">The owner login.</param>
-    /// <param name="name">The repository name.</param>
-    /// <returns>The JSON object.</returns>
-    private static string Repository(long id, string owner, string name) =>
-        $$"""
-        {
-          "id": {{id}},
-          "name": "{{name}}",
-          "full_name": "{{owner}}/{{name}}",
-          "owner": { "login": "{{owner}}", "id": 7, "type": "User" },
-          "private": false,
-          "fork": false,
-          "archived": false,
-          "has_wiki": false,
-          "default_branch": "main",
-          "html_url": "https://github.com/{{owner}}/{{name}}"
-        }
-        """;
-
-    /// <summary>
-    /// Serves the list of the token's repositories.
-    /// </summary>
-    /// <param name="repositories">The repository JSON objects.</param>
-    private void GivenCurrentUserRepositories(params string[] repositories) =>
-        _server
-            .Given(Request.Create().WithPath("/user/repos").UsingGet())
-            .RespondWith(Response.Create()
-                .WithStatusCode(200)
-                .WithHeader("Content-Type", "application/json")
-                .WithBody($"[{string.Join(",", repositories)}]"));
-
-    /// <summary>
-    /// Writes <c>backup-config.json</c> into the content root with standalone repositories and an archive root inside
-    /// the content root.
-    /// </summary>
-    /// <param name="repositories">The owner, name, id and status of each repository.</param>
-    private void WriteBackupConfig(params (string Owner, string Name, long Id, string Status)[] repositories)
-    {
-        var entries = repositories.Select(repository =>
-            $$"""
-            { "url": "https://github.com/{{repository.Owner}}/{{repository.Name}}", "id": {{repository.Id}}, "branch": null, "path": null, "status": "{{repository.Status}}" }
-            """);
-        var backupRoot = JsonSerializer.Serialize(Path.Combine(_contentRoot.FolderPath, "archives"));
-        File.WriteAllText(
-            Path.Combine(_contentRoot.FolderPath, "backup-config.json"),
-            $$"""
-            {
-              "schemaVersion": 1,
-              "backupRoot": {{backupRoot}},
-              "sourcesRoot": null,
-              "exclude": [],
-              "accounts": [],
-              "repositories": [ {{string.Join(",", entries)}} ]
-            }
-            """);
-    }
+    /// <param name="configure">Adds the repositories of the scenario.</param>
+    private void WriteBackupConfig(Func<BackupConfigJson, BackupConfigJson> configure) =>
+        configure(new(Path.Combine(_contentRoot.FolderPath, "archives")))
+            .WriteTo(Path.Combine(_contentRoot.FolderPath, "backup-config.json"));
 
     /// <summary>
     /// Returns the settings of the host: the token of <see cref="CliApplicationTests.ValidAppSettings"/> and the API
-    /// address of the server.
+    /// address of the stub.
     /// </summary>
     /// <returns>The JSON text of <c>appsettings.json</c>.</returns>
     private string AppSettings() =>
-        CliApplicationTests.ValidAppSettings.Replace("https://api.github.com", _server.Url, StringComparison.Ordinal);
+        CliApplicationTests.ValidAppSettings.Replace("https://api.github.com", _api.Url, StringComparison.Ordinal);
 
     /// <summary>
     /// Runs the application with <paramref name="args"/> over the content root.
