@@ -131,6 +131,41 @@
                            AutomationProperties.AutomationId="RunSummaryLogPath" />
             </StackPanel>
         </Border>
+        <ListBox x:Name="RunLogList"
+                 DockPanel.Dock="Bottom"
+                 Height="160"
+                 Margin="0,8,0,0"
+                 ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
+                 FontFamily="Consolas"
+                 VirtualizingPanel.IsVirtualizing="True"
+                 VirtualizingPanel.VirtualizationMode="Recycling"
+                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                 AutomationProperties.AutomationId="RunLog">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding Message, Mode=OneWay}" />
+                        <StackPanel.Style>
+                            <Style TargetType="StackPanel">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
+                                        <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
+                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
+                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </StackPanel.Style>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
         <Grid>
             <TreeView ItemsSource="{Binding Nodes, Mode=OneWay}"
                       VirtualizingPanel.IsVirtualizing="True"

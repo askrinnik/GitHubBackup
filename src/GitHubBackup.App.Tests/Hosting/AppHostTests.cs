@@ -4,6 +4,7 @@ using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
+using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -89,6 +90,16 @@ public sealed class AppHostTests : IDisposable
         using var host = BuildHost();
 
         host.Services.GetRequiredService<IUiDispatcher>().ShouldBeOfType<WpfUiDispatcher>();
+    }
+
+    [Fact]
+    public void BuildHost_LiveLogFeed_IsSingleton()
+    {
+        using var host = BuildHost();
+
+        var feed = host.Services.GetRequiredService<ILiveLogFeed>();
+
+        host.Services.GetRequiredService<ILiveLogFeed>().ShouldBeSameAs(feed);
     }
 
     /// <summary>

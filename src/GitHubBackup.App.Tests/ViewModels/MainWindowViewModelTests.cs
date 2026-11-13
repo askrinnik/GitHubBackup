@@ -5,6 +5,7 @@ using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -36,6 +37,7 @@ public sealed class MainWindowViewModelTests
             Substitute.For<IRepositoryOverviewProvider>(),
             Substitute.For<IBackupRunService>(),
             Substitute.For<IUiDispatcher>(),
+            Substitute.For<ILiveLogFeed>(),
             Substitute.For<IDialogService>(),
             new SecretMasker(),
             Substitute.For<IHostEnvironment>(),

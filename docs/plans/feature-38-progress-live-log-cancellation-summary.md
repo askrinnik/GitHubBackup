@@ -170,7 +170,7 @@
 - [x] App: `RepositoriesView.xaml`: кнопка отмены, «Cancelling…», панель сводки
 - [x] App.Tests: `AppHostTests`
 - [x] Сборка, тесты без Smoke, `dotnet format --verify-no-changes`
-- [ ] Проверка через Netwright
+- [x] Проверка через Netwright
 
 Часть B:
 - [x] Core: `BackupProgress`, `BackupProgressStage`, `BackupRunRequest.Progress`, `ChangeDetectionRequest.OperationProgress`
@@ -179,6 +179,6 @@
 - [x] App: прогресс в `IBackupRunService`, `RepositoriesViewModel`, View + тесты
 
 Часть C:
-- [ ] Infrastructure: `ILiveLogFeed`, `LiveLogEntry`, `LiveLogSink`, подключение + тесты
-- [ ] App: `RunLogViewModel` + тесты; подписка; `ListBox` `RunLog`
-- [ ] Netwright: лента видна
+- [x] Infrastructure: `ILiveLogFeed`, `LiveLogEntry`, `LiveLogSink`, подключение + тесты
+- [x] App: `RunLogViewModel` + тесты; подписка; `ListBox` `RunLog`
+- [x] Netwright: лента видна

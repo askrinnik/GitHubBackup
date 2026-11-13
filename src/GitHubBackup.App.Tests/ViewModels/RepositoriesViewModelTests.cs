@@ -1,11 +1,13 @@
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Runs;
+using GitHubBackup.App.Tests.Logging;
 using GitHubBackup.App.Tests.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
@@ -49,6 +51,8 @@ public sealed class RepositoriesViewModelTests
 
     private readonly ManualUiDispatcher _dispatcher = new();
 
+    private readonly FakeLiveLogFeed _logFeed = new();
+
     private const string _logPath = @"C:\app\logs\githubbackup-20261113.log";
 
     private readonly FakeLogger<RepositoriesViewModel> _logger = new();
@@ -67,7 +71,7 @@ public sealed class RepositoriesViewModelTests
         environment.ContentRootPath.Returns(@"C:\app");
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
-        _viewModel = new(_provider, _runService, _dispatcher, _dialogs, new SecretMasker(), environment, timeProvider, _logger);
+        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _logger);
     }
 
     [Fact]
@@ -612,6 +616,68 @@ public sealed class RepositoriesViewModelTests
         _dispatcher.RunAll();
 
         _viewModel.ProgressRepository.ShouldBe("octo/tool (1 of 1)");
+        second.SetResult(new([], [], []));
+        await secondExecution;
+    }
+
+    [Fact]
+    public async Task StartBackup_RunInProgress_ShowsLogEntriesOfRun()
+    {
+        var (run, _) = UseRunInProgress();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        var entry = new LiveLogEntry(_archivedAt, LogLevel.Information, "Cloning octo/tool");
+
+        _logFeed.Write(entry);
+        _dispatcher.RunAll();
+
+        _logFeed.SubscriberCount.ShouldBe(1);
+        _viewModel.RunLog.Entries.ShouldBe([entry]);
+        run.SetResult(new([], [], []));
+        await execution;
+    }
+
+    [Fact]
+    public async Task StartBackup_RunEnds_UnsubscribesAndKeepsEntries()
+    {
+        var (run, _) = UseRunInProgress();
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _logFeed.Write(new(_archivedAt, LogLevel.Information, "Archiving octo/tool"));
+        _dispatcher.RunAll();
+
+        run.SetResult(new([], [], []));
+        await execution;
+        _logFeed.Write(new(_archivedAt, LogLevel.Information, "After the run"));
+        _dispatcher.RunAll();
+
+        _logFeed.SubscriberCount.ShouldBe(0);
+        _viewModel.RunLog.Entries.Select(entry => entry.Message).ShouldBe(["Archiving octo/tool"]);
+    }
+
+    [Fact]
+    public async Task StartBackup_RunFails_Unsubscribes()
+    {
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Unexpected"));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _logFeed.SubscriberCount.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task StartBackup_NewRun_ClearsLogOfPreviousRun()
+    {
+        var (first, _) = UseRunInProgress();
+        var firstExecution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _logFeed.Write(new(_archivedAt, LogLevel.Information, "First run"));
+        _dispatcher.RunAll();
+        first.SetResult(new([], [], []));
+        await firstExecution;
+
+        var (second, _) = UseRunInProgress();
+        var secondExecution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.RunLog.Entries.ShouldBeEmpty();
         second.SetResult(new([], [], []));
         await secondExecution;
     }

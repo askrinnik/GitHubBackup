@@ -23,7 +23,10 @@ namespace GitHubBackup.App.ViewModels;
 /// </remarks>
 /// <param name="overviewProvider">Reads the configuration and the dates of the last archives.</param>
 /// <param name="runService">Runs the backup.</param>
-/// <param name="uiDispatcher">Brings the progress reports of a run from the thread of the core to the UI thread.</param>
+/// <param name="uiDispatcher">
+/// Brings the progress reports and the log entries of a run from the thread of the core to the UI thread.
+/// </param>
+/// <param name="liveLogFeed">Delivers the log entries that the live log shows while a run works.</param>
 /// <param name="dialogs">Shows an unexpected failure of a run and asks before the window closes during a run.</param>
 /// <param name="secretMasker">
 /// Masks secrets in exception messages before the window shows them, because an exception from a lower layer can
@@ -36,6 +39,7 @@ public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
     IBackupRunService runService,
     IUiDispatcher uiDispatcher,
+    ILiveLogFeed liveLogFeed,
     IDialogService dialogs,
     ISecretMasker secretMasker,
     IHostEnvironment environment,
@@ -95,6 +99,9 @@ public sealed partial class RepositoriesViewModel(
     /// report still queued on the UI thread from a finished run is dropped.
     /// </summary>
     private int _runNumber;
+
+    /// <summary>Gets the live log of the current or the last run.</summary>
+    public RunLogViewModel RunLog { get; } = new(uiDispatcher);
 
     /// <summary>Gets whether no run is in progress.</summary>
     public bool IsIdle => !IsRunning;
@@ -186,7 +193,8 @@ public sealed partial class RepositoriesViewModel(
     /// A tree that cannot be read does not stop the run: the orchestrator reads the configuration itself, reports the
     /// error and records the run in the history, as the console application does. An unexpected failure has no
     /// result to summarize, so it is shown in a dialog. The progress of the run is shown while it works and cleared when
-    /// it ends.
+    /// it ends. The live log is cleared when the run starts and receives the log entries until the run ends; it keeps
+    /// them afterwards so the user can read them next to the summary.
     /// </remarks>
     /// <param name="scope">The repositories the run covers.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
@@ -204,6 +212,8 @@ public sealed partial class RepositoriesViewModel(
         Summary = null;
         var run = ++_runNumber;
         CurrentProgress = null;
+        RunLog.Clear();
+        var logSubscription = liveLogFeed.Subscribe(RunLog.Add);
         var progress = new UiProgress<BackupProgress>(uiDispatcher, value => ShowProgress(run, value));
         try
         {
@@ -223,6 +233,7 @@ public sealed partial class RepositoriesViewModel(
         }
         finally
         {
+            logSubscription.Dispose();
             _runNumber++;
             CurrentProgress = null;
             await LoadAsync(CancellationToken.None);
