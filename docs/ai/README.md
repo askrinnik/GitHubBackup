@@ -70,7 +70,7 @@ docs/
 |---|---|---|
 | `csharp.md` | `**/*.cs` | Слои, DI и options, TimeProvider и IFileSystem, async и отмена, ошибки, логирование, гигиена комментариев, стиль C# 14 |
 | `tests.md` | тестовые проекты | Слои тестов, xUnit v3, Shouldly, NSubstitute, WireMock, FlaUI, проверка логов через `FakeLogger`, детерминированность |
-| `wpf-mvvm.md` | `GitHubBackup.App/**`, `*.xaml` | MVVM на CommunityToolkit.Mvvm, команды с отменой, виртуализация, AutomationId |
+| `wpf-mvvm.md` | `GitHubBackup.App/**`, `*.xaml` | MVVM на CommunityToolkit.Mvvm, команды с отменой, виртуализация, AutomationId, проверка запущенного приложения через `netwright` |
 | `cli.md` | `GitHubBackup.Cli/**` | System.CommandLine, Spectre.Console, коды возврата, `--silent`, `--dry-run` |
 | `external-processes.md` | `GitHubBackup.Infrastructure/**` | Запуск git и 7-Zip, передача токена через окружение, коды возврата, логирование вывода, отмена |
 | `security.md` | все основные проекты | Каталог рисков с идентификаторами S/I/F/P/D и уровнями серьёзности |
@@ -115,8 +115,27 @@ docs/
 | `context7` | Документация сторонних библиотек (Octokit, Serilog, Spectre.Console, WireMock…) |
 | `microsoft-learn` | Официальная документация Microsoft (.NET, WPF, System.CommandLine, EF Core, MSBuild) |
 | `nuget` | Версии, уязвимости и сведения о пакетах NuGet; запускается через `dnx` из .NET 10 SDK |
+| `netwright` | Автоматизация WPF-приложения на шаге проверки UI-задач: запуск `GitHubBackup.App` из `.csproj`, проверки элементов по `AutomationId`, скриншоты; запускается через `dnx`, версия закреплена (`Netwright@2.1.0`), флаг `--allow GitHubBackup*` не даёт трогать другие приложения |
 
-Не подключены сознательно: GitHub MCP (всё нужное делает `gh` без дополнительного токена и без десятков инструментов в контексте), Playwright (только браузер, для WPF бесполезен), Figma. MCP для автоматизации WPF выбирается в #49.
+Не подключены сознательно: GitHub MCP (всё нужное делает `gh` без дополнительного токена и без десятков инструментов в контексте), Playwright (только браузер, для WPF бесполезен), Figma.
+
+### Автоматизация WPF: почему Netwright
+
+Сравнивались [Netwright](https://github.com/ricfanin/netwright) 2.1.0 и [FlaUI-MCP](https://github.com/shanselman/FlaUI-MCP) 0.2.1, оба под лицензией MIT.
+
+| Критерий | Netwright | FlaUI-MCP |
+|---|---|---|
+| Установка | пакет NuGet через `dnx`, как сервер `nuget` | zip из GitHub Releases, нужен .NET 8 runtime |
+| Запуск приложения | из `.csproj`: собирает и запускает | по пути к `.exe` |
+| Действия | в фоне, без захвата мыши и фокуса | реальным вводом |
+| Ограничение приложений | `--allow <маска>` | нет |
+| Вывод приложения | stdout, stderr, `Trace`, исключение со стеком | нет |
+
+Netwright ставится так же, как уже подключённый сервер, не мешает пользователю работать во время проверки и не может управлять чужими окнами.
+
+Ограничение версии 2.1.0: сервер кладёт в `structuredContent` только `{"ok":true}`, а Claude Code показывает модели его вместо текста ([ricfanin/netwright#1](https://github.com/ricfanin/netwright/issues/1), пункт 01). Снимки окна и отчёты об изменениях до модели не доходят, ошибки доходят полностью. Поэтому правило `wpf-mvvm.md` проверяет UI через `desktop_expect`: успех возвращает `{"ok":true}`, провал — `EXPECTATION_FAILED` с фактическим состоянием элемента. Скриншоты (`desktop_screenshot`) работают. Снятие обхода после исправления бага — [#106](https://github.com/askrinnik/GitHubBackup/issues/106).
+
+Проверка не заменяет UI-тесты: слой UI-тестов — FlaUI (`tests.md`), пакет `Netwright.Testing` не используется.
 
 ## Разрешения (`.claude/settings.json`)
 
@@ -163,12 +182,11 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 | `bench-base` | Стартовый контекст по областям |
 | `bench-cs` | Сколько токенов добавляет чтение файла `Core` вместе с правилами по путям (`csharp`, `security`) |
 | `bench-test` | То же для файла тестового проекта (`csharp`, `tests`) |
+| `bench-xaml` | То же для файла XAML приложения (`wpf-mvvm`) |
 | `quality-prd-first` | Соблюдение правила PRD-first на запрос новой функции |
 | `quality-service-convention` | Соблюдение соглашений при проектировании нового сервиса: слои, DI, `IFileSystem` и `TimeProvider`, XML-документация, тест в парном проекте |
 | `quality-security` | Ревью безопасности: находит ли ассистент семь уязвимостей, подброшенных `seed.patch` |
 | `quality-docs-sync` | Синхронизация документов: называет ли ассистент документы, которые нужно обновить для нового параметра CLI и новой настройки из `seed.patch`, без лишних |
-
-Остальные фикстуры, которым нужен код, — в отложенных задачах.
 
 ## Профиль реальных сессий
 
@@ -176,12 +194,6 @@ CI (`.github/workflows/ci.yml`, шаг `Hook test cases`) запускает в�
 
 - `profile-session.config.json` в корне сопоставляет инструменты и агентов с видами работы. Агенты и скиллы плагина указаны с префиксом (`^Agent:issue-kit:build-runner`); команда задачи — `/issue-kit:implement-issues?`.
 - Записи (по одной на сессию) — `.ai/benchmarks/sessions/records/`, коммитятся. Отчёт `.ai/benchmarks/sessions/report.html` строится из записей локально и в git не попадает.
-
-## Отложенные задачи
-
-| Issue | Когда | Что |
-|---|---|---|
-| [#49](https://github.com/askrinnik/GitHubBackup/issues/49) F4.8 | после #36, до #37 | MCP для автоматизации WPF, фикстура `bench-xaml` |
 
 ## Перенос в другой проект
 
