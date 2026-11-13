@@ -1,6 +1,7 @@
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
@@ -13,6 +14,9 @@ namespace GitHubBackup.Core.Tests.Discovery;
 public sealed class RepositoryDiscoveryServiceTests
 {
     private const int _invalidNameEventId = 3;
+    private const int _idResolvedEventId = 4;
+    private const int _idNotFoundEventId = 5;
+    private const int _idConflictEventId = 6;
 
     private readonly IGitHubApi _api = Substitute.For<IGitHubApi>();
     private readonly FakeLogger<RepositoryDiscoveryService> _logger = new();
@@ -587,6 +591,189 @@ public sealed class RepositoryDiscoveryServiceTests
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => _service.DiscoverAsync(Config(Account("octo")), null, cancellation.Token));
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_StandaloneWithoutId_ReturnsIdFromNameAndLogsIt()
+    {
+        var config = new BackupConfig { Repositories = [Standalone("someone", "lib", 0)] };
+        var repository = Repo(42, "someone", "lib");
+        _api.GetRepositoryAsync("someone", "lib", Arg.Any<CancellationToken>()).Returns(repository);
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.Resolved.ShouldBe([new ResolvedRepositoryId("someone", "lib", null, repository)]);
+        result.NotFound.ShouldBeEmpty();
+        result.Conflicts.ShouldBeEmpty();
+        config.Repositories[0].Id.ShouldBe(0);
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _idResolvedEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Repository").ShouldBe("someone/lib");
+        record.GetStructuredStateValue("Id").ShouldBe("42");
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_AccountEntryWithoutId_ReturnsIdWithAccountLogin()
+    {
+        var config = Config(Account("octo", Active(0, "tool")));
+        var repository = Repo(7, "octo", "tool");
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(repository);
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.Resolved.ShouldBe([new ResolvedRepositoryId("octo", "tool", "octo", repository)]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResolveIdsAsync_NotFound_ReturnsNotFoundAndLogsWarning(bool accessDenied)
+    {
+        var config = Config(Account("octo", Active(0, "gone")));
+        _api.GetRepositoryAsync("octo", "gone", Arg.Any<CancellationToken>()).Returns<GitHubRepository>(_ =>
+            throw (accessDenied
+                ? new GitHubAccessDeniedException("denied", "repos")
+                : new GitHubNotFoundException("not found", "repos")));
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.NotFound.ShouldBe(["octo/gone"]);
+        result.Resolved.ShouldBeEmpty();
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _idNotFoundEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Repository").ShouldBe("octo/gone");
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_RateLimit_Throws()
+    {
+        var config = Config(Account("octo", Active(0, "tool")));
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns<GitHubRepository>(_ => throw RateLimit());
+
+        await Should.ThrowAsync<GitHubRateLimitExceededException>(() => _service.ResolveIdsAsync(config, Items(config), Token));
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_NotFound_NeverLooksUpById()
+    {
+        var config = Config(Account("octo", Active(0, "gone")));
+
+        await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_EntryWithId_NotLookedUp()
+    {
+        var config = Config(Account("octo", Active(5, "tool")));
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.Resolved.ShouldBeEmpty();
+        result.NotFound.ShouldBeEmpty();
+        result.Conflicts.ShouldBeEmpty();
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_IdOfOtherEntry_ReturnsConflictNamingThatEntry()
+    {
+        var config = Config(Account("octo", Active(7, "old-name"), Active(0, "new-name")));
+        _api.GetRepositoryAsync("octo", "new-name", Arg.Any<CancellationToken>()).Returns(Repo(7, "octo", "new-name"));
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.Resolved.ShouldBeEmpty();
+        result.Conflicts.ShouldBe(
+        [
+            new RepositoryIdConflict(
+                "octo/new-name",
+                "The id 7 found on GitHub for octo/new-name already belongs to octo/old-name in backup-config.json."),
+        ]);
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _idConflictEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("OtherRepository").ShouldBe("octo/old-name");
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_TwoEntriesSameId_SecondConflicts()
+    {
+        var config = Config(Account("octo", Active(0, "old-name"), Active(0, "new-name")));
+        var repository = Repo(7, "octo", "new-name");
+        _api.GetRepositoryAsync("octo", Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(repository);
+
+        var result = await _service.ResolveIdsAsync(config, Items(config), Token);
+
+        result.Resolved.ShouldBe([new ResolvedRepositoryId("octo", "old-name", "octo", repository)]);
+        result.Conflicts.ShouldHaveSingleItem().FullName.ShouldBe("octo/new-name");
+        result.Conflicts[0].Reason.ShouldContain("already belongs to octo/old-name");
+    }
+
+    [Fact]
+    public async Task ResolveIdsAsync_Cancelled_Throws()
+    {
+        var config = Config(Account("octo", Active(0, "tool")));
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => _service.ResolveIdsAsync(config, Items(config), cancellation.Token));
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_EntryWithoutId_NotMissingNotRenamedNoLookup()
+    {
+        SetAccount("octo", GitHubAccountType.User);
+        var config = Config(Account("octo", Active(0, "tool")));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_CollectedRepositoryNamedLikeEntryWithoutId_NotNew()
+    {
+        SetAccount("octo", GitHubAccountType.User, Repo(7, "OCTO", "Tool"));
+        SetCurrentUser(Repo(8, "someone", "lib"));
+        var config = Config(Account("octo", Active(0, "tool")));
+        config.Repositories.Add(Standalone("someone", "lib", 0));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_ResolvedEntryFoundByName_NoRename()
+    {
+        SetAccount("octo", GitHubAccountType.User);
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(Repo(7, "octo", "tool"));
+        var config = Config(Account("octo", Active(7, "tool")));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    /// <summary>
+    /// Lists the entries of <paramref name="config"/> as work items, with an archive root set so the folders resolve.
+    /// </summary>
+    /// <param name="config">The configuration, whose backup root is set when it is empty.</param>
+    /// <returns>The work items.</returns>
+    private static IReadOnlyList<BackupWorkItem> Items(BackupConfig config)
+    {
+        if (config.BackupRoot.Length == 0)
+        {
+            config.BackupRoot = @"C:\backup";
+        }
+
+        return BackupWorkItem.CreateAll(config, new RepositoryPathResolver(@"C:\app\sources"));
     }
 
     /// <summary>

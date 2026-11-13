@@ -12,6 +12,10 @@ public static class BackupRunSummary
     /// <summary>The line that opens the summary of a dry run.</summary>
     public const string DryRunHeader = "Dry run: nothing was cloned, updated, archived or saved.";
 
+    /// <summary>The line that opens the summary of a dry run that wrote the IDs of entries without one.</summary>
+    public const string DryRunSavedIdsHeader =
+        "Dry run: nothing was cloned, updated or archived; only the missing repository ids were saved to backup-config.json.";
+
     /// <summary>The line that follows the items of a cancelled run.</summary>
     public const string CancelledLine = "Cancelled: the run was stopped before it finished.";
 
@@ -38,6 +42,17 @@ public static class BackupRunSummary
         BackupItemStatus.Failed,
         BackupItemStatus.Skipped,
     ];
+
+    /// <summary>
+    /// Returns the line that opens the summary of a dry run.
+    /// </summary>
+    /// <param name="result">The result of a dry run.</param>
+    /// <returns>
+    /// <see cref="DryRunSavedIdsHeader"/> when the run wrote IDs to <c>backup-config.json</c>, otherwise
+    /// <see cref="DryRunHeader"/>.
+    /// </returns>
+    public static string GetDryRunHeader(BackupRunResult result) =>
+        result.SavedRepositoryIds.Count > 0 ? DryRunSavedIdsHeader : DryRunHeader;
 
     /// <summary>
     /// Returns the statuses the totals of <paramref name="result"/> count, in output order.

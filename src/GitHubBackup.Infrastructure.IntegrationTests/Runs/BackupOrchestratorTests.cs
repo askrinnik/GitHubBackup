@@ -434,6 +434,53 @@ public sealed class BackupOrchestratorTests : IDisposable
         secondItem.ChangedRefs.ShouldBe(["heads/main", "tags/v1"]);
     }
 
+    [Fact]
+    public async Task RunAsync_StandaloneEntryWithoutId_WritesIdKeepsPreviousFileAndArchives()
+    {
+        await AddRemoteAsync("repo");
+        _gitHubApi.AddRepository(5, _owner, "repo", hasWiki: false);
+        await SaveConfigWithoutIdAsync("repo");
+        var configPath = Path.Combine(_sandbox.RootPath, "backup-config.json");
+        var before = await File.ReadAllTextAsync(configPath, CancellationToken);
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/repo", BackupItemStatus.Archived)]);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        result.SavedRepositoryIds.ShouldBe(["owner/repo"]);
+        (await File.ReadAllTextAsync(configPath, CancellationToken)).ShouldBe(WithId(before, "repo", 5));
+        (await File.ReadAllTextAsync(configPath + ".bak", CancellationToken)).ShouldBe(before);
+        var archiveFolder = Path.Combine(_archiveRoot, _owner, "repo");
+        Directory.GetFiles(archiveFolder, "*.zip").ShouldHaveSingleItem();
+        var state = await _stateStore.LoadAsync(archiveFolder, 5, "owner/repo", CancellationToken);
+        state.Repository.Archives.ShouldHaveSingleItem();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_DryRunEntryWithoutId_WritesOnlyConfirmedIdAndChecksRepository(bool confirm)
+    {
+        await AddRemoteAsync("repo");
+        _gitHubApi.AddRepository(5, _owner, "repo", hasWiki: false);
+        await SaveConfigWithoutIdAsync("repo");
+        var configPath = Path.Combine(_sandbox.RootPath, "backup-config.json");
+        var before = await File.ReadAllTextAsync(configPath, CancellationToken);
+        var handler = Substitute.For<IDiscoveryDecisionHandler>();
+        handler.ConfirmIdSaveAsync(Arg.Any<RepositoryIdProposal>(), Arg.Any<CancellationToken>()).Returns(confirm);
+
+        var result = await CreateOrchestrator().RunAsync(
+            new(BackupRunFilter.All, handler) { DryRun = true, Mode = RunMode.Interactive }, CancellationToken);
+
+        await handler.Received(1).ConfirmIdSaveAsync(new("owner/repo", 5), Arg.Any<CancellationToken>());
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/repo", BackupItemStatus.WouldClone)]);
+        result.SavedRepositoryIds.ShouldBe(confirm ? ["owner/repo"] : []);
+        (await File.ReadAllTextAsync(configPath, CancellationToken)).ShouldBe(confirm ? WithId(before, "repo", 5) : before);
+        File.Exists(configPath + ".bak").ShouldBe(confirm);
+        Directory.Exists(_sourcesRoot).ShouldBeFalse();
+        Directory.Exists(_archiveRoot).ShouldBeFalse();
+    }
+
     /// <summary>
     /// Deletes the sandbox.
     /// </summary>
@@ -505,6 +552,38 @@ public sealed class BackupOrchestratorTests : IDisposable
                 ],
             },
             CancellationToken);
+    }
+
+    /// <summary>
+    /// Writes <c>backup-config.json</c> with one standalone repository of <see cref="_owner"/> per name, all without
+    /// an id.
+    /// </summary>
+    /// <param name="names">The repository names.</param>
+    /// <returns>A task that completes when the file is written.</returns>
+    private Task SaveConfigWithoutIdAsync(params string[] names) =>
+        _configStore.SaveAsync(
+            new BackupConfig
+            {
+                BackupRoot = _archiveRoot,
+                SourcesRoot = _sourcesRoot,
+                Repositories = [.. names.Select(name => new RepositoryConfig { Url = $"https://github.com/{_owner}/{name}" })],
+            },
+            CancellationToken);
+
+    /// <summary>
+    /// Returns the text of <c>backup-config.json</c> with the id of one standalone repository inserted after its URL,
+    /// where the store writes it.
+    /// </summary>
+    /// <param name="json">The text without the id.</param>
+    /// <param name="name">The repository name.</param>
+    /// <param name="id">The id.</param>
+    /// <returns>The text with the id.</returns>
+    private static string WithId(string json, string name, long id)
+    {
+        var url = $"\"url\": \"https://github.com/{_owner}/{name}\",";
+        json.ShouldContain(url);
+        return json.Replace(
+            url, string.Create(CultureInfo.InvariantCulture, $"{url}\r\n      \"id\": {id},"), StringComparison.Ordinal);
     }
 
     /// <summary>

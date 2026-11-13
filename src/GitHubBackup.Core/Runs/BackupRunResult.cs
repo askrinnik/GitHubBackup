@@ -18,8 +18,18 @@ public sealed record BackupRunResult(
     /// </summary>
     public DiscoveryApplyResult? Discovery { get; init; }
 
-    /// <summary>Gets whether the run was a dry run, which changed nothing.</summary>
+    /// <summary>
+    /// Gets whether the run was a dry run, which changes nothing except the IDs listed in
+    /// <see cref="SavedRepositoryIds"/>.
+    /// </summary>
     public bool IsDryRun { get; init; }
+
+    /// <summary>
+    /// Gets the <c>owner/name</c> of each entry without an ID whose ID, found by name, the run wrote to
+    /// <c>backup-config.json</c>.
+    /// </summary>
+    /// <remarks>Filling in an ID is not a discovery event, so it leaves <see cref="ExitCode"/> unchanged.</remarks>
+    public IReadOnlyList<string> SavedRepositoryIds { get; init; } = [];
 
     /// <summary>
     /// Gets what discovery found in a dry run, which shows the findings without deciding or saving anything, or

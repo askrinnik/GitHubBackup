@@ -109,6 +109,20 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(ExitCode.Critical);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExitCode_OnlySavedRepositoryIds_IsSuccess(bool dryRun)
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Archived)], [], [])
+        {
+            IsDryRun = dryRun,
+            SavedRepositoryIds = ["octo/tool"],
+        };
+
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
     [Fact]
     public void ExitCode_CancelledWithoutItems_IsCritical()
     {

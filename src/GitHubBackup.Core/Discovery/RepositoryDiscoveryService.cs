@@ -1,5 +1,6 @@
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.Runs;
 using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.Core.Discovery;
@@ -26,13 +27,20 @@ public sealed class RepositoryDiscoveryService(
             : [.. tracked.Where(item => item.AccountLogin is not null && IsSameName(item.AccountLogin, scopeAccounts[0]))];
 
         var collected = await CollectAsync(scopeAccounts, cancellationToken);
-        var knownIds = tracked.Select(item => item.Id).ToHashSet();
+        var knownIds = tracked.Where(item => item.Id != 0).Select(item => item.Id).ToHashSet();
+
+        // An entry without an ID is matched by name only, so the repository it names is already tracked.
+        var namesWithoutId = tracked.Where(item => item.Id == 0)
+            .Select(item => item.FullName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         var newInAccounts = new List<NewAccountRepository>();
         var newStandalone = new List<GitHubRepository>();
         foreach (var repository in collected.Values.OrderBy(item => item.FullName, StringComparer.OrdinalIgnoreCase))
         {
-            if (knownIds.Contains(repository.Id) || exclusionMatcher.Match(config, repository.Owner, repository.Name) is not null)
+            if (knownIds.Contains(repository.Id)
+                || namesWithoutId.Contains(repository.FullName)
+                || exclusionMatcher.Match(config, repository.Owner, repository.Name) is not null)
             {
                 continue;
             }
@@ -62,7 +70,10 @@ public sealed class RepositoryDiscoveryService(
         foreach (var item in scopeTracked)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (exclusionMatcher.Match(config, item.Owner, item.Name) is not null)
+
+            // Without an ID nothing tells a missing or renamed repository from an unresolved entry, and a lookup by ID
+            // would have nothing to look for.
+            if (item.Id == 0 || exclusionMatcher.Match(config, item.Owner, item.Name) is not null)
             {
                 continue;
             }
@@ -102,6 +113,48 @@ public sealed class RepositoryDiscoveryService(
         RepositoryDiscoveryServiceLog.Classified(
             logger, newInAccounts.Count, newStandalone.Count, missing.Count, returned.Count, renamed.Count);
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<RepositoryIdResolution> ResolveIdsAsync(
+        BackupConfig config, IReadOnlyList<BackupWorkItem> items, CancellationToken cancellationToken)
+    {
+        ParseAccounts(config, out var tracked);
+        var owners = new Dictionary<long, string>();
+        foreach (var item in tracked.Where(item => item.Id != 0))
+        {
+            owners.TryAdd(item.Id, item.FullName);
+        }
+
+        var resolved = new List<ResolvedRepositoryId>();
+        var notFound = new List<string>();
+        var conflicts = new List<RepositoryIdConflict>();
+        foreach (var item in items.Where(item => item.Id == 0))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var repository = await TryGetAsync(
+                () => gitHubApi.GetRepositoryAsync(item.Owner, item.Name, cancellationToken));
+            if (repository is null)
+            {
+                RepositoryDiscoveryServiceLog.IdNotFound(logger, item.FullName);
+                notFound.Add(item.FullName);
+            }
+            else if (!owners.TryAdd(repository.Id, item.FullName))
+            {
+                var other = owners[repository.Id];
+                RepositoryDiscoveryServiceLog.IdConflict(logger, item.FullName, repository.Id, other);
+                conflicts.Add(new(
+                    item.FullName,
+                    $"The id {repository.Id} found on GitHub for {item.FullName} already belongs to {other} in backup-config.json."));
+            }
+            else
+            {
+                RepositoryDiscoveryServiceLog.IdResolved(logger, item.FullName, repository.Id);
+                resolved.Add(new(item.Owner, item.Name, item.AccountLogin, repository));
+            }
+        }
+
+        return new(resolved, notFound, conflicts);
     }
 
     /// <summary>

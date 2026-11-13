@@ -30,6 +30,21 @@ internal sealed class BackupConfigJson(string backupRoot)
     }
 
     /// <summary>
+    /// Adds an active standalone repository on its default branch without an <c>id</c>.
+    /// </summary>
+    /// <param name="owner">The owner login.</param>
+    /// <param name="name">The repository name.</param>
+    /// <returns>This builder.</returns>
+    public BackupConfigJson WithRepositoryWithoutId(string owner, string name)
+    {
+        _repositories.Add(
+            $$"""
+            { "url": "https://github.com/{{owner}}/{{name}}", "branch": null, "path": null, "status": "Active" }
+            """);
+        return this;
+    }
+
+    /// <summary>
     /// Adds an account with its active repositories.
     /// </summary>
     /// <param name="login">The account login.</param>

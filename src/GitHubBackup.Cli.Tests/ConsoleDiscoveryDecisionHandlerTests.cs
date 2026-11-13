@@ -316,6 +316,52 @@ public sealed class ConsoleDiscoveryDecisionHandlerTests : IDisposable
         _output.Output.ShouldBeEmpty();
     }
 
+    [Fact]
+    public async Task ConfirmIdSaveAsync_Interactive_AsksQuestionNamingRepositoryAndId()
+    {
+        _output.Input.PushKey(ConsoleKey.Enter);
+
+        await CreateHandler().ConfirmIdSaveAsync(new("octocat/[hello]", 42), TestContext.Current.CancellationToken);
+
+        _output.Output.ShouldStartWith("ID is missing for octocat/[hello]; found 42. Save it to backup-config.json? [y/n] (y):");
+    }
+
+    [Theory]
+    [InlineData("", true)]
+    [InlineData("y", true)]
+    [InlineData("n", false)]
+    public async Task ConfirmIdSaveAsync_Answer_ReturnsWhetherToSave(string answer, bool expected)
+    {
+        _output.Input.PushTextWithEnter(answer);
+
+        var save = await CreateHandler().ConfirmIdSaveAsync(new("octocat/hello", 42), TestContext.Current.CancellationToken);
+
+        save.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task ConfirmIdSaveAsync_InputRedirected_ReturnsTrueWithoutAskingOrReading()
+    {
+        var handler = new ConsoleDiscoveryDecisionHandler(new(_output, _error, IsInputRedirected: true));
+
+        var save = await handler.ConfirmIdSaveAsync(new("octocat/hello", 42), TestContext.Current.CancellationToken);
+
+        save.ShouldBeTrue();
+        _output.Output.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task ConfirmIdSaveAsync_Cancelled_ThrowsWithoutAsking()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Should.ThrowAsync<OperationCanceledException>(
+            () => CreateHandler().ConfirmIdSaveAsync(new("octocat/hello", 42), cancellation.Token));
+
+        _output.Output.ShouldBeEmpty();
+    }
+
     /// <summary>
     /// Disposes the outputs.
     /// </summary>

@@ -114,6 +114,20 @@ public sealed class BackupSummaryRendererTests : IDisposable
     }
 
     [Fact]
+    public async Task RenderAsync_DryRunSavedIds_WritesSavedIdsHeader()
+    {
+        await Render(new([], [], []) { IsDryRun = true, SavedRepositoryIds = ["octocat/hello"] });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            Dry run: nothing was cloned, updated or archived; only the missing repository ids were saved to backup-config.json.
+            No repositories to back up.
+            WouldClone: 0, WouldArchive: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
+    [Fact]
     public async Task RenderAsync_Cancelled_WritesTableCancelledLineAndTotalsWithCancelled()
     {
         var result = new BackupRunResult(

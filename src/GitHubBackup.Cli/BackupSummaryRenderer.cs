@@ -30,6 +30,9 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
     /// <summary>The line that opens the summary of a dry run.</summary>
     public const string DryRunHeader = BackupRunSummary.DryRunHeader;
 
+    /// <summary>The line that opens the summary of a dry run that wrote the IDs of entries without one.</summary>
+    public const string DryRunSavedIdsHeader = BackupRunSummary.DryRunSavedIdsHeader;
+
     /// <summary>The line that follows the items of a cancelled run.</summary>
     public const string CancelledLine = BackupRunSummary.CancelledLine;
 
@@ -65,7 +68,7 @@ internal sealed class BackupSummaryRenderer(CliConsole console)
 
         if (result.IsDryRun)
         {
-            output.WriteLine(DryRunHeader);
+            output.WriteLine(BackupRunSummary.GetDryRunHeader(result));
         }
 
         if (result.Items.Count > 0)

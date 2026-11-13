@@ -8,7 +8,10 @@ public sealed class RepositoryConfig
     /// <summary>Gets or sets the repository URL, <c>https://github.com/&lt;owner&gt;/&lt;repo&gt;</c>.</summary>
     public string Url { get; set; } = string.Empty;
 
-    /// <summary>Gets or sets the GitHub ID, which survives a rename of the repository.</summary>
+    /// <summary>
+    /// Gets or sets the GitHub ID, which survives a rename of the repository; <c>0</c> means the ID is unknown and is
+    /// resolved by name at the start of a run.
+    /// </summary>
     public long Id { get; set; }
 
     /// <summary>Gets or sets the branch checked out in the clone; <see langword="null"/> selects the default branch.</summary>

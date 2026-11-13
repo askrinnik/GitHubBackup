@@ -19,7 +19,10 @@ public sealed class RunSummaryViewModel
     /// <param name="logPath">The path of the text log of the day.</param>
     private RunSummaryViewModel(string logPath) => LogPath = logPath;
 
-    /// <summary>Gets the line that opens the summary, <see cref="BackupRunSummary.DryRunHeader"/> for a dry run, or <see langword="null"/>.</summary>
+    /// <summary>
+    /// Gets the line that opens the summary, <see cref="BackupRunSummary.GetDryRunHeader"/> for a dry run, or
+    /// <see langword="null"/>.
+    /// </summary>
     public string? Header { get; private init; }
 
     /// <summary>Gets the errors that stopped the run; a summary with errors has no table and no totals.</summary>
@@ -80,7 +83,7 @@ public sealed class RunSummaryViewModel
 
         return new(logPath)
         {
-            Header = result.IsDryRun ? BackupRunSummary.DryRunHeader : null,
+            Header = result.IsDryRun ? BackupRunSummary.GetDryRunHeader(result) : null,
             Warnings = warnings,
             Rows = [.. result.Items.Select(item => CreateRow(item, secretMasker))],
             NoRepositoriesLine = BackupRunSummary.ShowsNoRepositoriesLine(result) ? BackupRunSummary.NoRepositoriesLine : null,

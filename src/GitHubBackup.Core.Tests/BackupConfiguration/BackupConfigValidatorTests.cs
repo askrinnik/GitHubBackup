@@ -203,9 +203,27 @@ public sealed class BackupConfigValidatorTests
     }
 
     [Theory]
-    [InlineData(0)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Validate_IdMissingOrZero_IsValid(bool accountEntry)
+    {
+        var config = CreateSample();
+        if (accountEntry)
+        {
+            config.Accounts[0].Repositories[1].Id = 0;
+        }
+        else
+        {
+            config.Repositories[0].Id = 0;
+        }
+
+        Validate(config).IsValid.ShouldBeTrue();
+    }
+
+    [Theory]
     [InlineData(-1)]
-    public void Validate_IdNotPositive_ReturnsErrorForBothKinds(long id)
+    [InlineData(long.MinValue)]
+    public void Validate_NegativeId_ReportsError(long id)
     {
         var config = CreateSample();
         config.Accounts[0].Repositories[1].Id = id;
@@ -213,9 +231,31 @@ public sealed class BackupConfigValidatorTests
 
         Validate(config).Errors.ShouldBe(
         [
-            "accounts[0].repositories[1].id must be a positive number.",
-            "repositories[0].id must be a positive number.",
+            "accounts[0].repositories[1].id must be a positive number when set.",
+            "repositories[0].id must be a positive number when set.",
         ]);
+    }
+
+    [Fact]
+    public void Validate_TwoEntriesWithoutId_NoDuplicateError()
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].Id = 0;
+        config.Accounts[0].Repositories[1].Id = 0;
+        config.Repositories[0].Id = 0;
+
+        Validate(config).IsValid.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Validate_SameNameOneWithoutId_ReportsDuplicateName()
+    {
+        var config = CreateSample();
+        config.Repositories[0].Url = "https://github.com/askrinnik/my-repo";
+        config.Repositories[0].Id = 0;
+
+        Validate(config).Errors.ShouldContain(
+            "repositories[0].url names the same repository as accounts[0].repositories[0].name.");
     }
 
     [Theory]
@@ -362,7 +402,7 @@ public sealed class BackupConfigValidatorTests
         var config = CreateSample();
         config.BackupRoot = "relative";
         config.Accounts[0].Url = "https://github.com/";
-        config.Accounts[0].Repositories[0].Id = 0;
+        config.Accounts[0].Repositories[0].Id = -1;
         config.Repositories[0].Branch = "-b";
 
         Validate(config).Errors.Count.ShouldBe(4);

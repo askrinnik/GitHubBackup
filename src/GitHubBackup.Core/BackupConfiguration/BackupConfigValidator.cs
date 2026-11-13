@@ -286,18 +286,22 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
         /// <summary>
         /// Checks the fields shared by both kinds of repository entry and records the ID.
         /// </summary>
-        /// <param name="id">The GitHub ID.</param>
+        /// <remarks>
+        /// An ID of <c>0</c> marks an entry whose ID is resolved by name at the start of a run, so it is valid and
+        /// takes no part in the duplicate check.
+        /// </remarks>
+        /// <param name="id">The GitHub ID, or <c>0</c> when it is unknown.</param>
         /// <param name="branch">The configured branch, or <see langword="null"/>.</param>
         /// <param name="path">The configured archive folder, or <see langword="null"/>.</param>
         /// <param name="location">The location of the entry in the file.</param>
         /// <returns><see langword="true"/> when <paramref name="path"/> is unset or a valid absolute path.</returns>
         private bool CheckRepositoryFields(long id, string? branch, string? path, string location)
         {
-            if (id <= 0)
+            if (id < 0)
             {
-                Errors.Add($"{location}.id must be a positive number.");
+                Errors.Add($"{location}.id must be a positive number when set.");
             }
-            else if (!_ids.TryAdd(id, location))
+            else if (id > 0 && !_ids.TryAdd(id, location))
             {
                 Errors.Add($"{location}.id is the same as {_ids[id]}.id.");
             }

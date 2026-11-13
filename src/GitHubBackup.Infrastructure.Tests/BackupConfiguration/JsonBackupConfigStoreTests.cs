@@ -81,6 +81,57 @@ public sealed class JsonBackupConfigStoreTests
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("""
+        "id": null,
+        """)]
+    [InlineData("""
+        "id": 0,
+        """)]
+    public async Task LoadAsync_IdMissingNullOrZero_ReadsZeroForBothKinds(string id)
+    {
+        var result = await LoadAsync(
+            $$"""
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "accounts": [ { "url": "https://github.com/askrinnik", "repositories": [ { {{id}}"name": "my-repo" } ] } ],
+              "repositories": [ { {{id}}"url": "https://github.com/o/r" } ]
+            }
+            """);
+
+        result.Config.Accounts[0].Repositories.ShouldHaveSingleItem().Id.ShouldBe(0);
+        result.Config.Repositories.ShouldHaveSingleItem().Id.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("""{ "name": "my-repo", "id": -5 }""", "[]", "accounts[0].repositories[0].id must be a positive number when set.")]
+    [InlineData("", """[ { "url": "https://github.com/o/r", "id": -5 } ]""", "repositories[0].id must be a positive number when set.")]
+    public async Task LoadAsync_NegativeId_ThrowsValidationError(string accountRepository, string repositories, string error)
+    {
+        var exception = await Should.ThrowAsync<BackupConfigException>(() => LoadAsync(
+            $$"""
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "accounts": [ { "url": "https://github.com/askrinnik", "repositories": [ {{accountRepository}} ] } ],
+              "repositories": {{repositories}}
+            }
+            """));
+
+        exception.Errors.ShouldBe([error]);
+    }
+
+    [Fact]
+    public async Task LoadAsync_IdOfWrongType_ThrowsNamingJsonPath()
+    {
+        var exception = await Should.ThrowAsync<BackupConfigException>(
+            () => LoadAsync(WithStandaloneRepository("""{ "url": "https://github.com/o/r", "id": "1" }""")));
+
+        exception.Errors.ShouldHaveSingleItem().ShouldContain("(JSON path $.repositories[0].id)");
+    }
+
+    [Theory]
     [InlineData("Unavailable", RepositoryStatus.Unavailable)]
     [InlineData("unavailable", RepositoryStatus.Unavailable)]
     [InlineData("ACTIVE", RepositoryStatus.Active)]

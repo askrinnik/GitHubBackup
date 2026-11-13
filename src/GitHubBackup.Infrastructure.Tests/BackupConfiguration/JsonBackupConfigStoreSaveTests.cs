@@ -77,6 +77,61 @@ public sealed class JsonBackupConfigStoreSaveTests
     }
 
     [Fact]
+    public async Task SaveAsync_EntriesWithoutId_WritesThemWithoutIdAndKeepsOtherIds()
+    {
+        var fileSystem = CreateFileSystem();
+        var config = new BackupConfig { BackupRoot = @"D:\Backups" };
+        config.Accounts.Add(new()
+        {
+            Url = "https://github.com/askrinnik",
+            Repositories = [new() { Name = "no-id" }, new() { Name = "with-id", Id = 5 }],
+        });
+        config.Repositories.Add(new() { Url = "https://github.com/o/r" });
+        var expected = """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "sourcesRoot": null,
+              "exclude": [],
+              "accounts": [
+                {
+                  "url": "https://github.com/askrinnik",
+                  "path": null,
+                  "exclude": [],
+                  "repositories": [
+                    {
+                      "name": "no-id",
+                      "branch": null,
+                      "path": null,
+                      "status": "Active"
+                    },
+                    {
+                      "name": "with-id",
+                      "id": 5,
+                      "branch": null,
+                      "path": null,
+                      "status": "Active"
+                    }
+                  ]
+                }
+              ],
+              "repositories": [
+                {
+                  "url": "https://github.com/o/r",
+                  "branch": null,
+                  "path": null,
+                  "status": "Active"
+                }
+              ]
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n";
+
+        await CreateStore(fileSystem).SaveAsync(config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(expected);
+    }
+
+    [Fact]
     public async Task SaveAsync_AnyConfig_WritesUtf8WithoutBomAndWindowsLineBreaks()
     {
         var fileSystem = CreateFileSystem();
