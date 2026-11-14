@@ -9,7 +9,7 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// Binding errors name the key and the target type (built by <c>BindSection</c> without the value), validator
-/// errors name the key, <see cref="ConfigurationFileException"/> errors name <c>appsettings.json</c> or the user
+/// errors name the key, <see cref="ConfigurationFileException"/> errors name <c>appsettings.json</c>, <c>user-settings.json</c> or the user
 /// secrets file and the position, or the <c>--config</c> option, and <see cref="BackupConfigException"/> errors name their location in
 /// <c>backup-config.json</c>. A <see cref="RunHistoryException"/> names the path of the run history database: a
 /// database that cannot be opened or migrated at startup needs the user's repair just like a broken setting. No other

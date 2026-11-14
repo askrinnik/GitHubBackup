@@ -1,0 +1,257 @@
+{
+  "schema": 2,
+  "profiler": "profile-session/8",
+  "session": "9af71d50-6e1c-4c34-a63e-8e5ebfe4322a",
+  "workItem": "40",
+  "lane": "Feature",
+  "branch": "40-settings-and-token-editor",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-14 13:26",
+  "started": "2026-11-14 08:04",
+  "ended": "2026-11-14 13:26",
+  "duration": {
+    "wall": 19343,
+    "active": 7357,
+    "waiting": 11986,
+    "waits": 2
+  },
+  "version": "2.1.321",
+  "model": "claude-opus-5-5",
+  "account": "org-cca2",
+  "note": null,
+  "marker": null,
+  "calls": 77,
+  "humanTurns": 2,
+  "subagents": 7,
+  "subagentCalls": 207,
+  "tokens": {
+    "input": 630,
+    "cacheRead": 41824093,
+    "cacheWrite": 2084638,
+    "output": 215642
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 7867047,
+    "main": 1676796,
+    "subagents": 6190251
+  },
+  "costUsd": {
+    "total": 22.8909,
+    "main": 5.1751,
+    "subagents": 17.7158
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite5m": 0.125,
+        "cacheWrite1h": 0.2,
+        "cacheRead": 0.01,
+        "longPrompt": {
+          "above": 100000,
+          "input": 0.5,
+          "output": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1,
+          "cacheRead": 0.05
+        }
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
+  "cacheReadShare": 53.2,
+  "unitsPerCall": {
+    "first40": 21692,
+    "first70": 21575,
+    "whole": 21777
+  },
+  "context": {
+    "first": 71973,
+    "max": 207928,
+    "last": 207928,
+    "first40": 166278,
+    "first70": 197856
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 1,
+    "cost": 111863
+  },
+  "carryCost": 628121,
+  "diff": {
+    "files": 46,
+    "lines": 3745
+  },
+  "byActivity": [
+    {
+      "activity": "explore (read/search)",
+      "calls": 19,
+      "cost": 509004,
+      "costUsd": 1.9388
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 22,
+      "cost": 459770,
+      "costUsd": 1.2078
+    },
+    {
+      "activity": "implement",
+      "calls": 8,
+      "cost": 174003,
+      "costUsd": 0.4864
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 9,
+      "cost": 147643,
+      "costUsd": 0.3642
+    },
+    {
+      "activity": "other tool",
+      "calls": 6,
+      "cost": 106549,
+      "costUsd": 0.2797
+    },
+    {
+      "activity": "plan",
+      "calls": 3,
+      "cost": 97872,
+      "costUsd": 0.4077
+    },
+    {
+      "activity": "ship",
+      "calls": 5,
+      "cost": 72306,
+      "costUsd": 0.2072
+    },
+    {
+      "activity": "build/test",
+      "calls": 3,
+      "cost": 68793,
+      "costUsd": 0.193
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 21435,
+      "costUsd": 0.047
+    },
+    {
+      "activity": "e2e",
+      "calls": 1,
+      "cost": 19421,
+      "costUsd": 0.0433
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-kit:issue-developer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 128,
+      "cost": 5246282,
+      "costUsd": 15.6176
+    },
+    {
+      "type": "issue-kit:issue-planner",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 27,
+      "cost": 456306,
+      "costUsd": 1.438
+    },
+    {
+      "type": "issue-kit:build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 3,
+      "calls": 33,
+      "cost": 219369,
+      "costUsd": 0.0219
+    },
+    {
+      "type": "security-reviewer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 11,
+      "cost": 183820,
+      "costUsd": 0.6298
+    },
+    {
+      "type": "issue-kit:skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 8,
+      "cost": 84474,
+      "costUsd": 0.0084
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "(reply)",
+      "cost": 78996
+    },
+    {
+      "tools": "Write",
+      "cost": 43563
+    },
+    {
+      "tools": "Read + Bash",
+      "cost": 40101
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 484
+    },
+    {
+      "rule": "external-processes",
+      "tokens": 971
+    },
+    {
+      "rule": "security",
+      "tokens": 1085
+    },
+    {
+      "rule": "tests",
+      "tokens": 1351
+    },
+    {
+      "rule": "wpf-mvvm",
+      "tokens": 1280
+    }
+  ],
+  "rulesTokens": 7968,
+  "limit": {
+    "startPct": 83,
+    "startAt": "2026-11-14 08:04",
+    "endPct": 3,
+    "usedPct": null,
+    "limitCost": null,
+    "unitsPerPct": null,
+    "reason": "the weekly window rolled over between start and end"
+  }
+}

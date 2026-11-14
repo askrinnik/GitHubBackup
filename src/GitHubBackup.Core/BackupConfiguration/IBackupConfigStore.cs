@@ -16,6 +16,14 @@ public interface IBackupConfigStore
     Task<BackupConfigLoadResult> LoadAsync(CancellationToken cancellationToken);
 
     /// <summary>
+    /// Validates <paramref name="config"/> by the rules applied on every read and write, with the default clone folder
+    /// of the application, without writing anything.
+    /// </summary>
+    /// <param name="config">The configuration to check.</param>
+    /// <returns>The errors and warnings found.</returns>
+    BackupConfigValidationResult Validate(BackupConfig config);
+
+    /// <summary>
     /// Validates <paramref name="config"/> and replaces the configuration file with it atomically, keeping the
     /// previous file as <c>&lt;file&gt;.bak</c>.
     /// </summary>

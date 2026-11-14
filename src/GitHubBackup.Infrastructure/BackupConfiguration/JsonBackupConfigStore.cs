@@ -58,13 +58,16 @@ internal sealed class JsonBackupConfigStore(
     }
 
     /// <inheritdoc />
+    public BackupConfigValidationResult Validate(BackupConfig config) => validator.Validate(config, DefaultSourcesRoot);
+
+    /// <inheritdoc />
     /// <remarks>
     /// The file is replaced through <see cref="AtomicFileWriter"/>, which keeps the previous version as a backup.
     /// </remarks>
     public async Task SaveAsync(BackupConfig config, CancellationToken cancellationToken)
     {
         var path = ConfigPath;
-        var result = validator.Validate(config, DefaultSourcesRoot);
+        var result = Validate(config);
         if (!result.IsValid)
         {
             throw new BackupConfigException(path, result.Errors);

@@ -408,6 +408,36 @@ public sealed class BackupConfigValidatorTests
         Validate(config).Errors.Count.ShouldBe(4);
     }
 
+    [Fact]
+    public void Validate_AnyError_MessageStartsWithLocation()
+    {
+        var config = CreateSample();
+        config.BackupRoot = "relative";
+        config.SourcesRoot = "relative";
+        config.Exclude.Add(null!);
+        config.Accounts[0].Url = "https://github.com/";
+        config.Accounts[0].Path = "relative";
+        config.Accounts[0].Exclude.Add(null!);
+        config.Accounts[0].Repositories[0].Id = -1;
+        config.Accounts[0].Repositories[0].Name = "..";
+        config.Accounts[0].Repositories[1].Branch = "-b";
+        config.Accounts[0].Repositories.Add(null!);
+        config.Accounts[1].Url = "https://github.com/askrinnik";
+        config.Accounts.Add(null!);
+        config.Accounts.Add(new() { Url = "https://github.com/askrinnik" });
+        config.Repositories.Add(new() { Url = "https://github.com/someone-else/library", Id = 323456789, Path = @"D:\a" });
+        config.Repositories.Add(new() { Url = "https://github.com/x/y", Path = @"D:\A\" });
+        config.Repositories.Add(new() { Url = "not a url", Path = "relative" });
+        config.Repositories.Add(null!);
+
+        var errors = Validate(config).Errors;
+
+        errors.Count.ShouldBeGreaterThan(10);
+        errors.ShouldAllBe(error => System.Text.RegularExpressions.Regex.IsMatch(
+            error,
+            @"^(backupRoot|sourcesRoot|exclude|accounts\[\d+\]|repositories\[\d+\])(\[\d+\])?(\.(url|path|exclude|repositories|name|id|branch)(\[\d+\])?)* "));
+    }
+
     [Theory]
     [InlineData(@"C:\Users\Sanya\OneDrive\GitHubBackups")]
     [InlineData(@"C:\Users\Sanya\OneDrive\GitHubBackups\")]

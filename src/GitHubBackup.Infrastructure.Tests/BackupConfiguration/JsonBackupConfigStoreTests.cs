@@ -9,7 +9,7 @@ using static GitHubBackup.Infrastructure.Tests.BackupConfiguration.BackupConfigS
 namespace GitHubBackup.Infrastructure.Tests.BackupConfiguration;
 
 /// <summary>
-/// Tests <see cref="JsonBackupConfigStore.LoadAsync"/>.
+/// Tests <see cref="JsonBackupConfigStore.LoadAsync"/> and <see cref="JsonBackupConfigStore.Validate"/>.
 /// </summary>
 public sealed class JsonBackupConfigStoreTests
 {
@@ -326,6 +326,34 @@ public sealed class JsonBackupConfigStoreTests
         record.Level.ShouldBe(LogLevel.Warning);
         record.GetStructuredStateValue("Path").ShouldBe(ConfigPath);
         record.GetStructuredStateValue("Warning").ShouldBe(warning);
+    }
+
+    [Fact]
+    public void Validate_InvalidConfig_ReturnsErrorsAndLeavesFileUnchanged()
+    {
+        var fileSystem = CreateFileSystem(DocumentedSample);
+        var config = new BackupConfig { BackupRoot = "relative", Accounts = [new() { Url = "https://example.com/x" }] };
+
+        var result = CreateStore(fileSystem).Validate(config);
+
+        result.Errors.ShouldBe(
+        [
+            "backupRoot must be an absolute path.",
+            "accounts[0].url must be an account URL of the form https://github.com/<login>.",
+        ]);
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(DocumentedSample);
+        fileSystem.File.Exists(BackupPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Validate_NoSourcesRoot_ChecksDefaultCloneFolderOfContentRoot()
+    {
+        var config = new BackupConfig { BackupRoot = ContentRootPath };
+
+        var result = CreateStore(CreateFileSystem()).Validate(config);
+
+        result.IsValid.ShouldBeTrue();
+        result.Warnings.ShouldHaveSingleItem().ShouldStartWith(@"sourcesRoot 'C:\app\sources' is inside backupRoot");
     }
 
     /// <summary>
