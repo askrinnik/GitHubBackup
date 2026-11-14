@@ -33,6 +33,10 @@
                     Command="{Binding StartBackupCancelCommand, Mode=OneWay}"
                     Padding="8,2" Margin="0,0,8,0"
                     AutomationProperties.AutomationId="CancelBackupButton" />
+            <Button Content="Settings"
+                    Command="{Binding OpenSettingsCommand, Mode=OneWay}"
+                    Padding="8,2" Margin="0,0,8,0"
+                    AutomationProperties.AutomationId="SettingsButton" />
             <TextBlock Text="Cancelling…"
                        VerticalAlignment="Center"
                        AutomationProperties.AutomationId="CancellingMessage">

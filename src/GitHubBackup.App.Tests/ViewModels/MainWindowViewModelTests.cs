@@ -42,6 +42,7 @@ public sealed class MainWindowViewModelTests
             new SecretMasker(),
             Substitute.For<IHostEnvironment>(),
             TimeProvider.System,
+            _navigation,
             NullLogger<RepositoriesViewModel>.Instance);
         _navigation.CurrentViewModel.Returns(repositories);
 

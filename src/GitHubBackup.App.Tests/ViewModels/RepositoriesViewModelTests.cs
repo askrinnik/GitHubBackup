@@ -1,4 +1,5 @@
 using GitHubBackup.App.Dialogs;
+using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
 using GitHubBackup.App.Tests.Logging;
 using GitHubBackup.App.Tests.Runs;
@@ -57,6 +58,8 @@ public sealed class RepositoriesViewModelTests
 
     private readonly FakeLogger<RepositoriesViewModel> _logger = new();
 
+    private readonly INavigationService _navigation = Substitute.For<INavigationService>();
+
     private readonly RepositoriesViewModel _viewModel;
 
     /// <summary>
@@ -71,7 +74,7 @@ public sealed class RepositoriesViewModelTests
         environment.ContentRootPath.Returns(@"C:\app");
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
-        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _logger);
+        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _navigation, _logger);
     }
 
     [Fact]
@@ -219,6 +222,33 @@ public sealed class RepositoriesViewModelTests
         await execution;
         _viewModel.IsRunning.ShouldBeFalse();
         _viewModel.StartBackupCommand.CanExecute(BackupScope.All).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void OpenSettings_Idle_NavigatesToSettings()
+    {
+        _viewModel.OpenSettingsCommand.CanExecute(null).ShouldBeTrue();
+
+        _viewModel.OpenSettingsCommand.Execute(null);
+
+        _navigation.Received(1).NavigateTo<SettingsViewModel>();
+    }
+
+    [Fact]
+    public async Task OpenSettings_Running_CannotExecute()
+    {
+        var run = new TaskCompletionSource<BackupRunResult>();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>()).Returns(run.Task);
+        var raised = 0;
+        _viewModel.OpenSettingsCommand.CanExecuteChanged += (_, _) => raised++;
+
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.OpenSettingsCommand.CanExecute(null).ShouldBeFalse();
+        raised.ShouldBe(1);
+        run.SetResult(new([], [], []));
+        await execution;
+        _viewModel.OpenSettingsCommand.CanExecute(null).ShouldBeTrue();
     }
 
     [Theory]

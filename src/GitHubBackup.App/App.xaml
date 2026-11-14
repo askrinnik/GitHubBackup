@@ -19,8 +19,40 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- A text box of a form shows its validation errors below itself; the larger bottom margin keeps the error
+             text from covering the next field. -->
+        <Style x:Key="FormTextBoxStyle" TargetType="TextBox">
+            <Setter Property="Margin" Value="0,0,0,6" />
+            <Setter Property="Validation.ErrorTemplate">
+                <Setter.Value>
+                    <ControlTemplate>
+                        <StackPanel>
+                            <Border BorderBrush="Firebrick" BorderThickness="1">
+                                <AdornedElementPlaceholder x:Name="Placeholder" />
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding ElementName=Placeholder, Path=AdornedElement.(Validation.Errors), Mode=OneWay}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding ErrorContent, Mode=OneWay}" Foreground="Firebrick" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Validation.HasError" Value="True">
+                    <Setter Property="Margin" Value="0,0,0,24" />
+                    <Setter Property="ToolTip" Value="{Binding RelativeSource={RelativeSource Self}, Path=(Validation.Errors)[0].ErrorContent, Mode=OneWay}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
         <DataTemplate DataType="{x:Type vm:RepositoriesViewModel}">
             <views:RepositoriesView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:SettingsViewModel}">
+            <views:SettingsView />
         </DataTemplate>
     </Application.Resources>
 </Application>

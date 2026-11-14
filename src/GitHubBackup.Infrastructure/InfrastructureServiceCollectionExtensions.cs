@@ -45,7 +45,7 @@ public static class InfrastructureServiceCollectionExtensions
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
         /// token, the <see cref="ITokenStore"/> in Windows Credential Manager, the <see cref="ITokenProvider"/> with the
-        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IBackupStateStore"/>, the <see cref="IRunHistoryStore"/> with the
+        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IGitHubTokenInspector"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IToolPathsStore"/>, the <see cref="IBackupStateStore"/>, the <see cref="IRunHistoryStore"/> with the
         /// hosted service that creates and migrates its database when the host starts, and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
@@ -77,10 +77,12 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<IToolLocator, ToolLocator>();
             services.TryAddSingleton<IGitClient, GitClient>();
             services.TryAddSingleton<IGitHubApi, OctokitGitHubApi>();
+            services.TryAddSingleton<IGitHubTokenInspector, OctokitGitHubTokenInspector>();
             services.TryAddSingleton<IArchiver, SevenZipArchiver>();
             services.TryAddSingleton<IRunLock, NamedMutexRunLock>();
             services.TryAddSingleton<AtomicFileWriter>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
+            services.TryAddSingleton<IToolPathsStore, JsonToolPathsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.AddDbContextFactory<HistoryDbContext>((provider, builder) => builder
                 .UseSqlite(HistoryConnectionString.Create(

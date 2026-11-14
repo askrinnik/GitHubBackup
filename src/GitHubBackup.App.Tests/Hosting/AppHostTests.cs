@@ -59,6 +59,17 @@ public sealed class AppHostTests : IDisposable
     }
 
     [Fact]
+    public void BuildHost_SettingsViewModel_IsTransient()
+    {
+        using var host = BuildHost();
+
+        var first = host.Services.GetRequiredService<SettingsViewModel>();
+        var second = host.Services.GetRequiredService<SettingsViewModel>();
+
+        second.ShouldNotBeSameAs(first);
+    }
+
+    [Fact]
     public async Task BuildHost_NoRun_MainWindowCanClose()
     {
         using var host = BuildHost();

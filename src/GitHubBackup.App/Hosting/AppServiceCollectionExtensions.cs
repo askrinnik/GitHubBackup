@@ -21,7 +21,7 @@ internal static class AppServiceCollectionExtensions
         /// <summary>
         /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandlerFactory"/> and
         /// the <see cref="IBackupRunService"/> of a run started from the window, the <see cref="IUiDispatcher"/> that
-        /// brings its progress to the UI thread, the main window and the ViewModels.
+        /// brings its progress to the UI thread, the main window and the ViewModels, among them the <see cref="SettingsViewModel"/> of the settings editor.
         /// </summary>
         /// <remarks>
         /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
@@ -40,6 +40,7 @@ internal static class AppServiceCollectionExtensions
             services.AddSingleton<IBackupRunService, BackupRunService>();
             services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
             services.AddTransient<RepositoriesViewModel>();
+            services.AddTransient<SettingsViewModel>();
             return services;
         }
     }
