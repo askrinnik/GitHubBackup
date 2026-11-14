@@ -1,362 +1,187 @@
 # GitHubBackup
 
-Приложение для Windows 11, которое делает локальные резервные копии GitHub-репозиториев и ZIP-архивы их состояния.
+GitHubBackup keeps local backups of your GitHub repositories on Windows 11. It clones every repository you choose, with all branches and tags, and writes a new ZIP archive each time something changes.
 
-> **Статус:** фаза 2 — команда `backup` обнаруживает новые, пропавшие и переименованные репозитории, обновляет `backup-config.json` и бэкапит репозитории и их wiki. У CLI есть команды `backup`, `validate` и `set-token` и параметры `--account`, `--repo`, `--dry-run`, `--silent`, `--config`. Токен ищется по цепочке: конфигурация, Windows Credential Manager, GitHub CLI. История запусков ещё не реализована. WPF-приложение использует тот же хост, что у CLI: дерево репозиториев с запуском бэкапа, прогресс с лентой лога и отменой, сводку, диалог обнаружения и редактор настроек; история в UI ещё не реализована. Требования описаны в [docs/PRD.md](docs/PRD.md).
+- It backs up all repositories of the accounts you list (users and organizations): public and private, forks and archived ones. You can also add single repositories by URL.
+- It detects new, missing and renamed repositories and asks you to confirm the changes before it writes them to the settings.
+- It supports exclusion masks (`test-*`, `someone/*`).
+- It clones with all branches and tags and submodules, and it pulls Git LFS content for the selected branch. A wiki gets its own archive.
+- It creates a new ZIP archive (with 7-Zip, including `.git`) only when any branch or tag changed.
+- Clones stay on a local disk, apart from the archives. You can keep the archives in OneDrive or another cloud storage.
+- It records the history of runs and archives.
+- It has two hosts that share one configuration: a WPF desktop app (`GitHubBackup.exe`) and a console app (`GitHubBackup.Cli.exe`) for scripts and the Task Scheduler.
 
-## Возможности (план)
+## Contents
 
-- Бэкап всех репозиториев указанных аккаунтов (пользователей и организаций) — публичных и приватных, включая форки и архивные, а также отдельных репозиториев по URL.
-- Обнаружение новых, пропавших и переименованных репозиториев, подтверждение изменений перед записью в настройки.
-- Исключения по маскам (`test-*`, `someone/*`).
-- Клон со всеми ветками и тегами, сабмодулями, LFS для выбранной ветки. Wiki — отдельным архивом.
-- Новый ZIP-архив (через 7-Zip, вместе с `.git`) создаётся только при изменениях в любой ветке или теге.
-- Клоны хранятся локально, отдельно от архивов, поэтому архивы можно держать в OneDrive или другом облачном хранилище.
-- История запусков и архивов.
-- Два режима работы:
-  - UI на WPF;
-  - консоль с интерактивным, тихим (`--silent`, для Планировщика заданий) и проверочным (`--dry-run`) режимами.
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [GitHub token](#github-token)
+- [Configuration](#configuration)
+- [OneDrive scenario](#onedrive-scenario)
+- [First run](#first-run)
+- [Command-line reference](#command-line-reference)
+- [Scheduled backups (Task Scheduler)](#scheduled-backups-task-scheduler)
+- [Desktop app](#desktop-app)
+- [Logs, history and telemetry](#logs-history-and-telemetry)
+- [Development](#development)
 
-## Требования
+## Requirements
 
-| Компонент | Версия |
+| Component | Version |
 |---|---|
 | Windows | 11 |
-| .NET | 10: .NET Desktop Runtime 10 для опубликованной папки, .NET SDK 10 для сборки из исходников |
-| Git | 2.4x+, в `PATH` или путь в настройках |
+| .NET | .NET Desktop Runtime 10 (the .NET SDK 10 is needed only to build from source) |
+| Git | 2.4x or newer, in `PATH` or set by a path in the settings |
 | Git LFS | 3.x |
-| 7-Zip | `C:\Program Files\7-Zip\7z.exe` или путь в настройках |
-| GitHub-токен | Classic PAT со scope `repo`, `read:org` (подробнее — в PRD, FR-11) |
+| 7-Zip | `C:\Program Files\7-Zip\7z.exe` or set by a path in the settings |
+| GitHub token | classic personal access token (PAT) with the scopes `repo` and `read:org` (see [GitHub token](#github-token)) |
 
-Программа ищет токен по цепочке источников и берёт первый найденный:
+## Installation
 
-1. Ключ конфигурации `GitHub:Token`, например переменная окружения `GitHubBackup__GitHub__Token` или `appsettings.json`.
-2. Windows Credential Manager: запись `GitHubBackup:https://github.com`, которую сохраняет команда `set-token`.
-3. GitHub CLI: `gh auth token --hostname github.com`, если `gh.exe` есть в `PATH` и в нём выполнен вход.
+GitHubBackup has no installer. You use a published application folder.
 
-В лог пишется только имя источника, значение токена туда не попадает. Если токена нет ни в одном источнике, программа работает анонимно: видны только публичные репозитории, а GitHub API разрешает 60 запросов в час.
+1. Get the folder in one of two ways:
+   - download the artifact `GitHubBackup` of a run of the CI workflow `ci.yml` on GitHub and unzip it;
+   - build it yourself from the repository root: `pwsh -File scripts/publish.ps1`. The folder is `artifacts\publish`; `-OutputPath <folder>` selects another one (see the [developer guide](docs/development.md#publishing)).
+2. Copy the folder to a place where you can write, for example `C:\Tools\GitHubBackup`. Do not use `C:\Program Files`: the application writes its settings, logs, history and (by default) clones next to the exe files. The folder must be writable unless you set `sourcesRoot` to another folder (see [Configuration](#backup-configjson)).
+3. Install the .NET Desktop Runtime 10, git, Git LFS and 7-Zip if they are missing.
 
-Не передавайте токен в командной строке (`--GitHub:Token=…`): его видят другие процессы, и он остаётся в истории shell.
-
-## Структура репозитория
+The folder holds two programs that use the same files:
 
 ```
-docs/   документация: PRD, планы по issues, описание AI Harness (docs/ai/)
-scripts/   publish.ps1: публикация папки приложения
-src/    решение GitHubBackup.slnx: проекты и парные тестовые проекты
-.claude/ .ai/   AI Harness для Claude Code (см. docs/ai/README.md)
+<application folder>\
+├── GitHubBackup.exe          desktop app
+├── GitHubBackup.Cli.exe      console app
+├── appsettings.json          application settings (read only)
+├── user-settings.json        tool paths saved by the settings editor (optional)
+├── backup-config.json        what to back up and where (you create it, see "First run")
+├── backup-config.json.bak    previous version, written on every save
+├── logs\                     text and JSON logs, one file per day
+├── data\history.db           run history
+└── sources\                  clones (default location)
 ```
 
-## Сборка и запуск
+The publish step creates only the two exe files and `appsettings.json`. The application creates `logs\`, `data\` and `sources\` itself. Do not put the application folder into OneDrive unless you set `sourcesRoot` to a local folder: the clones would then sync to the cloud (see [OneDrive scenario](#onedrive-scenario)).
 
-Нужен .NET SDK 10.0.100 или новее в той же мажорной версии (`global.json` в корне). Команды выполняются из корня репозитория:
+Both exe files are framework-dependent single-file builds. The native SQLite library sits inside the exe and unpacks at startup.
 
-| Действие | Команда |
-|---|---|
-| Сборка | `dotnet build src/GitHubBackup.slnx` |
-| Тесты | `dotnet test --solution src/GitHubBackup.slnx` |
-| Проверка форматирования | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
-| Запуск консольного приложения | `dotnet run --project src/GitHubBackup.Cli` |
-| Запуск WPF-приложения | `dotnet run --project src/GitHubBackup.App` |
-| Публикация папки приложения | `pwsh -File scripts/publish.ps1` |
+## GitHub token
 
-Тесты работают на Microsoft.Testing.Platform (xUnit v3). Решение и проект передаются через `--solution` и `--project`, а не позиционным аргументом.
+GitHubBackup reads your repositories through the GitHub API and clones them with git. For private repositories and for organizations, it needs a token.
 
-Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Сквозные тесты в `GitHubBackup.Cli.Tests` дополнительно помечены категорией `EndToEnd`: они запускают собранный `GitHubBackup.Cli.exe` отдельным процессом с настоящими git и 7-Zip на локальных bare-репозиториях, а GitHub API подменяют WireMock на loopback. Эти тесты входят в обычный прогон и в CI. Тесты публикации (`PublishedApplicationTests`, тоже `EndToEnd`) проверяют раскладку опубликованной папки, совпадение её `appsettings.json` с исходным и полный прогон `backup --silent` опубликованного `GitHubBackup.Cli.exe` с базой истории и логом. Папку они берут из переменной `PUBLISHED_APP_PATH`, а без неё сами запускают `scripts/publish.ps1` во временную папку; на это уходит до минуты. Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
+### Create the token
 
-UI-тесты (`GitHubBackup.App.UITests`) управляют запущенным WPF-приложением, поэтому обычный прогон решения их пропускает. Чтобы их запустить, передайте свойство `RunUITests` и в сборку, и в тесты:
+1. Open GitHub, then **Settings**, **Developer settings**, **Personal access tokens**, **Tokens (classic)**.
+2. Select **Generate new token (classic)**.
+3. Select the scopes `repo` and `read:org`.
+4. Set an expiration date you can live with. When the token expires, create a new one and save it again.
+5. Copy the token. GitHub shows it only once.
+6. If an organization uses SAML single sign-on, open the token in the list and select **Configure SSO**, then **Authorize** for each such organization. Without this, GitHub hides the organization's repositories.
 
-```bash
-dotnet build src/GitHubBackup.slnx -p:RunUITests=true
-```
+### Why not a fine-grained token
 
-```bash
-dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --filter-trait "Category=UI" --ignore-exit-code 8
-```
+Use a classic token. A fine-grained token often cannot reach what a backup needs:
 
-Код 8 означает, что в проекте не запущен ни один тест. При фильтре `--filter-trait` так завершаются все проекты, кроме выбранного, поэтому здесь код 8 игнорируется. В обычном прогоне и в CI он не игнорируется: проект, в котором не запустился ни один тест, роняет прогон.
+- A fine-grained token belongs to one resource owner: your user or one organization. One token cannot cover your own repositories and those of an organization together.
+- An organization can require an owner to approve each fine-grained token. Until an owner approves it, the token reads only public resources of the organization.
+- A fine-grained token cannot reach repositories where you are an outside collaborator or a repository collaborator. The backup then misses the repositories of other accounts that you were invited to.
+- Fine-grained tokens have no scopes, so the check in the settings editor cannot show the access it grants.
 
-UI-тесты написаны на FlaUI. Каждый тест копирует папку сборки `GitHubBackup.App` во временную папку и запускает приложение оттуда. Если задана переменная `PUBLISHED_APP_PATH`, тест копирует опубликованную папку и запускает `GitHubBackup.exe`; так делает workflow UI-тестов. Токен берётся из `GitHub:Token` тестового `appsettings.json`, GitHub API подменяет WireMock на loopback, поэтому тесты не читают Windows Credential Manager и не ходят в сеть. Для прогона нужны:
+An organization can also restrict classic tokens. GitHub then answers `403` for that organization's repositories, and only a token type that the organization allows works there.
 
-- интерактивный рабочий стол (тесты открывают окна; не блокируйте экран и не сворачивайте сеанс);
-- git в `PATH` и 7-Zip в `C:\Program Files\7-Zip\7z.exe` (их использует сценарий диалога обнаружения).
+The GitHub documentation describes the details: [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens). A fine-grained token can work if all repositories belong to one owner that allows it, but this is not the recommended setup.
 
-Тесты идут по одному. Если тест падает, он сохраняет снимки окон приложения в папку из переменной `UI_TEST_SCREENSHOTS`, а без неё — в `Screenshots` рядом со сборкой тестов.
+### Save the token
 
-#### Публикация
+Save the token in the Windows Credential Manager. The token then does not appear in any file or command line.
 
-Скрипт `scripts/publish.ps1` (PowerShell 7) собирает папку приложения для `win-x64`:
+- Console: run `GitHubBackup.Cli.exe set-token`. The program asks for the token with hidden input and stores it as the credential `GitHubBackup:https://github.com`. The token is never accepted as an argument.
+- Desktop app: open **Settings**, paste the token into the token field and select **Save token** (see [Desktop app](#settings-editor)).
 
-```bash
-pwsh -File scripts/publish.ps1
-```
+### Where the program looks for the token
 
-| Файл | Назначение |
-|---|---|
-| `GitHubBackup.exe` | WPF-приложение |
-| `GitHubBackup.Cli.exe` | консольное приложение |
-| `appsettings.json` | общие настройки обоих exe |
+The program takes the first token it finds in this order:
 
-Оба exe собраны как framework-dependent single-file: на машине нужен только .NET Desktop Runtime 10. Нативная библиотека SQLite лежит внутри exe и распаковывается при запуске. Папки `data\`, `logs\` и `sources\` приложение создаёт рядом с exe само. `backup-config.json` создаёт только редактор настроек `GitHubBackup.exe` (см. [Первый запуск](#первый-запуск)).
+1. The configuration key `GitHub:Token`, for example the environment variable `GitHubBackup__GitHub__Token` or `appsettings.json`.
+2. The Windows Credential Manager entry `GitHubBackup:https://github.com`, which `set-token` or **Save token** writes.
+3. GitHub CLI: `gh auth token --hostname github.com`, when `gh.exe` is in `PATH` and you are signed in.
 
-| Параметр | По умолчанию | Назначение |
+The log names only the source, never the value. If no source has a token, the program works anonymously: it sees only public repositories, and the GitHub API allows 60 requests per hour.
+
+Do not pass the token on the command line (`--GitHub:Token=...`). Other processes can read it, and it stays in your shell history. Use the Credential Manager (`set-token`) or an environment variable instead. Do not write the token into `appsettings.json` of a folder you share or publish.
+
+## Configuration
+
+Three files control the program. All of them sit next to the exe files.
+
+| File | Who writes it | Purpose |
 |---|---|---|
-| `-OutputPath` | `artifacts\publish` в корне репозитория | папка вывода |
-| `-Configuration` | `Release` | конфигурация сборки |
-| `-Clean` | выключен | удалить прежний результат публикации из папки вывода |
+| `appsettings.json` | you (optional edits) | application settings: GitHub API address, tool paths, logging, telemetry |
+| `user-settings.json` | the settings editor | the paths to git and 7-Zip |
+| `backup-config.json` | you and the program | what to back up and where |
 
-Если папка вывода существует и не пуста, а `-Clean` не передан, скрипт ничего не меняет и завершается с кодом 1. Так он не затирает рабочую папку с конфигурацией, историей и клонами. `-Clean` удаляет только файлы, которые пишет публикация. Если в папке есть другие файлы или подпапки, скрипт тоже завершается с кодом 1 и ничего не удаляет. Если опубликованный `appsettings.json` задаёт `GitHub:Token`, скрипт удаляет этот файл и завершается с кодом 1: токен не должен попасть в артефакт. При ошибке `dotnet publish` код тоже 1. Скрипт собирает проекты во временной папке и не трогает `bin` и `obj` обычной сборки.
+### appsettings.json
 
-#### Миграции базы истории
-
-История запусков хранится в SQLite-базе `data\history.db` рядом с exe. Хост при старте сам создаёт базу и применяет недостающие миграции EF Core. Миграции лежат в `src/GitHubBackup.Infrastructure/History/Migrations`. После изменения модели истории добавьте миграцию инструментом `dotnet-ef` из локального манифеста `.config/dotnet-tools.json`:
-
-```bash
-dotnet tool restore
-```
-
-```bash
-dotnet ef migrations add <Name> --project src/GitHubBackup.Infrastructure --output-dir History/Migrations
-```
-
-Тест `HistoryDbContextTests` падает, если модель изменилась, а миграцию не добавили.
-
-#### Ускорение интеграционных тестов (необязательно)
-
-Интеграционные тесты создают временные репозитории в папке `%TEMP%\GitHubBackup.Tests`. Путь задаёт класс `TemporaryFolder` в `GitHubBackup.TestUtilities`. Microsoft Defender проверяет каждый файл, который git пишет в эту папку, и локально тесты идут заметно дольше.
-
-Разработчик может сам исключить эту папку из проверки. Запустите PowerShell от имени администратора под тем же пользователем, который запускает тесты: у другой учётной записи другой `TEMP`.
-
-```powershell
-Add-MpPreference -ExclusionPath (Join-Path $env:TEMP "GitHubBackup.Tests")
-```
-
-Проверить исключение:
-
-```powershell
-(Get-MpPreference).ExclusionPath
-```
-
-Убрать исключение:
-
-```powershell
-Remove-MpPreference -ExclusionPath (Join-Path $env:TEMP "GitHubBackup.Tests")
-```
-
-Исключайте только эту папку. Не исключайте процесс `git.exe`: тогда Defender перестанет проверять все файлы, которых касается git, включая настоящие клоны.
-
-Вариант, который сохраняет больше защиты: Dev Drive (режим производительности Defender), на котором лежат репозиторий и папки `TEMP`/`TMP`.
-
-Исключение не обязательно и не влияет на CI.
-
-### Консольное приложение
-
-| Команда | Что делает |
-|---|---|
-| `GitHubBackup.Cli backup` | Обнаружение репозиториев и бэкап репозиториев из `backup-config.json`: аккаунтов, затем отдельных, в порядке файла |
-| `GitHubBackup.Cli backup --config <path>` | То же с другим файлом `backup-config.json` (по умолчанию — рядом с exe) |
-| `GitHubBackup.Cli backup --account <url\|login>` | Только записи одного отслеживаемого аккаунта |
-| `GitHubBackup.Cli backup --repo <url\|owner/repo>` | Только один репозиторий из `backup-config.json`; `--account` и `--repo` вместе — ошибка |
-| `GitHubBackup.Cli backup --silent` | Без вопросов: все решения принимаются автоматически (подробнее ниже) |
-| `GitHubBackup.Cli backup --dry-run` | Проверочный прогон: показывает, что сделал бы обычный запуск, и ничего не меняет, кроме записи найденных `id` (подробнее ниже); сочетается с `--account`, `--repo` и `--silent` |
-| `GitHubBackup.Cli validate [--config <path>]` | Проверка `backup-config.json`, git, git-lfs, 7-Zip и источника токена без запросов к GitHub и без изменений; выводит имя источника токена (`Token: …`), но не его значение; код `0` или `2` |
-| `GitHubBackup.Cli set-token` | Запрашивает токен скрытым вводом и сохраняет его в Windows Credential Manager (`GitHubBackup:https://github.com`); код `0`. Если ввод перенаправлен или запись не удалась — одна строка ошибки и код `2`. Токен в аргументах не принимается |
-| `GitHubBackup.Cli --help` | Справка по командам и параметрам |
-
-Через `dotnet run` аргументы передаются после `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. Ключи конфигурации .NET (`--Section:Key=value`) тоже принимаются. Любая ошибка в аргументах даёт одну строку `Command-line error: …` и код `2`. Значения опций в сообщения не попадают; посторонний аргумент показывается, только если он не длиннее 32 символов, а у `set-token` не показывается никогда.
-
-CLI сам `backup-config.json` не создаёт. Если файла нет, `backup` и `validate` завершаются с кодом `2` и подсказкой `The backup configuration file '<path>' does not exist. Create it in the settings editor of GitHubBackup.exe.`
-
-Одновременно на машине идёт только один запуск `backup`, в том числе `--dry-run`. Если другой запуск уже идёт, второй ничего не трогает: пишет в stderr строку `Error: A backup is already running.` и путь к логу и завершается кодом `2`. Блокировка — системный mutex `Global\GitHubBackup.BackupRun`, общий для всех пользователей и сеансов. Если предыдущий запуск аварийно завершился, не освободив блокировку, следующий запуск её забирает и пишет предупреждение в лог.
-
-Перед обработкой репозиториев `backup` очищает `<sourcesRoot>\.tmp\` от файлов прерванных запусков. Затем он сравнивает с `backup-config.json` репозитории отслеживаемых аккаунтов, а при `discoverAccessibleRepositories: true` — и другие репозитории, доступные по токену (см. [Режим обнаружения](#режим-обнаружения-discoveraccessiblerepositories)). Без `--silent` он задаёт вопрос о каждом новом и каждом переименованном репозитории; с `--silent` решает сам:
-
-- новый репозиторий: в интерактивном режиме показывается таблица с его данными (имя, URL, владелец, видимость, fork, archived, ветка по умолчанию, wiki, аккаунт) и предлагаемой записью. Можно добавить его, добавить с другой веткой и папкой архивов, пропустить в этот раз или исключить (из аккаунта либо глобально). С `--silent` репозиторий добавляется с веткой и папкой по умолчанию и бэкапится в этом же запуске;
-- пропавший помечается `Unavailable`, его клон и архивы остаются на месте; вопроса нет;
-- переименованный получает новое имя; клон переносится в любом случае. В интерактивном режиме выбирается, переименовать папку архивов (а) или оставить её и записать в `path` (б, вариант по умолчанию). С `--silent` всегда выбирается «б». Если папка архивов не зависит от имени, вопрос не задаётся.
-
-Без `--silent` запуск с перенаправленным вводом (например, из Планировщика заданий) завершается кодом `2` и подсказкой запустить его с `--silent`: репозитории не обрабатываются и ничего не меняется. Эта проверка идёт до обращения к GitHub и действует при любом фильтре (`--account`, `--repo`); с `--dry-run` проверки нет.
-
-#### Режим обнаружения (`discoverAccessibleRepositories`)
-
-Необязательный ключ верхнего уровня `backup-config.json` (после `exclude`, перед `accounts`). Значение по умолчанию — `false`; программа записывает ключ при каждом сохранении файла.
-
-- `false` (строгий режим): новыми считаются только репозитории, чей владелец совпадает (без учёта регистра) с аккаунтом из `accounts`. Репозитории организаций и других владельцев, которые GitHub отдаёт по токену, не предлагаются, не добавляются в файл и не бэкапятся: в интерактивном режиме, с `--silent` и с `--dry-run`. Код `3` из-за них не возникает.
-- `true`: новыми считаются и репозитории других владельцев, доступные по токену (например, где вы collaborator). Без `--silent` о каждом задаётся вопрос, с `--silent` репозиторий добавляется в `repositories`.
-
-В обоих режимах бэкапятся все записи из `repositories`, а пропавшие, вернувшиеся и переименованные записи распознаются как обычно.
-
-Чтобы сделать бэкап организации, добавьте её в `accounts`. Чтобы сделать бэкап репозитория, где вы collaborator, добавьте его в `repositories` или включите ключ.
-
-#### Запись без `id`
-
-Каждая запись репозитория в `backup-config.json` хранит GitHub ID (`id`): по нему распознаётся переименование. В записи, добавленной вручную (отдельной или в списке аккаунта), `id` можно не указывать: отсутствие `id`, `"id": null` и `"id": 0` означают одно и то же. Произвольный `id` указывать нельзя: запись с ID чужого репозитория будет принята за переименованный репозиторий. Отрицательный `id` — ошибка проверки. `validate` к GitHub не обращается и запись без `id` принимает.
-
-`backup` в начале запуска, до обнаружения, ищет такую запись по имени (`GET /repos/{owner}/{repo}`) и записывает найденный ID в `backup-config.json` без вопроса, одним сохранением вместе с изменениями обнаружения. Ищутся только записи, которые обрабатывает запуск: с учётом `--account` и `--repo`, без исключённых. Заполнение ID само по себе код `3` не даёт.
-
-- Если GitHub отвечает 404 или 403, запись получает `Failed` с ошибкой `The repository was not found on GitHub.`; она остаётся без `id` и не помечается `Unavailable`, остальные репозитории обрабатываются.
-- Если найденный ID уже есть у другой записи, ID не записывается, и запись получает `Failed` с ошибкой, которая называет ту запись.
-- Другой сбой GitHub API при поиске — критическая ошибка, код `2`.
-
-Изменённый `backup-config.json` сохраняется до обработки репозиториев. Для каждого репозитория клон обновляется, и, если что-то изменилось, создаётся новый архив. Репозиторий со статусом `Unavailable` пропускается. Ошибка одного репозитория не останавливает запуск.
-
-В конце выводится таблица: репозиторий, статус (`Archived`, `UpToDate`, `Warning`, `Failed`, `Skipped`, `Cancelled`), архив, длительность и ошибка. Под ней — итоги по статусам и путь к текстовому логу дня.
-
-Ctrl+C отменяет запуск. Программа останавливает текущий процесс git или 7-Zip и удаляет его временные файлы. Если архив уже перенесён в папку архивов, запись о нём всё равно добавляется в `.backup-state.json`. Сводка показывает:
-
-- репозитории, обработанные до отмены, с их статусами;
-- прерванный репозиторий или wiki со статусом `Cancelled`;
-- необработанные репозитории со статусом `Skipped` и причиной `Not processed: the run was cancelled.`;
-- строку `Cancelled: the run was stopped before it finished.`; итоги тогда считают и `Cancelled`.
-
-Если отмена пришла во время обнаружения или вопросов, таблицы нет, остаются строка об отмене и итоги. Отмена `validate` и `set-token` даёт одну строку `Error: The operation was cancelled.` в stderr. Во всех случаях код возврата — `2`.
-
-| Код возврата | Значение |
-|---|---|
-| `0` | Ошибок нет |
-| `1` | Хотя бы один репозиторий завершился с `Failed` |
-| `2` | Критическая ошибка: неверные аргументы, `appsettings.json`, `backup-config.json`, не найдены инструменты, уже идёт другой запуск или сбой GitHub API при обнаружении или поиске `id` (например, исчерпан лимит запросов или токен отклонён); репозитории не обрабатываются, в stderr — по строке на ошибку и путь к логу. Также запуск, отменённый пользователем (Ctrl+C) |
-| `3` | Ошибок нет, но обнаружены новые (по правилу `discoverAccessibleRepositories`), пропавшие или переименованные репозитории |
-
-При нескольких условиях действует первое по приоритету: `2`, затем `1`, затем `3`.
-
-Без команды программа только проверяет настройки и завершается с кодом `0`.
-
-#### Свой путь к клону (`clonePath`)
-
-По умолчанию клон лежит в `<sourcesRoot>\<owner>\<repo>`, клон wiki — в `<sourcesRoot>\<owner>\<repo>.wiki`. Необязательный ключ `clonePath` записи репозитория (в `repositories` аккаунта или в отдельных `repositories`) задаёт абсолютный путь ко всей папке клона. Клон wiki тогда лежит рядом, в `<clonePath>.wiki`. Так можно бэкапить рабочую копию, в которой вы работаете, без второго клона:
+The published folder contains this file with these defaults. The program needs the file: without it, it stops with a configuration error.
 
 ```json
-{ "name": "work-app", "id": 423456789, "branch": null, "path": null, "clonePath": "D:\\Work\\WorkApp", "status": "Active" }
+{
+  "GitHub": {
+    "ApiBaseUrl": "https://api.github.com",
+    "Token": null
+  },
+  "Tools": {
+    "GitPath": null,
+    "SevenZipPath": "C:\\Program Files\\7-Zip\\7z.exe"
+  },
+  "Backup": {
+    "ConfigPath": "backup-config.json",
+    "ShortHashLength": 10,
+    "VerifyArchive": true
+  },
+  "History": {
+    "DatabasePath": "data\\history.db"
+  },
+  "OpenTelemetry": {
+    "Enabled": false,
+    "OtlpEndpoint": "http://localhost:4317"
+  },
+  "Serilog": {
+    "MinimumLevel": { "Default": "Information" }
+  }
+}
 ```
 
-Что программа делает с такой папкой:
-
-- Если папки нет или она пуста, программа клонирует в неё репозиторий.
-- Существующая рабочая копия, у которой `origin` указывает на `https://github.com/<owner>/<repo>.git`, используется как клон.
-- При обновлении игнорируемые файлы (`.gitignore`) остаются: выполняется `git clean -ffd`, а не `git clean -ffdx`. Сборки, локальные настройки и другие игнорируемые файлы не удаляются.
-- В архив попадают только `.git` и отслеживаемые файлы, включая сабмодули. Игнорируемые файлы в архив не попадают. Корневая папка архива — имя папки на диске (`WorkApp\`, `WorkApp.wiki\`).
-- Папки `<clonePath>` и `<clonePath>.wiki` программа никогда не удаляет.
-- Хуки git (`.git/hooks`, `core.hooksPath`, например `.husky`) и `core.fsmonitor` в процессах программы не запускаются, а токен получают только команды, которые обращаются к серверу.
-- Если новый коммит сервера отслеживает файл по пути вашего игнорируемого файла, `checkout` и `reset --hard` его перезапишут: так работает git.
-- Если отслеживаемый файл рабочей копии на диске — настоящая символьная ссылка или junction (копия создана с `core.symlinks=true`), архив не создаётся и элемент получает `Failed`: 7-Zip захватил бы файлы вне клона. Замените ссылки обычными файлами. Это правило действует для любого клона, в том числе для рабочей копии, перенесённой в `sourcesRoot` или принятой там как клон.
-
-Если `clonePath` задан, изменён или удалён, при следующем запуске программа переносит клон в новую папку и направляет `origin` на URL репозитория. Прежние папки клонов и URL их `origin` хранятся в `<sourcesRoot>\.clone-locations.json`. Перенос не выполняется, элемент получает `Failed` с причиной, и ничего не удаляется, если:
-
-- в клоне есть локальная работа (см. [Проверка клона](#проверка-клона-перед-обновлением));
-- новая папка уже существует (например, вы указали папку своей рабочей копии, а старый клон лежит в `sourcesRoot`: удалите старый клон или переименуйте одну из папок);
-- папки лежат на разных томах;
-- `origin` клона указывает на другой репозиторий (тогда `origin` тоже не меняется);
-- ключ удалён, а в рабочей копии есть игнорируемые файлы (например, `.env`): в `sourcesRoot` обновление выполняет `git clean -ffdx` и удалило бы их. Перенесите или удалите эти файлы либо снова задайте `clonePath`.
-
-При переименовании репозитория на GitHub клон из `clonePath` не переносится, меняется только URL `origin`.
-
-`validate` и загрузка проверяют ключ: путь абсолютный и не корень диска; не совпадает с `sourcesRoot`, не лежит внутри него и не содержит его; папки клона и wiki записи не совпадают с папками других записей и не вложены в них. Если папка клона лежит внутри `backupRoot` или папки архивов, выводится предупреждение.
-
-Ограничения:
-
-- `origin` должен указывать на `https://github.com/...`; рабочая копия с `origin` по SSH получает `Failed`.
-- Связанный worktree (`.git` в виде файла) не поддерживается.
-- Ключ правится только в `backup-config.json`, в диалогах его нет.
-
-#### Проверка клона перед обновлением
-
-Обновление клона (`checkout`, `reset --hard`, `clean`) перезаписало бы локальную работу. Поэтому перед обновлением и перед переносом программа проверяет клон, и ваша работа не теряется. Проверка действует для всех клонов — в `sourcesRoot` и в `clonePath`, для репозитория и для wiki. Она только читает клон и не выполняет `fetch`. Проверка не пройдена, если есть:
-
-- незакоммиченные изменения, в том числе в сабмодулях;
-- неотслеживаемые файлы, кроме игнорируемых;
-- другая ветка или отсоединённый HEAD (ожидается настроенная ветка, а если её нет на сервере — ветка по умолчанию; ветка последнего архива тоже допускается, чтобы смена `branch` в настройках переключала клон);
-- коммиты, которых нет в `origin/<ветка>` (а без такой ветки — ни в одной `origin/*`).
-
-Если выбрана ветка последнего архива, а локальная ветка с именем ожидаемой ветки содержит неотправленные коммиты, это тоже причина: обновление пересоздало бы эту ветку. Проверка повторяется без обращения к серверу после `fetch` и перед `checkout`, `reset` и `clean`, поэтому работа, сохранённая во время `fetch`, тоже не теряется. Повторная проверка считает неотправленные коммиты по `origin/*` до `fetch`, поэтому force-push на сервере не превращает старые коммиты сервера в «неотправленные». Обновление переключает клон ровно на ту ветку, которую ожидала проверка.
-
-Тогда элемент получает `Failed` с причиной, например `The clone 'D:\Work\WorkApp' has local changes: uncommitted changes, 2 unpushed commit(s). Commit and push them or switch the branch, then run the backup again.` Клон не меняется, архив не создаётся, код возврата `1`, остальные репозитории обрабатываются. Закоммитьте и отправьте изменения или переключите ветку, и следующий запуск обновит клон.
-
-Если на сервере ничего не изменилось, быстрая проверка даёт `UpToDate`, и клон не трогается даже при локальных изменениях.
-
-Непустая папка без `.git` и клон, у которого `origin` указывает на другой репозиторий, тоже дают `Failed`; папка не меняется.
-
-#### Проверочный прогон `--dry-run`
-
-`backup --dry-run` выполняет обнаружение и быструю проверку (`git ls-remote`) и показывает, что сделал бы обычный запуск:
-
-- `WouldClone` — клона нет, обычный запуск склонировал бы репозиторий; git при этом не вызывается;
-- `WouldArchive` — был бы создан архив; в колонке архива стоит его будущее имя;
-- `UpToDate` — изменений нет или репозиторий пуст;
-- `Warning` — запрошенной ветки нет на сервере, использовалась бы ветка по умолчанию; будущее имя архива тоже показывается;
-- `Failed` — проверка не удалась (например, `ls-remote` вернул ошибку); остальные репозитории обрабатываются;
-- `Skipped` — репозиторий помечен `Unavailable` или пропал на GitHub (обычный запуск пометил бы его `Unavailable`).
-
-Wiki проверяется так же, как репозиторий. Над таблицей выводится строка `Dry run: nothing was cloned, updated, archived or saved.` (или строка о записанных `id`, см. ниже), под таблицей — найденное обнаружением: `New`, `Missing`, `Renamed`, `Returned`. Новые репозитории есть только в этом списке, строк таблицы у них нет. Вернувшийся (`Returned`) репозиторий проверяется как активный. Итоги считают `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` и `Skipped`.
-
-Проверка клона и проверка папки выполняются как в обычном запуске, и элемент получает тот же `Failed` с той же причиной. Перенос клона только показывается в колонке ошибки: `The clone would be moved from '<old>' to '<new>'.`
-
-Прогон ничего не клонирует, не обновляет, не переносит и не архивирует, не пишет `.backup-state.json` и `.clone-locations.json`, не очищает `<sourcesRoot>\.tmp\` и не спрашивает о новых и переименованных репозиториях. Поэтому он работает и с перенаправленным вводом. Код возврата — как у обычного запуска: `3`, если найдены новые, пропавшие или переименованные репозитории.
-
-`backup-config.json` прогон меняет только в одном случае — для записей без `id`. Такая запись проверяется всегда: ID ищется по имени, и репозиторий есть в таблице как обычно. В интерактивной консоли для каждой такой записи задаётся вопрос `ID is missing for <owner>/<repo>; found <id>. Save it to backup-config.json?`. Ответ «да» записывает ID в файл; ответ «нет» оставляет файл без изменений, а ID используется только до конца прогона. С `--silent` или при перенаправленном вводе ID записывается без вопроса. Если ID записан, строка над таблицей — `Dry run: nothing was cloned, updated or archived; only the missing repository ids were saved to backup-config.json.` Ненайденная запись получает `Failed`, как в обычном запуске. WPF-приложение записывает найденный ID без вопроса, в том числе в проверочном прогоне.
-
-#### Телеметрия (OpenTelemetry)
-
-По умолчанию телеметрия выключена (`OpenTelemetry:Enabled=false`): SDK OpenTelemetry и экспортер не регистрируются. При `OpenTelemetry:Enabled=true` программа отправляет трейсы и метрики по OTLP (gRPC) на адрес `OpenTelemetry:OtlpEndpoint` (по умолчанию `http://localhost:4317`). Ресурс называется `GitHubBackup`.
-
-Трейсы:
-
-```
-backup.run                      githubbackup.dry_run, githubbackup.run.outcome
-├── backup.discovery            нет при --repo
-├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status
-│   ├── ls-remote | clone | fetch
-│   └── archive
-└── backup.repository           wiki того же репозитория (githubbackup.target = Wiki)
-```
-
-- `githubbackup.run.outcome`: `completed`, `stopped` (критическая ошибка), `cancelled` или `failed` (непредвиденное исключение).
-- Ошибка отмечается статусом `Error` и тегом `error.type` (имя типа исключения). Текста исключения и токена в трейсах нет.
-- Тег `githubbackup.repository` содержит имена репозиториев (`owner/name`), в том числе приватных. Адрес по схеме `http` передаёт их без шифрования, поэтому удалённый коллектор подключайте по `https`. Учётные данные коллектора задаются переменной `OTEL_EXPORTER_OTLP_HEADERS`, а не в `OtlpEndpoint`.
-- Репозитории, которые не обрабатывались (не начатые из-за отмены, пропавшие при `--dry-run`, новые неподтверждённые), есть только в метриках.
-
-Метрики (meter `GitHubBackup`):
-
-| Метрика | Тип и единица | Теги |
+| Key | Default | Rule |
 |---|---|---|
-| `githubbackup.repositories` | Counter, `{repository}` | `githubbackup.status`, `githubbackup.target`, `githubbackup.dry_run` |
-| `githubbackup.repository.duration` | Histogram, `s` | те же |
-| `githubbackup.run.duration` | Histogram, `s` | `githubbackup.run.outcome`, `githubbackup.dry_run` |
-| `githubbackup.archive.size` | Histogram, `By` | `githubbackup.target`; только созданные архивы |
+| `GitHub:ApiBaseUrl` | `https://api.github.com` | Absolute URI with the scheme `https`. The scheme `http` is allowed only for a loopback address (`localhost`, `127.0.0.1`, `[::1]`), so the token never crosses the network unencrypted. |
+| `GitHub:Token` | `null` | The token, if you choose to keep it in a file. Prefer the Credential Manager. |
+| `Tools:GitPath` | `null` | Absolute path to `git.exe`. `null` means git comes from `PATH`. |
+| `Tools:SevenZipPath` | `C:\Program Files\7-Zip\7z.exe` | Absolute path to `7z.exe`. |
+| `Backup:ConfigPath` | `backup-config.json` | Path to the backup configuration. A relative path starts at the exe folder. Must not be empty. |
+| `Backup:ShortHashLength` | `10` | Length of the commit hash in archive names, from 4 to 40. |
+| `Backup:VerifyArchive` | `true` | Test each archive with `7z t` before the program moves it to the archive folder. |
+| `History:DatabasePath` | `data\history.db` | Path to the history database. Must not be empty. |
+| `OpenTelemetry:Enabled` | `false` | Turns telemetry on (see [Telemetry](#telemetry-opentelemetry)). |
+| `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. |
+| `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
+| `Serilog:MinimumLevel:Override:<SourceContext>` | not set | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. |
 
-Ручная проверка через .NET Aspire Dashboard:
+If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the value of `GitHub:Token`.
 
-1. Запустите дашборд в Docker. Порт OTLP дашборда `18889` публикуется как `4317`:
+The program reads its configuration from these sources. A later source overrides an earlier one:
 
-   ```
-   docker run --rm -it -p 18888:18888 -p 4317:18889 --name aspire-dashboard mcr.microsoft.com/dotnet/aspire-dashboard:latest
-   ```
+1. `appsettings.json` next to the exe.
+2. `user-settings.json` next to the exe (optional, see below).
+3. user secrets, only in the `Development` environment.
+4. Environment variables with the prefix `GitHubBackup__`, for example `GitHubBackup__Backup__ShortHashLength`. Variables without the prefix and files `appsettings.{Environment}.json` are not read.
+5. The command line: `--Section:Key=value`.
 
-2. Откройте ссылку `http://localhost:18888/login?t=…` из вывода контейнера.
-3. Запустите бэкап с включённой телеметрией: `dotnet run --project src/GitHubBackup.Cli -- backup --dry-run --OpenTelemetry:Enabled=true`. Другой адрес задаётся ключом `--OpenTelemetry:OtlpEndpoint=<uri>`.
-4. На вкладке **Traces** выберите ресурс `GitHubBackup`: у трейса `backup.run` видна иерархия выше и теги spans.
-5. На вкладке **Metrics** выберите meter `GitHubBackup`. Счётчик и длительности записываются в конце запуска, а последняя порция метрик отправляется при завершении программы, поэтому они появляются после окончания запуска.
+The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Production`.
 
-### Редактор настроек (WPF-приложение)
+### user-settings.json
 
-Кнопка **Settings** на главном экране открывает редактор настроек вместо дерева репозиториев. Пока идёт запуск бэкапа, кнопка неактивна: запуск тоже пишет `backup-config.json`.
-
-Редактор меняет `backup-config.json`:
-
-- корень архивов (`backupRoot`), корень клонов (`sourcesRoot`; пустое поле — папка `sources` рядом с exe) и глобальные исключения (маски через запятую);
-- переключатель `discoverAccessibleRepositories`;
-- аккаунты: URL, папку архивов, исключения; у репозиториев аккаунта — ветку и папку архивов. Репозиторий аккаунта можно удалить, но не добавить: новые репозитории добавляет обнаружение;
-- отдельные репозитории: URL, ветку и папку архивов. Новая запись получает `id` 0 и статус `Active`; `id` найдётся по имени при следующем запуске.
-
-Перед записью работает та же проверка, что при загрузке файла. Ошибки показываются у полей, ошибки без своего поля — под формой; пока они есть, файл не пишется. Предупреждение о клонах внутри дерева архивов показывается баннером сразу при правке и сохранению не мешает. Поля, которых в редакторе нет (`id`, `status`, имена репозиториев аккаунта, `schemaVersion`), записываются как были. Файл пишется атомарно, предыдущая версия остаётся в `backup-config.json.bak`. Если файл записать не удалось, редактор показывает ошибку, оставляет поля заполненными и файл не меняет.
-
-**Cancel** возвращает к дереву и ничего не пишет. Если есть несохранённые изменения, редактор сначала спрашивает подтверждение; так же он спрашивает при закрытии окна.
-
-#### Первый запуск
-
-Если `backup-config.json` нет, главное окно показывает сообщение `No settings yet. Open the settings editor to create backup-config.json.` и кнопку **Open settings**. Кнопки бэкапа неактивны. Редактор открывается с пустой конфигурацией и над полями пишет, что файла ещё нет и Save его создаст. Save проверяет поля: без корня архивов файл не создаётся. После успешного Save главное окно сразу показывает дерево по новому файлу. Cancel файл не создаёт.
-
-Пути к git и 7-Zip сохраняет отдельная кнопка **Save tool paths** в необязательный файл `user-settings.json` рядом с exe:
+The settings editor writes this optional file when you select **Save tool paths**. You can also create it by hand:
 
 ```json
 {
@@ -367,35 +192,459 @@ backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 }
 ```
 
-Хост читает этот файл сразу после `appsettings.json`, поэтому его значения перекрывают `appsettings.json`, а переменные окружения и командная строка — его. `null` означает «не задано»: git берётся из `PATH`, 7-Zip — из `C:\Program Files\7-Zip\7z.exe`. Пути проверяются по тем же правилам, что в `appsettings.json` (абсолютный путь). Новые пути действуют после перезапуска программы.
+The program reads only the two keys `Tools:GitPath` and `Tools:SevenZipPath` from this file and ignores any other key. The values follow the same rules as in `appsettings.json` (absolute paths). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. The values override `appsettings.json`; environment variables and the command line override this file. New paths apply after you restart the program.
 
-Раздел токена:
+### backup-config.json
 
-- **Save token** сохраняет введённый токен в Windows Credential Manager, как `set-token`. Пустой токен не сохраняется: у поля появляется ошибка `The token cannot be empty.`. После сохранения поле очищается. Работающая программа продолжает использовать прежний токен, поэтому редактор просит перезапустить её. Если токен задан и в ключе `GitHub:Token`, редактор предупреждает: этот источник важнее Credential Manager, и сохранённый токен использоваться не будет.
-- **Check token** проверяет токен из поля, а при пустом поле — токен, который нашла цепочка источников, и называет его источник. Показываются логин, scopes (у fine-grained токена их нет, это отмечается), остаток и лимит запросов и время сброса. Без токена показывается только лимит анонимного доступа. Неверный или просроченный токен (401) и другие ошибки API показываются отдельной строкой; **Cancel check** прерывает проверку. Запрос идёт только на настроенный `GitHub:ApiBaseUrl`.
+This file says what to back up and where to put it. The program reads and writes it. It never creates it by itself on the command line: you create it before the first backup (see [First run](#first-run)). The desktop app creates it from the settings editor.
 
-Значение токена не попадает в лог, в сообщения об ошибках и в файлы.
+The smallest useful file names the archive folder and one account:
 
-## CI
+```json
+{
+  "schemaVersion": 1,
+  "backupRoot": "C:\\Users\\Me\\OneDrive\\GitHubBackups",
+  "sourcesRoot": null,
+  "exclude": [],
+  "discoverAccessibleRepositories": false,
+  "accounts": [
+    { "url": "https://github.com/octocat", "path": null, "exclude": [], "repositories": [] }
+  ],
+  "repositories": []
+}
+```
 
-| Workflow | Запуск | Что делает |
-|---|---|---|
-| `.github/workflows/ci.yml` | pull request и push в `main` | `windows-latest`: restore, build, проверка форматирования, проверочные случаи хуков Claude Code (`.claude/hooks/tests/*.Cases.ps1`), публикация `scripts/publish.ps1`, тесты без категорий `UI` и `Smoke` (тесты публикации проверяют опубликованную папку); результаты (`*.trx`) публикуются артефактом `test-results`, папка приложения — артефактом `GitHubBackup` |
-| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, публикация `scripts/publish.ps1`, тесты выбранной категории (`UI` или `Smoke`; UI-тесты запускают опубликованный `GitHubBackup.exe`); артефакт `test-results-<категория>` с результатами (`*.trx`) и снимками окон приложения из упавших UI-тестов (`Screenshots/*.png`) |
+With an empty `repositories` list, the first `backup` finds the repositories of the account and adds them to the file (after you confirm them, or automatically with `--silent`).
 
-Предупреждения компилятора и анализаторов считаются ошибками. Версии NuGet-пакетов задаются только в `src/Directory.Packages.props`, общие настройки сборки — в `src/Directory.Build.props`.
+A full file with every option:
 
-## Шаблоны issues и pull request
+```json
+{
+  "schemaVersion": 1,
+  "backupRoot": "C:\\Users\\Me\\OneDrive\\GitHubBackups",
+  "sourcesRoot": null,
+  "exclude": [ "someone/*" ],
+  "discoverAccessibleRepositories": false,
+  "accounts": [
+    {
+      "url": "https://github.com/octocat",
+      "path": null,
+      "exclude": [ "test-*" ],
+      "repositories": [
+        { "name": "hello-world", "id": 1001, "branch": null, "path": null, "status": "Active" },
+        { "name": "old-tool", "id": 1002, "branch": "legacy", "path": "E:\\Archive\\old-tool", "status": "Active" },
+        { "name": "work-app", "id": 1003, "branch": null, "path": null, "clonePath": "D:\\Work\\WorkApp", "status": "Active" }
+      ]
+    },
+    { "url": "https://github.com/my-org", "path": "E:\\WorkBackups\\my-org", "exclude": [], "repositories": [] }
+  ],
+  "repositories": [
+    { "url": "https://github.com/someone-else/library", "id": 1004, "branch": "develop", "path": null, "status": "Active" }
+  ]
+}
+```
 
-| Файл | Назначение |
+| Key | Meaning |
 |---|---|
-| `.github/ISSUE_TEMPLATE/task.yml` | задача: обязательные поля «Источник требований» (разделы PRD, номера требований), «Задача», «Критерии приёмки», «Зависимости» |
-| `.github/ISSUE_TEMPLATE/bug.yml` | ошибка: те же поля источника требований, шаги воспроизведения, ожидаемое и фактическое поведение, окружение |
-| `.github/ISSUE_TEMPLATE/config.yml` | отключает пустые issues, добавляет ссылку на `docs/PRD.md` |
-| `.github/pull_request_template.md` | подставляется в описание каждого pull request: `Closes #<issue>` и чек-лист (требования PRD выполнены, тесты добавлены, PRD обновлён при изменении требований, документация обновлена) |
+| `schemaVersion` | Format version, `1`. |
+| `backupRoot` | Absolute path of the folder for archives. Required. |
+| `sourcesRoot` | Absolute path of the folder for clones. `null` means `sources\` next to the exe. |
+| `exclude` | Global exclusion masks, for example `someone/*`. Only `*` and `?` work as wildcards. |
+| `discoverAccessibleRepositories` | Optional, `false` by default. See [Discovery mode](#discovery-mode-discoveraccessiblerepositories). The program writes the key on every save. |
+| `accounts[].url` | `https://github.com/<user or organization>`. |
+| `accounts[].path` | Archive folder that replaces `<backupRoot>\<owner>` for this account. `null` keeps the default. |
+| `accounts[].exclude` | Exclusion masks for this account. |
+| `accounts[].repositories[]` | Repositories of the account: `name`, `id`, `branch` (`null` means the default branch), `path`, optional `clonePath`, `status`. |
+| `repositories[]` | Single repositories: the same keys, with `url` instead of `name`. |
+| `path` of a repository | Archive folder of that repository. It replaces the whole path. |
+| `clonePath` | Optional absolute path of the whole clone folder (see [Own clone path](#own-clone-path-clonepath)). |
+| `id` | GitHub repository ID. It is optional in entries you add by hand (see [Entries without `id`](#entries-without-id)). |
+| `status` | `Active` or `Unavailable`. |
 
-## Соглашения
+Archive folders follow these rules:
 
-- Код, комментарии, логи и сообщения приложения — на английском.
-- Заголовки issues, коммиты, pull request и комментарии к ним — на английском.
-- Документация и тексты issues — на русском.
+- The default archive folder of a repository is `<backupRoot>\<owner>\<repo>`, for your own and for other people's repositories alike.
+- The `path` of an account replaces `<backupRoot>\<owner>`, so the archive folder is `<account path>\<repo>`.
+- The `path` of a repository replaces the whole archive folder.
+- The clone of a repository is `<sourcesRoot>\<owner>\<repo>`, and the wiki clone is `<sourcesRoot>\<owner>\<repo>.wiki`. The `path` values do not change clones.
+
+Validation runs when the file is loaded, in `validate` and in the settings editor. It checks:
+
+- `backupRoot` is set and absolute; `sourcesRoot`, every `path` and every `clonePath` are absolute (a relative path is an error);
+- URLs are valid and point to github.com;
+- owner and repository names are valid folder names;
+- `id`, when set, is a positive number; a missing `id`, `null` or `0` means "no id"; a negative `id` is an error;
+- `discoverAccessibleRepositories` is `true` or `false`;
+- there are no duplicate repositories (by ID among entries with an ID, and by name among all entries);
+- two entries never share the same archive folder;
+- `clonePath` is not a drive root, does not equal `sourcesRoot`, is not inside it and does not contain it, and its clone and wiki folders do not equal or nest into the folders of other entries;
+- a warning appears when clones end up inside the archive tree (`backupRoot` or an archive folder).
+
+`validate` never calls GitHub.
+
+## OneDrive scenario
+
+You can keep the archives in OneDrive and the clones on a local disk. Set `backupRoot` to a folder inside OneDrive and leave `sourcesRoot` at `null` (or point it to another local folder):
+
+```json
+{
+  "schemaVersion": 1,
+  "backupRoot": "C:\\Users\\Me\\OneDrive\\GitHubBackups",
+  "sourcesRoot": null,
+  "exclude": [],
+  "discoverAccessibleRepositories": false,
+  "accounts": [
+    { "url": "https://github.com/octocat", "path": null, "exclude": [], "repositories": [] }
+  ],
+  "repositories": []
+}
+```
+
+Clones and archives live in different trees:
+
+```
+<sourcesRoot>\                         default: <application folder>\sources (local disk only)
+├── .tmp\                              temporary archives before the move
+├── .clone-locations.json              previous clone folders by GitHub ID
+└── octocat\
+    ├── hello-world\                   clone of the repository
+    └── hello-world.wiki\              clone of the wiki (if there is one)
+
+<backupRoot>\                          for example inside OneDrive
+└── octocat\
+    └── hello-world\                   archive folder of the repository
+        ├── .backup-state.json
+        ├── octocat_hello-world_20261002-143015_a1b2c3d4e5.zip        repository archives
+        └── octocat_hello-world.wiki_20261002-143020_9f8e7d6c5b.zip   wiki archives
+```
+
+Rules that keep OneDrive safe:
+
+- The program builds and tests each archive on the local disk, in `<sourcesRoot>\.tmp\`. It moves the finished archive to the archive folder only after the test passes. OneDrive therefore never uploads a half-written file.
+- If `sourcesRoot` lies inside `backupRoot` or inside an archive folder, the program warns you at startup: the clones would sync to the cloud. The same warning applies to `clonePath` folders.
+- If you leave `sourcesRoot` at `null`, the clones sit in `sources\` of the application folder. Do not place the application folder inside OneDrive in that case. Install it on a local disk, or set `sourcesRoot` to a local folder.
+- The program never deletes archives.
+
+An archive name is `<owner>_<repo>_<yyyyMMdd-HHmmss>_<shortHash>.zip`. The time is the local time of the machine when the archive was created. `shortHash` is the first characters of the commit hash of the selected branch (10 by default, `Backup:ShortHashLength`). A wiki archive uses `<repo>.wiki`. The archive holds the whole clone folder including `.git`; the root folder inside the archive is the clone folder name (`hello-world\`, `hello-world.wiki\`).
+
+## First run
+
+Follow these steps once. Each step builds on the previous one.
+
+1. **Install** the application folder (see [Installation](#installation)).
+2. **Save the token.** Run `GitHubBackup.Cli.exe set-token`, or paste it into **Settings** in `GitHubBackup.exe` and select **Save token**.
+3. **Create `backup-config.json`.** You have two ways:
+   - Desktop app: start `GitHubBackup.exe`. Without the file, the main window shows `No settings yet. Open the settings editor to create backup-config.json.` and a button **Open settings**; the backup buttons are disabled. The editor opens with an empty configuration and a note that the file does not exist yet and that **Save** creates it. Fill in at least the archive folder (`backupRoot`) and one account, then select **Save**. **Save** checks the fields; without `backupRoot` the file is not created and the error appears at the field. After a successful save, the main window shows the repository tree at once, without a restart. **Cancel** does not create a file.
+   - By hand: copy the minimal example from [backup-config.json](#backup-configjson), edit the values and save it as `backup-config.json` next to the exe files.
+4. **Validate.** Run `GitHubBackup.Cli.exe validate`. It checks `backup-config.json`, git, git-lfs, 7-Zip and the token source, and prints `Token: <source name>`. It does not call GitHub and changes nothing. Fix every error it reports.
+5. **Try a dry run.** Run `GitHubBackup.Cli.exe backup --dry-run`. It shows what a real run would do and changes nothing (see [Dry run](#dry-run---dry-run)). New repositories appear in the list below the table.
+6. **Run the first backup.** Run `GitHubBackup.Cli.exe backup`. The program lists the repositories it found and asks what to do with each new one. Then it clones them and creates the archives. At the end it prints a summary table and the path of the day's log.
+
+Without `backup-config.json`, `backup` and `validate` exit with code `2` and print `The backup configuration file '<path>' does not exist. Create it in the settings editor of GitHubBackup.exe.` The console app never creates the file.
+
+Check the result: the archive folder holds a `.zip` per repository, `sources\` holds the clones, and `logs\` holds the log.
+
+## Command-line reference
+
+`GitHubBackup.Cli.exe` has three commands. With no command, the program only checks its settings and exits with code `0`.
+
+| Command | What it does |
+|---|---|
+| `GitHubBackup.Cli backup` | Discovers repositories and backs up the repositories of `backup-config.json`: accounts first, then single repositories, in file order |
+| `GitHubBackup.Cli backup --config <path>` | The same with another `backup-config.json` (default: next to the exe) |
+| `GitHubBackup.Cli backup --account <url\|login>` | Only the entries of one tracked account |
+| `GitHubBackup.Cli backup --repo <url\|owner/repo>` | Only one repository of `backup-config.json`; `--account` and `--repo` together are an error |
+| `GitHubBackup.Cli backup --silent` | Never asks a question; decides everything automatically (see below) |
+| `GitHubBackup.Cli backup --dry-run` | Shows what a normal run would do and changes nothing except saving found `id` values (see [Dry run](#dry-run---dry-run)); works with `--account`, `--repo` and `--silent` |
+| `GitHubBackup.Cli validate [--config <path>]` | Checks `backup-config.json`, git, git-lfs, 7-Zip and the token source without calling GitHub and without changes; prints the token source name (`Token: ...`), never the value; exit code `0` or `2` |
+| `GitHubBackup.Cli set-token` | Asks for the token with hidden input and stores it in the Windows Credential Manager (`GitHubBackup:https://github.com`); exit code `0`. If the input is redirected or the write fails, it prints one error line and exits with `2`. The token is not accepted as an argument |
+| `GitHubBackup.Cli --help` | Help for commands and options (also `backup --help`, `validate --help`, `set-token --help`) |
+
+With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` it never appears.
+
+Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log.
+
+Before it processes repositories, `backup` cleans `<sourcesRoot>\.tmp\` of files from interrupted runs. Then it compares the repositories of the tracked accounts with `backup-config.json`. With `discoverAccessibleRepositories: true`, it also compares other repositories your token can reach (see [Discovery mode](#discovery-mode-discoveraccessiblerepositories)). Without `--silent`, it asks about every new and every renamed repository. With `--silent`, it decides on its own:
+
+- New repository: in interactive mode, a table shows its data (name, URL, owner, visibility, fork, archived, default branch, wiki, account) and a proposed entry. You can add it, add it with another branch and archive folder, skip it this time, or exclude it (from the account or globally). With `--silent`, the repository is added with the default branch and folder and is backed up in the same run.
+- Missing repository: the program marks it `Unavailable`. Its clone and archives stay in place. There is no question.
+- Renamed repository: it gets the new name, and the clone is moved in every case. In interactive mode you choose whether to rename the archive folder (a) or keep it and store it in `path` (b, the default). With `--silent`, the answer is always (b). If the archive folder does not depend on the name, there is no question.
+
+Without `--silent`, a run with redirected input (for example from the Task Scheduler) exits with code `2` and a hint to use `--silent`. It processes no repositories and changes nothing. This check runs before any call to GitHub and applies to every filter (`--account`, `--repo`). With `--dry-run`, there is no such check.
+
+### Discovery mode (`discoverAccessibleRepositories`)
+
+This is an optional top-level key of `backup-config.json` (after `exclude`, before `accounts`). The default is `false`. The program writes the key on every save.
+
+- `false` (strict mode): only repositories whose owner matches (case-insensitive) an account in `accounts` count as new. Repositories of organizations and other owners that GitHub returns for your token are not offered, not added to the file and not backed up: in interactive mode, with `--silent` and with `--dry-run`. They never cause exit code `3`.
+- `true`: repositories of other owners that your token can reach (for example, where you are a collaborator) count as new too. Without `--silent`, the program asks about each of them. With `--silent`, it adds the repository to `repositories`.
+
+In both modes, the program backs up all entries of `repositories`, and it recognizes missing, returned and renamed entries as usual.
+
+To back up an organization, add it to `accounts`. To back up a repository where you are a collaborator, add it to `repositories` or turn the key on.
+
+### Entries without `id`
+
+Each repository entry in `backup-config.json` stores the GitHub ID (`id`). The ID is how the program recognizes a rename. In an entry you add by hand (alone or in an account list), you can leave `id` out: a missing `id`, `"id": null` and `"id": 0` mean the same. Never write an arbitrary `id`: an entry with the ID of another repository is taken for a renamed repository. A negative `id` is a validation error. `validate` does not call GitHub and accepts an entry without `id`.
+
+At the start of a run, before discovery, `backup` looks up such an entry by name (`GET /repos/{owner}/{repo}`). It writes the found ID to `backup-config.json` without a question, in one save together with the discovery changes. It looks up only the entries the run processes: it respects `--account` and `--repo` and skips excluded entries. Filling in an ID does not by itself cause exit code `3`.
+
+- If GitHub answers 404 or 403, the entry gets `Failed` with the error `The repository was not found on GitHub.` It stays without `id` and is not marked `Unavailable`. The other repositories are processed.
+- If the found ID already belongs to another entry, the program does not write it, and the entry gets `Failed` with an error that names that entry.
+- Any other GitHub API failure during the lookup is a critical error with exit code `2`.
+
+The program saves the changed `backup-config.json` before it processes repositories. For each repository, it updates the clone and, if something changed, creates a new archive. It skips a repository with the status `Unavailable`. An error in one repository does not stop the run.
+
+At the end, the program prints a table with the repository, status (`Archived`, `UpToDate`, `Warning`, `Failed`, `Skipped`, `Cancelled`), archive, duration and error. Below it are the totals by status and the path of the text log of the day.
+
+### Cancel a run
+
+Ctrl+C cancels the run. The program stops the current git or 7-Zip process and deletes its temporary files. If an archive was already moved to the archive folder, the program still records it in `.backup-state.json`. The summary shows:
+
+- the repositories processed before the cancel, with their statuses;
+- the interrupted repository or wiki with the status `Cancelled`;
+- the unprocessed repositories with the status `Skipped` and the reason `Not processed: the run was cancelled.`;
+- the line `Cancelled: the run was stopped before it finished.`; the totals then count `Cancelled` too.
+
+If the cancel comes during discovery or the questions, there is no table. The cancel line and the totals remain. Cancelling `validate` and `set-token` prints one line `Error: The operation was cancelled.` to stderr. In every case, the exit code is `2`.
+
+### Exit codes
+
+| Exit code | Meaning |
+|---|---|
+| `0` | No errors |
+| `1` | At least one repository ended with `Failed` |
+| `2` | Critical error: wrong arguments, `appsettings.json`, `backup-config.json`, missing tools, another run is active, or a GitHub API failure during discovery or `id` lookup (for example, the rate limit is exhausted or the token is rejected). The program processes no repositories and prints one line per error to stderr, then the log path. The same code means a run cancelled by the user (Ctrl+C) |
+| `3` | No errors, but the run found new repositories (by the rule of `discoverAccessibleRepositories`), missing repositories or renamed repositories |
+
+When several conditions apply, the first one wins: `2`, then `1`, then `3`.
+
+### Own clone path (`clonePath`)
+
+By default the clone is `<sourcesRoot>\<owner>\<repo>` and the wiki clone is `<sourcesRoot>\<owner>\<repo>.wiki`. The optional key `clonePath` of a repository entry (in the `repositories` of an account or in the single `repositories`) sets the absolute path of the whole clone folder. The wiki clone then sits next to it, in `<clonePath>.wiki`. With this key, you can back up the working copy you work in, without a second clone:
+
+```json
+{ "name": "work-app", "id": 1003, "branch": null, "path": null, "clonePath": "D:\\Work\\WorkApp", "status": "Active" }
+```
+
+What the program does with such a folder:
+
+- If the folder does not exist or is empty, the program clones the repository into it.
+- An existing working copy whose `origin` points to `https://github.com/<owner>/<repo>.git` is used as the clone.
+- When it updates the clone, ignored files (`.gitignore`) stay: the program runs `git clean -ffd`, not `git clean -ffdx`. Builds, local settings and other ignored files are not deleted.
+- The archive holds only `.git` and the tracked files, including submodules. Ignored files are not archived. The root folder inside the archive is the folder name on disk (`WorkApp\`, `WorkApp.wiki\`).
+- The program never deletes `<clonePath>` and `<clonePath>.wiki`.
+- Git hooks (`.git/hooks`, `core.hooksPath`, for example `.husky`) and `core.fsmonitor` do not run in the processes of the program. Only the commands that talk to the server receive the token.
+- If a new commit on the server tracks a file at the path of your ignored file, `checkout` and `reset --hard` overwrite it. This is how git works.
+- If a tracked file of the working copy is a real symbolic link or junction on disk (the copy was created with `core.symlinks=true`), the program creates no archive and the entry gets `Failed`: 7-Zip would take files from outside the clone. Replace the links with regular files. This rule applies to every clone, including a working copy that was moved into `sourcesRoot` or accepted there as a clone.
+
+If you set, change or remove `clonePath`, the program moves the clone to the new folder at the next run and points `origin` to the repository URL. The previous clone folders and the URLs of their `origin` are stored in `<sourcesRoot>\.clone-locations.json`. The program does not move the clone, the entry gets `Failed` with a reason, and nothing is deleted, when:
+
+- the clone has local work (see [Clone check](#clone-check-before-an-update));
+- the new folder already exists (for example, you pointed to your working copy while the old clone is in `sourcesRoot`: delete the old clone or rename one of the folders);
+- the folders are on different volumes;
+- the `origin` of the clone points to another repository (then `origin` stays unchanged too);
+- you removed the key and the working copy has ignored files (for example `.env`): in `sourcesRoot`, an update runs `git clean -ffdx` and would delete them. Move or delete these files, or set `clonePath` again.
+
+When the repository is renamed on GitHub, the clone at `clonePath` is not moved; only the `origin` URL changes.
+
+`validate` and loading check the key: the path is absolute and not a drive root; it does not equal `sourcesRoot`, is not inside it and does not contain it; the clone and wiki folders of the entry do not equal and are not nested in the folders of other entries. If the clone folder is inside `backupRoot` or an archive folder, a warning appears.
+
+Limits:
+
+- `origin` must point to `https://github.com/...`. A working copy with an SSH `origin` gets `Failed`.
+- A linked worktree (`.git` as a file) is not supported.
+- You edit the key only in `backup-config.json`; the dialogs do not have it.
+
+### Clone check before an update
+
+Updating a clone (`checkout`, `reset --hard`, `clean`) would overwrite local work. So the program checks the clone before it updates or moves it, and your work is never lost. The check applies to all clones: in `sourcesRoot` and in `clonePath`, for the repository and for the wiki. It only reads the clone and does not run `fetch`. The check fails when the clone has:
+
+- uncommitted changes, including changes in submodules;
+- untracked files, except ignored ones;
+- another branch or a detached HEAD (the program expects the configured branch, or the default branch if the configured one does not exist on the server; the branch of the latest archive is also allowed, so that a changed `branch` in the settings switches the clone);
+- commits that are not in `origin/<branch>` (without such a branch: in none of the `origin/*` branches).
+
+If the branch of the latest archive is selected and the local branch with the name of the expected branch holds unpushed commits, that is a reason too: the update would recreate this branch. The check repeats without contacting the server after `fetch` and before `checkout`, `reset` and `clean`, so work saved during `fetch` is not lost either. The repeated check counts unpushed commits against `origin/*` as they were before `fetch`, so a force-push on the server does not turn old server commits into "unpushed" ones. The update switches the clone to exactly the branch the check expected.
+
+Then the entry gets `Failed` with a reason, for example `The clone 'D:\Work\WorkApp' has local changes: uncommitted changes, 2 unpushed commit(s). Commit and push them or switch the branch, then run the backup again.` The clone does not change, no archive is created, the exit code is `1`, and the other repositories are processed. Commit and push your changes or switch the branch, and the next run updates the clone.
+
+If nothing changed on the server, the quick check gives `UpToDate` and does not touch the clone, even with local changes.
+
+A non-empty folder without `.git` and a clone whose `origin` points to another repository also give `Failed`. The folder stays unchanged.
+
+### Dry run (`--dry-run`)
+
+`backup --dry-run` runs discovery and the quick check (`git ls-remote`) and shows what a normal run would do:
+
+- `WouldClone`: there is no clone, and a normal run would clone the repository. The program does not call git.
+- `WouldArchive`: a normal run would create an archive. The archive column shows its future name.
+- `UpToDate`: nothing changed, or the repository is empty.
+- `Warning`: the requested branch does not exist on the server, and the default branch would be used. The future archive name is shown too.
+- `Failed`: the check failed (for example, `ls-remote` returned an error). The other repositories are processed.
+- `Skipped`: the repository is marked `Unavailable` or disappeared from GitHub (a normal run would mark it `Unavailable`).
+
+The wiki is checked like a repository. Above the table, the program prints `Dry run: nothing was cloned, updated, archived or saved.` (or the line about saved `id` values, see below). Below the table, it prints what discovery found: `New`, `Missing`, `Renamed`, `Returned`. New repositories appear only in this list and have no table rows. A returned (`Returned`) repository is checked as an active one. The totals count `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` and `Skipped`.
+
+The clone check and the folder check run as in a normal run, and the entry gets the same `Failed` with the same reason. A clone move is only shown in the error column: `The clone would be moved from '<old>' to '<new>'.`
+
+A dry run clones, updates, moves and archives nothing. It does not write `.backup-state.json` and `.clone-locations.json`, does not clean `<sourcesRoot>\.tmp\` and does not ask about new and renamed repositories. So it works with redirected input too. The exit code is the same as for a normal run: `3` if it found new, missing or renamed repositories.
+
+A dry run changes `backup-config.json` in one case only: for entries without `id`. The run always checks such an entry: it looks up the ID by name, and the repository appears in the table as usual. In an interactive console, the program asks for each such entry: `ID is missing for <owner>/<repo>; found <id>. Save it to backup-config.json?` The answer "yes" writes the ID to the file. The answer "no" leaves the file unchanged, and the ID is used only until the end of the run. With `--silent` or with redirected input, the program writes the ID without a question. When it wrote an ID, the line above the table is `Dry run: nothing was cloned, updated or archived; only the missing repository ids were saved to backup-config.json.` An entry that GitHub cannot find gets `Failed`, as in a normal run. The desktop app writes the found ID without a question, also in a dry run.
+
+## Scheduled backups (Task Scheduler)
+
+Use the console app with `--silent` to back up on a schedule. `backup --silent` never asks a question and never waits for input, so the Task Scheduler can start it unattended.
+
+Settings of the task:
+
+| Setting | Value |
+|---|---|
+| Program | the full path of `GitHubBackup.Cli.exe` |
+| Arguments | `backup --silent` |
+| Start in | the application folder (optional: the program finds its files next to the exe) |
+| Trigger | daily, at a time when the computer is on |
+| User | the same user that ran `set-token`, because the Credential Manager entry belongs to that user |
+
+Notes:
+
+- Do not select **Do not store password** if the task must run when you are logged off: the task then cannot read your Credential Manager entry. With the default choice, Windows asks for your password once.
+- If you do not want to use the Credential Manager, set the environment variable `GitHubBackup__GitHub__Token` for the user of the task instead.
+- The task needs the computer on, or **Run task as soon as possible after a scheduled start is missed**.
+- Only one `backup` run can be active at a time. A second start exits with code `2`.
+- With `--silent`, the program adds new repositories automatically. Run `backup --dry-run` now and then to see what changes.
+- If `backup-config.json` is missing, the task ends with code `2`. Create it first (see [First run](#first-run)).
+
+### Create the task in the Task Scheduler
+
+1. Press Win+R, enter `taskschd.msc` and press Enter.
+2. In the right pane, select **Create Task...**. (Do not use **Create Basic Task**: it has fewer options.)
+3. On **General**: enter the name `GitHubBackup`. Select **Run whether user is logged on or not**. Leave **Do not store password** cleared.
+4. On **Triggers**: select **New...**, set **Daily** and a time, for example 03:00, then **OK**.
+5. On **Actions**: select **New...**, keep **Start a program**. In **Program/script** enter the full path, for example `C:\Tools\GitHubBackup\GitHubBackup.Cli.exe`. In **Add arguments** enter `backup --silent`. In **Start in** enter `C:\Tools\GitHubBackup`. Select **OK**.
+6. On **Conditions** and **Settings**, adjust power options as you like. Select **Run task as soon as possible after a scheduled start is missed**.
+7. Select **OK** and enter your Windows password when asked.
+8. To test, right-click the task and select **Run**. Check the column **Last Run Result** in the task list.
+
+### Optional: create the task with PowerShell
+
+This example creates the same task for the current user. It runs only while you are logged on. Use the GUI for the option **Run whether user is logged on or not**. Run it in a normal PowerShell window and adjust the paths:
+
+```powershell
+$folder = 'C:\Tools\GitHubBackup'
+$action = New-ScheduledTaskAction -Execute "$folder\GitHubBackup.Cli.exe" -Argument 'backup --silent' -WorkingDirectory $folder
+$trigger = New-ScheduledTaskTrigger -Daily -At '03:00'
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 12)
+$principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive
+Register-ScheduledTask -TaskName 'GitHubBackup' -Action $action -Trigger $trigger -Settings $settings -Principal $principal
+```
+
+### Check the result
+
+The column **Last Run Result** of the task shows the exit code of the program:
+
+| Last Run Result | Meaning |
+|---|---|
+| `0x0` | No errors |
+| `0x1` | At least one repository ended with `Failed` |
+| `0x2` | Critical error, another run was active, or the run was cancelled |
+| `0x3` | No errors, but the run found new, missing or renamed repositories |
+
+Open the log of the day in `logs\` for details (see [Logs, history and telemetry](#logs-history-and-telemetry)).
+
+## Desktop app
+
+`GitHubBackup.exe` uses the same configuration and the same core as the console app.
+
+- **Main window.** A tree "accounts, repositories" with a group for single repositories. Each item shows its status and the date of the last archive. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
+- **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table.
+- **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files.
+- **Summary.** The same information as the console summary when the run ends. A found repository `id` is saved without a question, also in a dry run.
+- **History.** The list of runs with filters (period, status, mode) and run details, and the archive history of a selected repository with the actions **Open folder** and **Show in Explorer**.
+
+### Settings editor
+
+The button **Settings** on the main screen opens the settings editor in place of the repository tree. While a backup run is active, the button is disabled: the run also writes `backup-config.json`.
+
+The editor changes `backup-config.json`:
+
+- the archive root (`backupRoot`), the clone root (`sourcesRoot`; an empty field means the folder `sources` next to the exe) and the global exclusions (masks, comma separated);
+- the switch `discoverAccessibleRepositories`;
+- accounts: URL, archive folder, exclusions; and for the repositories of an account, the branch and the archive folder. You can remove a repository of an account but not add one: discovery adds new repositories;
+- single repositories: URL, branch and archive folder. A new entry gets `id` 0 and the status `Active`; the next run finds the `id` by name.
+
+Before it writes, the editor runs the same validation as the load of the file. Errors appear at the fields; errors without a field of their own appear under the form. While errors exist, the editor writes no file. The warning about clones inside the archive tree appears as a banner while you edit and does not block saving. The fields the editor does not show (`id`, `status`, repository names of an account, `schemaVersion`) stay as they were. The write is atomic, and the previous version stays in `backup-config.json.bak`. If the write fails, the editor shows the error, keeps the fields filled and leaves the file unchanged.
+
+**Cancel** returns to the tree and writes nothing. If there are unsaved changes, the editor first asks for confirmation; it asks the same when you close the window.
+
+First run: without `backup-config.json`, see [First run](#first-run).
+
+The button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)).
+
+The token section:
+
+- **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The running program keeps using the previous token, so the editor asks you to restart it. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
+- **Check token** checks the token in the field, or, if the field is empty, the token that the source chain found, and names its source. It shows the login, the scopes (a fine-grained token has none, and the editor says so), the remaining and total request limit and the reset time. Without a token, it shows only the limit for anonymous access. An invalid or expired token (401) and other API errors appear on a separate line. **Cancel check** stops the check. The request goes only to the configured `GitHub:ApiBaseUrl`.
+
+The token value never reaches the log, the error messages or any file.
+
+## Logs, history and telemetry
+
+### Logs
+
+The program writes one log per day to the folder `logs\` next to the exe:
+
+- `logs\githubbackup-YYYYMMDD.log`: readable text;
+- `logs\githubbackup-YYYYMMDD.json`: structured log (CLEF, one JSON line per event).
+
+Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call with secrets masked, every output line of the tools, and the exit code and duration. The token and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
+
+### History
+
+The history of runs and archives sits in the SQLite database `data\history.db` next to the exe. The program creates it at startup. The desktop app shows it under **History**.
+
+### Telemetry (OpenTelemetry)
+
+Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces and metrics over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
+
+Traces:
+
+```
+backup.run                      githubbackup.dry_run, githubbackup.run.outcome
+├── backup.discovery            absent with --repo
+├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status
+│   ├── ls-remote | clone | fetch
+│   └── archive
+└── backup.repository           wiki of the same repository (githubbackup.target = Wiki)
+```
+
+- `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
+- An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
+- The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector with the variable `OTEL_EXPORTER_OTLP_HEADERS`, not in `OtlpEndpoint`.
+- Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
+
+Metrics (meter `GitHubBackup`):
+
+| Metric | Type and unit | Tags |
+|---|---|---|
+| `githubbackup.repositories` | Counter, `{repository}` | `githubbackup.status`, `githubbackup.target`, `githubbackup.dry_run` |
+| `githubbackup.repository.duration` | Histogram, `s` | the same |
+| `githubbackup.run.duration` | Histogram, `s` | `githubbackup.run.outcome`, `githubbackup.dry_run` |
+| `githubbackup.archive.size` | Histogram, `By` | `githubbackup.target`; only created archives |
+
+To check it by hand with the .NET Aspire Dashboard:
+
+1. Start the dashboard in Docker. The OTLP port `18889` of the dashboard is published as `4317`:
+
+   ```
+   docker run --rm -it -p 18888:18888 -p 4317:18889 --name aspire-dashboard mcr.microsoft.com/dotnet/aspire-dashboard:latest
+   ```
+
+2. Open the link `http://localhost:18888/login?t=...` from the container output.
+3. Run a backup with telemetry on: `GitHubBackup.Cli.exe backup --dry-run --OpenTelemetry:Enabled=true`. Another address is set with `--OpenTelemetry:OtlpEndpoint=<uri>`.
+4. On the **Traces** tab, select the resource `GitHubBackup`: the trace `backup.run` shows the hierarchy above and the span tags.
+5. On the **Metrics** tab, select the meter `GitHubBackup`. The counter and the durations are recorded at the end of a run, and the program sends the last batch of metrics when it exits, so they appear after the run ends.
+
+## Development
+
+To build, test, publish and extend GitHubBackup, read the [developer guide](docs/development.md). The requirements are in [docs/PRD.md](docs/PRD.md) (in Russian). The program documentation (this file and the developer guide) is in English; the PRD, the plans and the AI harness documentation are in Russian.

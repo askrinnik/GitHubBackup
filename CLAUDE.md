@@ -10,14 +10,15 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 
 ## Language (NFR-7)
 
-- **English:** code, comments, logs, CLI and UI messages, issue titles, commit messages, PR titles and descriptions, issue and PR comments, and every file of the AI harness (`CLAUDE.md`, `.claude/**`, `.ai/**`).
-- **Russian:** documentation under `docs/` (PRD, plans, `ai/`), `README.md`, issue bodies.
+- **English:** code, comments, logs, CLI and UI messages, issue titles, commit messages, PR titles and descriptions, issue and PR comments, every file of the AI harness (`CLAUDE.md`, `.claude/**`, `.ai/**`), and the program documentation: `README.md` and `docs/development.md`.
+- **Russian:** the PRD, plans (`docs/plans/`), the AI harness documentation (`docs/ai/`), issue bodies.
 
 ## Repository layout
 
 ```
 docs/
   PRD.md                 requirements (source of truth)
+  development.md         developer guide: build, tests, publishing, CI
   plans/                 one implementation plan per issue: <type>-<issue>-<slug>.md
   ai/                    AI harness hub (README.md)
 scripts/

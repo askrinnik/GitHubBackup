@@ -19,8 +19,8 @@ The PRD comes **before** the code: a change of behaviour, command, option, setti
 | Change | Update |
 |---|---|
 | Behaviour, CLI command or option, setting, file format, exit code, item status | `docs/PRD.md` first (version and history row), then `README.md` where it describes the same thing |
-| Build, run, test or format commands; project layout | `CLAUDE.md` (*Build and test*, *Repository layout*) and `README.md` |
-| CI workflow added or changed | `README.md` (how CI runs) if the developer-visible behaviour changes |
+| Build, run, test or format commands; project layout | `CLAUDE.md` (*Build and test*, *Repository layout*) and `docs/development.md` |
+| CI workflow added or changed | `docs/development.md` (how CI runs) if the developer-visible behaviour changes |
 | AI harness: `CLAUDE.md`, `.claude/**`, `.ai/**`, `.mcp.json`, hooks, `issue-kit.config.json`, `profile-session.config.json` | `docs/ai/README.md`; a workflow command defined in this repository also updates its `docs/ai/<command>.md` |
 | Work that is deferred to later | a new issue with `## Зависимости` and a GitHub "blocked by" relation — not a TODO in a document or in code |
 
