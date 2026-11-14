@@ -4,6 +4,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
@@ -52,6 +53,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const int _repositoryMissingEventId = 20;
     private const int _runCancelledEventId = 21;
     private const int _repositoryIdUnresolvedEventId = 22;
+    private const int _cloneLocationsNotSavedEventId = 24;
 
     private static readonly DateTimeOffset _createdAt = new(2026, 11, 11, 12, 0, 0, TimeSpan.FromHours(1));
     private static readonly RefSnapshot _refs = new([new("heads/main", _headCommit), new("tags/v1", "abc")]);
@@ -66,6 +68,9 @@ public sealed class BackupOrchestratorTests : IDisposable
     private readonly IDiscoveryDecisionApplier _applier = Substitute.For<IDiscoveryDecisionApplier>();
     private readonly IDiscoveryDecisionHandler _handler = Substitute.For<IDiscoveryDecisionHandler>();
     private readonly IChangeDetector _detector = Substitute.For<IChangeDetector>();
+    private readonly ICloneRelocator _relocator = Substitute.For<ICloneRelocator>();
+    private readonly ICloneLocationStore _locationStore = Substitute.For<ICloneLocationStore>();
+    private readonly IGitClient _gitClient = Substitute.For<IGitClient>();
     private readonly IArchiveNameBuilder _nameBuilder = Substitute.For<IArchiveNameBuilder>();
     private readonly IArchiver _archiver = Substitute.For<IArchiver>();
     private readonly IBackupStateStore _stateStore = Substitute.For<IBackupStateStore>();
@@ -100,6 +105,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             .Returns(call => new ArchiveResult(
                 Path.Combine(call.Arg<ArchiveRequest>().DestinationFolder, call.Arg<ArchiveRequest>().FileName), 1234));
         SetupDetection(ChangeDecision.ArchiveNeeded);
+        _locationStore.LoadAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(_ => new CloneLocations());
     }
 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
@@ -152,6 +158,227 @@ public sealed class BackupOrchestratorTests : IDisposable
                 LastArchive = last,
             },
             CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_NoRecordedFolder_RecordsConfiguredFolderWithoutMoving()
+    {
+        await RunAsync();
+
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, CancellationToken);
+        await _locationStore.Received(1).SaveAsync(
+            _sourcesRoot,
+            Arg.Is<CloneLocations>(locations => locations.Get(1, BackupTarget.Repository) == @"C:\sources\owner\repo"),
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunAsync_RecordedFolderDiffers_MovesCloneThenBacksUpAndRecordsNewFolder()
+    {
+        SetupRecordedFolder(@"D:\Old\repo");
+        _relocator.RelocateAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>()).Returns(CloneRelocation.Moved);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        Received.InOrder(() =>
+        {
+            _relocator.RelocateAsync(
+                new CloneRelocationRequest
+                {
+                    GitPath = _gitPath,
+                    OldFolder = @"D:\Old\repo",
+                    NewFolder = @"C:\sources\owner\repo",
+                    RemoteUrl = _repositoryUrl,
+                    PreviousRemoteUrl = _repositoryUrl,
+                    Branch = "main",
+                    Token = "secret-token",
+                    DeleteOnFailure = false,
+                },
+                CancellationToken);
+            _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
+        });
+        await _locationStore.Received(1).SaveAsync(
+            _sourcesRoot,
+            Arg.Is<CloneLocations>(locations => locations.Get(1, BackupTarget.Repository) == @"C:\sources\owner\repo"),
+            CancellationToken.None);
+    }
+
+    [Theory]
+    [InlineData(CloneRelocationResult.TargetOccupied)]
+    [InlineData(CloneRelocationResult.LocalChanges)]
+    [InlineData(CloneRelocationResult.MoveFailed)]
+    public async Task RunAsync_MoveFails_ReportsFailedWithReasonAndKeepsRecordedFolder(CloneRelocationResult outcome)
+    {
+        SetupRecordedFolder(@"D:\Old\repo");
+        _relocator.RelocateAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new CloneRelocation(outcome, "The clone cannot be moved."));
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldBe("The clone cannot be moved.");
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        await _locationStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, default!, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunAsync_RemoteUrlNotSetAfterMove_ReportsFailedAndRecordsNewFolder()
+    {
+        SetupRecordedFolder(@"D:\Old\repo");
+        _relocator.RelocateAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new CloneRelocation(CloneRelocationResult.RemoteUrlNotSet, "The origin cannot be set."));
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Failed);
+        await _locationStore.Received(1).SaveAsync(
+            _sourcesRoot,
+            Arg.Is<CloneLocations>(locations => locations.Get(1, BackupTarget.Repository) == @"C:\sources\owner\repo"),
+            CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithPendingMove_PreviewsOldFolderAndReportsMoveWithoutChanges()
+    {
+        SetupRecordedFolder(@"D:\Old\repo");
+        _relocator.PreviewAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>()).Returns(CloneRelocation.Moved);
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+
+        var result = await DryRunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.WouldArchive);
+        item.Message.ShouldBe(@"The clone would be moved from 'D:\Old\repo' to 'C:\sources\owner\repo'.");
+        await _detector.Received(1).PreviewAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.Git.ClonePath == @"D:\Old\repo"), CancellationToken);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, CancellationToken);
+        await _locationStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, default!, CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithBlockedMove_ReportsSameFailure()
+    {
+        SetupRecordedFolder(@"D:\Old\repo");
+        _relocator.PreviewAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new CloneRelocation(CloneRelocationResult.LocalChanges, "The clone has local changes."));
+
+        var result = await DryRunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldBe("The clone has local changes.");
+        await _detector.DidNotReceiveWithAnyArgs().PreviewAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_SavingFoldersFails_LogsWarningAndKeepsResult()
+    {
+        _locationStore.SaveAsync(default!, default!, CancellationToken.None)
+            .ReturnsForAnyArgs(Task.FromException(new IOException("disk full")));
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        var record = SingleRecord(_cloneLocationsNotSavedEventId);
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("SourcesRoot").ShouldBe(_sourcesRoot);
+    }
+
+    [Fact]
+    public async Task RunAsync_EntryWithClonePath_KeepsIgnoredFilesAndLeavesThemOutOfArchive()
+    {
+        _config.Repositories[0].ClonePath = @"D:\Work\Repo";
+        IReadOnlyList<string> ignored = ["bin", @"src\obj"];
+        _gitClient.GetIgnoredPathsAsync(
+                Arg.Is<GitRepositoryRequest>(request => request.ClonePath == @"D:\Work\Repo"), Arg.Any<CancellationToken>())
+            .Returns(ignored);
+
+        await RunAsync();
+
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.Git.KeepIgnoredFiles && request.Git.ClonePath == @"D:\Work\Repo"),
+            CancellationToken);
+        await _archiver.Received(1).CreateAsync(
+            Arg.Is<ArchiveRequest>(request => request.SourceFolder == @"D:\Work\Repo" && request.ExcludedPaths == ignored),
+            CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(true, BackupItemStatus.Failed)]
+    [InlineData(false, BackupItemStatus.Archived)]
+    public async Task RunAsync_ClonePathWithTrackedSymbolicLink_FailsOnlyWhenItIsALinkOnDisk(
+        bool reparsePoint, BackupItemStatus expected)
+    {
+        _config.Repositories[0].ClonePath = @"D:\Work\Repo";
+        _fileSystem.AddFile(
+            @"D:\Work\Repo\docs\link",
+            new MockFileData("target") { Attributes = reparsePoint ? FileAttributes.ReparsePoint : FileAttributes.Normal });
+        IReadOnlyList<string> links = [@"docs\link"];
+        _gitClient.GetSymbolicLinkPathsAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>()).Returns(links);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(expected);
+        if (reparsePoint)
+        {
+            item.Message.ShouldNotBeNull().ShouldStartWith(@"The clone 'D:\Work\Repo' holds symbolic links (docs\link)");
+            await _archiver.DidNotReceiveWithAnyArgs().CreateAsync(default!, CancellationToken);
+        }
+    }
+
+    [Fact]
+    public async Task RunAsync_CloneUnderSourcesRootWithRealSymbolicLink_FailsWithoutArchive()
+    {
+        _fileSystem.AddFile(
+            @"C:\sources\owner\repo\link", new MockFileData("target") { Attributes = FileAttributes.ReparsePoint });
+        IReadOnlyList<string> links = ["link"];
+        _gitClient.GetSymbolicLinkPathsAsync(
+                Arg.Is<GitRepositoryRequest>(request => request.ClonePath == @"C:\sources\owner\repo"), Arg.Any<CancellationToken>())
+            .Returns(links);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith(@"The clone 'C:\sources\owner\repo' holds symbolic links (link)");
+        await _archiver.DidNotReceiveWithAnyArgs().CreateAsync(default!, CancellationToken);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ClonePathRemovedAndWorkingCopyHasIgnoredFiles_RefusesMove(bool dryRun)
+    {
+        SetupRecordedFolder(@"D:\Work\Repo");
+        _fileSystem.AddDirectory(@"D:\Work\Repo\.git");
+        IReadOnlyList<string> ignored = [".env"];
+        _gitClient.GetIgnoredPathsAsync(
+                Arg.Is<GitRepositoryRequest>(request => request.ClonePath == @"D:\Work\Repo"), Arg.Any<CancellationToken>())
+            .Returns(ignored);
+
+        var result = dryRun ? await DryRunAsync() : await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith(@"The clone 'D:\Work\Repo' holds ignored files (.env)");
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, CancellationToken);
+        await _relocator.DidNotReceiveWithAnyArgs().PreviewAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_EntryWithoutClonePath_DiscardsIgnoredFilesAndArchivesWholeClone()
+    {
+        await RunAsync();
+
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => !request.Git.KeepIgnoredFiles), CancellationToken);
+        await _archiver.Received(1).CreateAsync(
+            Arg.Is<ArchiveRequest>(request => request.ExcludedPaths.Count == 0), CancellationToken);
+        await _gitClient.DidNotReceiveWithAnyArgs().GetIgnoredPathsAsync(default!, CancellationToken);
     }
 
     [Fact]
@@ -844,7 +1071,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         var result = await RunAsync();
 
         await _discovery.Received(1).DiscoverAsync(_config, null, CancellationToken);
-        await _applier.Received(1).ApplyAsync(_config, discovery, _handler, _gitPath, CancellationToken);
+        await _applier.Received(1).ApplyAsync(_config, discovery, _handler, _gitPath, "secret-token", CancellationToken);
         result.Discovery.ShouldNotBeNull().MarkedUnavailable.ShouldBe(["owner/repo"]);
     }
 
@@ -855,7 +1082,7 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         result.Discovery.ShouldBeNull();
         result.ExitCode.ShouldBe(ExitCode.Success);
-        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
         await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
     }
 
@@ -920,7 +1147,7 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         result.Items.Select(item => item.Repository).ShouldBe(["owner/other"]);
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
-        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
         SingleRecord(_discoverySkippedEventId).GetStructuredStateValue("Repository").ShouldBe("OWNER/Other");
     }
 
@@ -989,7 +1216,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         result.CriticalErrors.ShouldBe([failure.Message]);
         result.Items.ShouldBeEmpty();
         result.ExitCode.ShouldBe(ExitCode.Critical);
-        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
         var record = SingleRecord(_runStoppedEventId);
         record.Level.ShouldBe(LogLevel.Error);
@@ -1008,6 +1235,7 @@ public sealed class BackupOrchestratorTests : IDisposable
                 Arg.Any<DiscoveryResult>(),
                 Arg.Any<IDiscoveryDecisionHandler>(),
                 Arg.Any<string>(),
+                Arg.Any<string?>(),
                 Arg.Any<CancellationToken>())
             .ThrowsAsync(ApplyFailure(kind));
 
@@ -1050,6 +1278,7 @@ public sealed class BackupOrchestratorTests : IDisposable
                     Arg.Any<DiscoveryResult>(),
                     Arg.Any<IDiscoveryDecisionHandler>(),
                     Arg.Any<string>(),
+                    Arg.Any<string?>(),
                     Arg.Any<CancellationToken>())
                 .Returns(_ => CancelDecision());
         }
@@ -1179,7 +1408,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         result.Discovery.ShouldBeNull();
         result.PlannedDiscovery.ShouldBe(discovery);
         result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
-        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
         await _archiver.DidNotReceiveWithAnyArgs().CreateAsync(default!, CancellationToken);
         await _stateStore.DidNotReceiveWithAnyArgs().AppendAsync(default!, default, default!, default, default!, CancellationToken);
@@ -1978,7 +2207,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         await _configStore.Received(1).SaveAsync(_config, CancellationToken);
         result.SavedRepositoryIds.ShouldBe(["owner/repo"]);
         result.Items.Select(item => item.Status).ShouldBe([BackupItemStatus.WouldClone, BackupItemStatus.WouldClone]);
-        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, CancellationToken);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
     }
 
     [Fact]
@@ -2037,6 +2266,14 @@ public sealed class BackupOrchestratorTests : IDisposable
         decision == ChangeDecision.NothingToArchive
             ? new(decision, ChangeReason.EmptyRepository, null, false, RefSnapshot.Empty)
             : new(decision, ChangeReason.NoArchive, "main", branchFallback, _refs);
+
+    /// <summary>
+    /// Makes the store of clone folders report <paramref name="folder"/> as the folder the repository was left in.
+    /// </summary>
+    /// <param name="folder">The recorded clone folder of the repository.</param>
+    private void SetupRecordedFolder(string folder) =>
+        _locationStore.LoadAsync(_sourcesRoot, Arg.Any<CancellationToken>())
+            .Returns(_ => new CloneLocations([KeyValuePair.Create(1L, new CloneLocation(folder, null))]));
 
     /// <summary>
     /// Makes the detector return <paramref name="decision"/> after five seconds of the fake clock.
@@ -2118,6 +2355,9 @@ public sealed class BackupOrchestratorTests : IDisposable
         new GitHubRemoteUrlProvider(),
         _gitHubApi,
         _detector,
+        _relocator,
+        _locationStore,
+        _gitClient,
         _nameBuilder,
         _archiver,
         _stateStore,
@@ -2187,6 +2427,7 @@ public sealed class BackupOrchestratorTests : IDisposable
                 Arg.Any<DiscoveryResult>(),
                 Arg.Any<IDiscoveryDecisionHandler>(),
                 Arg.Any<string>(),
+                Arg.Any<string?>(),
                 Arg.Any<CancellationToken>())
             .Returns(call =>
             {

@@ -19,7 +19,7 @@ public sealed class GitRepositoryRequestTests
         };
 
         request.ToString().ShouldBe(
-            @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch = main }");
+            @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch = main, KeepIgnoredFiles = False }");
     }
 
     [Fact]
@@ -33,6 +33,6 @@ public sealed class GitRepositoryRequestTests
 
         request.Branch.ShouldBeNull();
         request.ToString().ShouldBe(
-            @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch =  }");
+            @"GitRepositoryRequest { GitPath = C:\Git\cmd\git.exe, ClonePath = C:\backup\owner\repo, Branch = , KeepIgnoredFiles = False }");
     }
 }

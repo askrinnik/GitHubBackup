@@ -521,6 +521,105 @@ public sealed class BackupConfigValidatorTests
     };
 
     [Theory]
+    [InlineData("Work\\MyRepo")]
+    [InlineData(@"D:Work")]
+    [InlineData(@"\Work\MyRepo")]
+    public void Validate_RelativeClonePath_ReturnsError(string clonePath)
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = clonePath;
+
+        Validate(config).Errors.ShouldBe(["accounts[0].repositories[0].clonePath must be an absolute path."]);
+    }
+
+    [Theory]
+    [InlineData(@"D:\")]
+    [InlineData(@"D:")]
+    [InlineData(@"\\server\share")]
+    public void Validate_ClonePathIsRoot_ReturnsError(string clonePath)
+    {
+        var config = CreateSample();
+        config.Repositories[0].ClonePath = clonePath;
+
+        var errors = Validate(config).Errors;
+
+        errors.ShouldBe(
+            clonePath == "D:"
+                ? ["repositories[0].clonePath must be an absolute path."]
+                : ["repositories[0].clonePath must not be the root of a drive or a share."]);
+    }
+
+    [Theory]
+    [InlineData(@"C:\app\sources")]
+    [InlineData(@"C:\app\sources\askrinnik\my-repo")]
+    [InlineData(@"C:\app")]
+    public void Validate_ClonePathOverlapsSourcesRoot_ReturnsError(string clonePath)
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = clonePath;
+
+        Validate(config).Errors.ShouldBe(
+            [$@"accounts[0].repositories[0].clonePath '{clonePath}' overlaps sourcesRoot 'C:\app\sources'; a clone folder set by clonePath must lie outside sourcesRoot."]);
+    }
+
+    [Theory]
+    [InlineData(@"D:\Work\MyRepo", @"D:\Work\MyRepo")]
+    [InlineData(@"D:\Work\MyRepo", @"d:\work\myrepo\")]
+    [InlineData(@"D:\Work\MyRepo", @"D:\Work\MyRepo.wiki")]
+    [InlineData(@"D:\Work\MyRepo.wiki", @"D:\Work\MyRepo")]
+    [InlineData(@"D:\Work", @"D:\Work\MyRepo")]
+    [InlineData(@"D:\Work\MyRepo\Nested", @"D:\Work\MyRepo")]
+    [InlineData(@"D:\Work\MyRepo.wiki\Nested", @"D:\Work\MyRepo")]
+    public void Validate_ClonePathsOverlap_ReturnsErrorForTheLaterEntry(string first, string second)
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = first;
+        config.Repositories[0].ClonePath = second;
+
+        var error = Validate(config).Errors.ShouldHaveSingleItem();
+
+        error.ShouldStartWith($"repositories[0].clonePath '{second}' overlaps the clone folder ");
+        error.ShouldEndWith(" of accounts[0].repositories[0]; the clone and wiki folders of two entries must be separate.");
+    }
+
+    [Fact]
+    public void Validate_SeparateClonePaths_ReturnsNoErrorOrWarning()
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = @"D:\Work\MyRepo";
+        config.Accounts[0].Repositories[1].ClonePath = @"D:\Work\MyRepo2";
+        config.Repositories[0].ClonePath = @"\\server\share\Library";
+
+        var result = Validate(config);
+
+        result.Errors.ShouldBeEmpty();
+        result.Warnings.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Validate_ClonePathInsideBackupRoot_ReturnsWarning()
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = @"C:\Users\Sanya\OneDrive\GitHubBackups\Work\MyRepo";
+
+        var result = Validate(config);
+
+        result.IsValid.ShouldBeTrue();
+        result.Warnings.ShouldBe(
+            [@"accounts[0].repositories[0].clonePath puts the clone folder 'C:\Users\Sanya\OneDrive\GitHubBackups\Work\MyRepo' inside backupRoot; the clone would be synchronised together with the archives."]);
+    }
+
+    [Fact]
+    public void Validate_ClonePathWikiInsideArchiveFolder_ReturnsWarningNamingRepository()
+    {
+        var config = CreateSample();
+        config.Accounts[0].Repositories[0].ClonePath = @"E:\Archive\old-tool\clone";
+
+        Validate(config).Warnings.ShouldBe(
+            [@"accounts[0].repositories[0].clonePath puts the clone folder 'E:\Archive\old-tool\clone' inside the archive folder of accounts[0].repositories[1]; the clone would be synchronised together with the archives."]);
+    }
+
+    [Theory]
     [InlineData(@"C:\Backups", true)]
     [InlineData(@"\\server\share", true)]
     [InlineData(@"Backups", false)]

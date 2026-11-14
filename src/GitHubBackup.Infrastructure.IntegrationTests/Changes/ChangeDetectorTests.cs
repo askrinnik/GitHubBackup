@@ -1,5 +1,6 @@
 using System.IO.Abstractions;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
@@ -184,6 +185,6 @@ public sealed class ChangeDetectorTests : IDisposable
             LastArchive = last,
         };
 
-        return new ChangeDetector(client, fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance).DetectAsync(request, CancellationToken);
+        return new ChangeDetector(client, new CloneGuard(client, NullLogger<CloneGuard>.Instance), fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance).DetectAsync(request, CancellationToken);
     }
 }

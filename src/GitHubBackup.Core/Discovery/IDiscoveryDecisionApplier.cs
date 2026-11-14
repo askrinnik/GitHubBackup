@@ -20,12 +20,17 @@ public interface IDiscoveryDecisionApplier
     /// decision is collected before anything changes, so a cancelled decision leaves the configuration and the disk
     /// untouched. Archive folders are renamed before the save and renamed back when the save fails; clones are moved
     /// only after a successful save. When the save fails, <paramref name="config"/> holds the unsaved changes and must
-    /// be loaded again.
+    /// be loaded again. A clone with local work is not moved, and the clone of an entry with <c>clonePath</c> keeps its
+    /// folder and only gets the new URL.
     /// </remarks>
     /// <param name="config">The configuration that <paramref name="discovery"/> was computed from.</param>
     /// <param name="discovery">The classified repositories.</param>
     /// <param name="handler">Decides about new and renamed repositories.</param>
     /// <param name="gitPath">The fully qualified path of the git executable.</param>
+    /// <param name="token">
+    /// The GitHub token used while a clone is checked for local work before it moves, or <see langword="null"/> for
+    /// anonymous access.
+    /// </param>
     /// <param name="cancellationToken">Cancels the decisions, the save and the clone moves.</param>
     /// <returns>What was changed.</returns>
     /// <exception cref="ArgumentException">
@@ -39,5 +44,6 @@ public interface IDiscoveryDecisionApplier
         DiscoveryResult discovery,
         IDiscoveryDecisionHandler handler,
         string gitPath,
+        string? token,
         CancellationToken cancellationToken);
 }

@@ -115,6 +115,38 @@ public sealed class JsonBackupConfigStoreTests
         result.Config.Repositories.ShouldHaveSingleItem().Id.ShouldBe(0);
     }
 
+    [Fact]
+    public async Task LoadAsync_ClonePath_ReadsItForBothKinds()
+    {
+        var result = await LoadAsync(
+            """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "accounts": [ { "url": "https://github.com/askrinnik", "repositories": [ { "name": "my-repo", "id": 1, "clonePath": "E:\\Work\\MyRepo" } ] } ],
+              "repositories": [ { "url": "https://github.com/o/r", "id": 2, "clonePath": null } ]
+            }
+            """);
+
+        result.Config.Accounts[0].Repositories.ShouldHaveSingleItem().ClonePath.ShouldBe(@"E:\Work\MyRepo");
+        result.Config.Repositories.ShouldHaveSingleItem().ClonePath.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task LoadAsync_RelativeClonePath_ThrowsValidationError()
+    {
+        var exception = await Should.ThrowAsync<BackupConfigException>(() => LoadAsync(
+            """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "repositories": [ { "url": "https://github.com/o/r", "id": 2, "clonePath": "Work\\MyRepo" } ]
+            }
+            """));
+
+        exception.Errors.ShouldBe(["repositories[0].clonePath must be an absolute path."]);
+    }
+
     [Theory]
     [InlineData("""{ "name": "my-repo", "id": -5 }""", "[]", "accounts[0].repositories[0].id must be a positive number when set.")]
     [InlineData("", """[ { "url": "https://github.com/o/r", "id": -5 } ]""", "repositories[0].id must be a positive number when set.")]

@@ -1,6 +1,7 @@
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
@@ -26,7 +27,7 @@ public static class CoreServiceCollectionExtensions
         /// <summary>
         /// Adds the core services, including the <see cref="IRunContext"/> of the host, the
         /// <see cref="IBackupConfigValidator"/>, the <see cref="IChangeDetector"/>, the <see cref="IArchiveNameBuilder"/>,
-        /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="ICloneRelocator"/>, the
+        /// the <see cref="IRemoteUrlProvider"/> of github.com, the <see cref="IExclusionMatcher"/>, the <see cref="IRepositoryDiscoveryService"/>, the <see cref="ICloneGuard"/>, the <see cref="ICloneRelocator"/>, the
         /// <see cref="IDiscoveryDecisionApplier"/>, the <see cref="AutomaticDiscoveryDecisionHandler"/> that hosts pass
         /// to a run in silent mode, the <see cref="IRepositoryOverviewProvider"/>, the <see cref="IBackupOrchestrator"/> as a <see cref="RecordingBackupOrchestrator"/>
         /// that adds each run of the <see cref="BackupOrchestrator"/> to the <see cref="IRunHistoryStore"/>, and
@@ -51,6 +52,7 @@ public static class CoreServiceCollectionExtensions
             services.TryAddSingleton<IRemoteUrlProvider, GitHubRemoteUrlProvider>();
             services.TryAddSingleton<IExclusionMatcher, ExclusionMatcher>();
             services.TryAddSingleton<IRepositoryDiscoveryService, RepositoryDiscoveryService>();
+            services.TryAddSingleton<ICloneGuard, CloneGuard>();
             services.TryAddSingleton<ICloneRelocator, CloneRelocator>();
             services.TryAddSingleton<IDiscoveryDecisionApplier, DiscoveryDecisionApplier>();
             services.TryAddSingleton<AutomaticDiscoveryDecisionHandler>();

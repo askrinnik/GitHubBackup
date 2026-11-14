@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using System.Text;
 using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Processes;
@@ -30,6 +31,12 @@ internal sealed class SevenZipArchiver(
     /// <summary>The extension of the file that holds a copy before it takes its final name.</summary>
     private const string _copyExtension = ".tmp";
 
+    /// <summary>The extension of the list file of the entries left out of the archive.</summary>
+    private const string _excludeListExtension = ".exclude.txt";
+
+    /// <summary>The encoding of the list file: UTF-8 without a byte order mark.</summary>
+    private static readonly UTF8Encoding _listEncoding = new(encoderShouldEmitUTF8Identifier: false);
+
     /// <inheritdoc />
     public async Task<ArchiveResult> CreateAsync(ArchiveRequest request, CancellationToken cancellationToken)
     {
@@ -50,14 +57,24 @@ internal sealed class SevenZipArchiver(
         var temporaryPath = fileSystem.Path.Combine(request.TemporaryFolder, $"{stem}.{Guid.NewGuid():N}.zip");
         var copyPath = $"{finalPath}.{Guid.NewGuid():N}{_copyExtension}";
 
+        var excludeListPath = request.ExcludedPaths.Count > 0
+            ? fileSystem.Path.Combine(request.TemporaryFolder, $"{stem}.{Guid.NewGuid():N}{_excludeListExtension}")
+            : null;
+
         fileSystem.Directory.CreateDirectory(request.TemporaryFolder);
         fileSystem.Directory.CreateDirectory(request.DestinationFolder);
         try
         {
+            List<string> arguments = ["a", "-tzip", "-mcu=on", "-bsp0", "-sccUTF-8", "-y"];
+            if (excludeListPath is not null)
+            {
+                await WriteExcludeListAsync(excludeListPath, sourceName, request.ExcludedPaths, cancellationToken);
+                arguments.AddRange(["-x@" + excludeListPath, "-scsUTF-8"]);
+            }
+
+            arguments.AddRange(["--", temporaryPath, sourceName]);
             SevenZipArchiverLog.Creating(logger, request.SourceFolder, temporaryPath);
-            await RunAsync(
-                request, parent, ["a", "-tzip", "-mcu=on", "-bsp0", "-sccUTF-8", "-y", "--", temporaryPath, sourceName],
-                cancellationToken);
+            await RunAsync(request, parent, arguments, cancellationToken);
 
             if (options.Value.VerifyArchive)
             {
@@ -79,6 +96,32 @@ internal sealed class SevenZipArchiver(
             TryDelete(copyPath);
             throw;
         }
+        finally
+        {
+            if (excludeListPath is not null)
+            {
+                TryDelete(excludeListPath);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes the list file that tells 7-Zip which entries to leave out, one path per line.
+    /// </summary>
+    /// <remarks>
+    /// 7-Zip matches each line against the path inside the archive, which starts with the name of the source folder.
+    /// The file is UTF-8 without a byte order mark, which <c>-scsUTF-8</c> tells 7-Zip.
+    /// </remarks>
+    /// <param name="path">The path of the list file in the temporary folder.</param>
+    /// <param name="sourceName">The name of the source folder, the root entry of the archive.</param>
+    /// <param name="excludedPaths">The paths relative to the source folder.</param>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the file is written.</returns>
+    private Task WriteExcludeListAsync(
+        string path, string sourceName, IReadOnlyList<string> excludedPaths, CancellationToken cancellationToken)
+    {
+        var lines = excludedPaths.Select(excluded => fileSystem.Path.Combine(sourceName, excluded));
+        return fileSystem.File.WriteAllLinesAsync(path, lines, _listEncoding, cancellationToken);
     }
 
     /// <summary>

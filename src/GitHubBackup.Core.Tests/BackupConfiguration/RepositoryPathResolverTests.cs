@@ -84,13 +84,13 @@ public sealed class RepositoryPathResolverTests
     [InlineData(null, @"C:\app\sources\askrinnik\my-repo")]
     [InlineData(@"D:\Clones", @"D:\Clones\askrinnik\my-repo")]
     public void GetCloneFolder_SourcesRootSetOrNot_ReturnsOwnerAndRepositoryUnderRoot(string? sourcesRoot, string expected) =>
-        _resolver.GetCloneFolder(Config(sourcesRoot), "askrinnik", "my-repo").ShouldBe(expected);
+        _resolver.GetCloneFolder(Config(sourcesRoot), "askrinnik", "my-repo", null).ShouldBe(expected);
 
     [Theory]
     [InlineData(null, @"C:\app\sources\askrinnik\my-repo.wiki")]
     [InlineData(@"D:\Clones", @"D:\Clones\askrinnik\my-repo.wiki")]
     public void GetWikiCloneFolder_SourcesRootSetOrNot_ReturnsWikiFolderNextToClone(string? sourcesRoot, string expected) =>
-        _resolver.GetWikiCloneFolder(Config(sourcesRoot), "askrinnik", "my-repo").ShouldBe(expected);
+        _resolver.GetWikiCloneFolder(Config(sourcesRoot), "askrinnik", "my-repo", null).ShouldBe(expected);
 
     [Theory]
     [InlineData(null, @"C:\app\sources\.tmp")]
@@ -106,8 +106,20 @@ public sealed class RepositoryPathResolverTests
         config.Accounts.Add(account);
         account.Repositories.Add(new AccountRepositoryConfig { Name = "my-repo", Id = 1, Path = @"F:\Special\my-repo" });
 
-        _resolver.GetCloneFolder(config, "askrinnik", "my-repo").ShouldBe(@"D:\Clones\askrinnik\my-repo");
-        _resolver.GetWikiCloneFolder(config, "askrinnik", "my-repo").ShouldBe(@"D:\Clones\askrinnik\my-repo.wiki");
+        _resolver.GetCloneFolder(config, "askrinnik", "my-repo", null).ShouldBe(@"D:\Clones\askrinnik\my-repo");
+        _resolver.GetWikiCloneFolder(config, "askrinnik", "my-repo", null).ShouldBe(@"D:\Clones\askrinnik\my-repo.wiki");
+    }
+
+    [Theory]
+    [InlineData(@"D:\Work\MyRepo", @"D:\Work\MyRepo", @"D:\Work\MyRepo.wiki")]
+    [InlineData(@"D:\Work\MyRepo\", @"D:\Work\MyRepo", @"D:\Work\MyRepo.wiki")]
+    public void GetCloneFolder_ClonePathSet_ReturnsItAndWikiWithSuffix(
+        string clonePath, string expectedClone, string expectedWiki)
+    {
+        var config = Config(@"D:\Clones");
+
+        _resolver.GetCloneFolder(config, "askrinnik", "my-repo", clonePath).ShouldBe(expectedClone);
+        _resolver.GetWikiCloneFolder(config, "askrinnik", "my-repo", clonePath).ShouldBe(expectedWiki);
     }
 
     [Theory]
@@ -123,14 +135,14 @@ public sealed class RepositoryPathResolverTests
     [InlineData("ask.rinnik", "my-repo")]
     [InlineData("", "my-repo")]
     public void GetCloneFolder_InvalidNames_Throws(string owner, string repository) =>
-        Should.Throw<ArgumentException>(() => _resolver.GetCloneFolder(Config(), owner, repository));
+        Should.Throw<ArgumentException>(() => _resolver.GetCloneFolder(Config(), owner, repository, null));
 
     [Theory]
     [InlineData("askrinnik", @"..\..\x")]
     [InlineData("askrinnik", "CON")]
     [InlineData("..", "my-repo")]
     public void GetWikiCloneFolder_InvalidNames_Throws(string owner, string repository) =>
-        Should.Throw<ArgumentException>(() => _resolver.GetWikiCloneFolder(Config(), owner, repository));
+        Should.Throw<ArgumentException>(() => _resolver.GetWikiCloneFolder(Config(), owner, repository, null));
 
     /// <summary>Creates a configuration with <c>C:\Backups</c> as the backup root.</summary>
     /// <param name="sourcesRoot">The clone root, or <see langword="null"/> for the default.</param>

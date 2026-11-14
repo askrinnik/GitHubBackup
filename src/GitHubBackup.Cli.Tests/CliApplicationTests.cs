@@ -440,6 +440,29 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ValidateRelativeClonePath_ReturnsCriticalWithValidationError()
+    {
+        var configPath = Path.Combine(_contentRoot.FolderPath, "backup-config.json");
+        await File.WriteAllTextAsync(
+            configPath,
+            """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "repositories": [ { "url": "https://github.com/o/r", "id": 2, "clonePath": "Work\\MyRepo" } ]
+            }
+            """,
+            TestContext.Current.CancellationToken);
+        var before = await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken);
+
+        var exitCode = await RunAsync(ValidAppSettings, "validate");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldContain(BackupSummaryRenderer.ErrorPrefix + "repositories[0].clonePath must be an absolute path.");
+        (await File.ReadAllBytesAsync(configPath, TestContext.Current.CancellationToken)).ShouldBe(before);
+    }
+
+    [Fact]
     public async Task RunAsync_SetTokenInputRedirected_ReturnsCriticalWithHint()
     {
         _isInputRedirected = true;

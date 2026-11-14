@@ -54,6 +54,44 @@ public sealed class BackupWorkItemTests
     }
 
     [Fact]
+    public void CreateAll_ClonePathSet_UsesItForCloneAndWikiAndMarksItem()
+    {
+        var config = new BackupConfig
+        {
+            BackupRoot = @"C:\backup",
+            Accounts =
+            [
+                new()
+                {
+                    Url = "https://github.com/octocat",
+                    Repositories = [new() { Name = "app", Id = 1, ClonePath = @"D:\Work\App" }],
+                },
+            ],
+            Repositories = [new() { Url = "https://github.com/someone/tool", Id = 3, ClonePath = @"D:\Work\Tool\" }],
+        };
+
+        var items = BackupWorkItem.CreateAll(config, _resolver);
+
+        items.Select(item => (item.CloneFolder, item.WikiCloneFolder, item.HasClonePath)).ShouldBe(
+        [
+            (@"D:\Work\App", @"D:\Work\App.wiki", true),
+            (@"D:\Work\Tool", @"D:\Work\Tool.wiki", true),
+        ]);
+    }
+
+    [Fact]
+    public void CreateAll_ClonePathNotSet_DoesNotMarkItem()
+    {
+        var config = new BackupConfig
+        {
+            BackupRoot = @"C:\backup",
+            Repositories = [new() { Url = "https://github.com/someone/tool", Id = 3 }],
+        };
+
+        BackupWorkItem.CreateAll(config, _resolver).ShouldHaveSingleItem().HasClonePath.ShouldBeFalse();
+    }
+
+    [Fact]
     public void CreateAll_EmptyConfig_ReturnsNoItems() =>
         BackupWorkItem.CreateAll(new BackupConfig { BackupRoot = @"C:\backup" }, _resolver).ShouldBeEmpty();
 

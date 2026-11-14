@@ -15,7 +15,8 @@ namespace GitHubBackup.Infrastructure.BackupConfiguration;
 /// Reading tolerates comments and trailing commas a person may leave, but rejects unknown properties, <c>null</c>
 /// for a non-nullable property and numeric statuses, so a typo is reported instead of silently ignored. The <c>id</c>
 /// of a repository entry is the exception: <c>null</c>, like a missing <c>id</c>, reads as <c>0</c>, and an <c>id</c>
-/// of <c>0</c> is not written, so an entry whose ID is still unknown keeps its shape through a save.
+/// of <c>0</c> is not written, so an entry whose ID is still unknown keeps its shape through a save. The optional
+/// <c>clonePath</c> of a repository entry is written only when it is set, so entries without it keep their shape.
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -60,7 +61,7 @@ internal sealed partial class BackupConfigJsonContext : JsonSerializerContext
 
     /// <summary>
     /// Makes the <c>id</c> of both kinds of repository entry read <c>null</c> as <c>0</c> and skips it on write when it
-    /// is <c>0</c>.
+    /// is <c>0</c>, and skips their <c>clonePath</c> on write when it is <see langword="null"/>.
     /// </summary>
     /// <param name="typeInfo">The metadata of one type of the configuration.</param>
     private static void ModifyRepositoryId(JsonTypeInfo typeInfo)
@@ -74,6 +75,11 @@ internal sealed partial class BackupConfigJsonContext : JsonSerializerContext
         {
             property.CustomConverter = new RepositoryIdJsonConverter();
             property.ShouldSerialize = static (_, value) => value is long id && id != 0;
+        }
+
+        foreach (var property in typeInfo.Properties.Where(property => property.Name == "clonePath"))
+        {
+            property.ShouldSerialize = static (_, value) => value is not null;
         }
     }
 }

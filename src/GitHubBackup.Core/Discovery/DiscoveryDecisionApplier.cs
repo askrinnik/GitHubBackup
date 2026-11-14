@@ -26,6 +26,7 @@ public sealed class DiscoveryDecisionApplier(
         DiscoveryResult discovery,
         IDiscoveryDecisionHandler handler,
         string gitPath,
+        string? token,
         CancellationToken cancellationToken)
     {
         var newProposals = ProposeNew(config, discovery);
@@ -95,17 +96,41 @@ public sealed class DiscoveryDecisionApplier(
         var outcomes = new List<RenameOutcome>();
         foreach (var rename in renames)
         {
+            // A clone under the clone root is a disposable cache and may be deleted for a fresh clone; the clone of an
+            // entry with clonePath is the user's working copy, which keeps its folder and is never deleted.
+            var deleteOnFailure = rename.Entry.ClonePath is null;
             var clone = await cloneRelocator.RelocateAsync(
-                gitPath, rename.OldClone, rename.NewClone, rename.NewRemoteUrl, cancellationToken);
+                new()
+                {
+                    GitPath = gitPath,
+                    OldFolder = rename.OldClone,
+                    NewFolder = rename.NewClone,
+                    RemoteUrl = rename.NewRemoteUrl,
+                    PreviousRemoteUrl = rename.OldRemoteUrl,
+                    Branch = rename.Entry.Branch,
+                    Token = token,
+                    DeleteOnFailure = deleteOnFailure,
+                },
+                cancellationToken);
             var wiki = await cloneRelocator.RelocateAsync(
-                gitPath, rename.OldWikiClone, rename.NewWikiClone, rename.NewWikiUrl, cancellationToken);
+                new()
+                {
+                    GitPath = gitPath,
+                    OldFolder = rename.OldWikiClone,
+                    NewFolder = rename.NewWikiClone,
+                    RemoteUrl = rename.NewWikiUrl,
+                    PreviousRemoteUrl = rename.OldWikiUrl,
+                    Token = token,
+                    DeleteOnFailure = deleteOnFailure,
+                },
+                cancellationToken);
             outcomes.Add(new(
                 rename.Renamed.Tracked.FullName,
                 rename.Renamed.Current.FullName,
                 rename.Requested,
                 rename.Applied,
-                clone,
-                wiki));
+                clone.Result,
+                wiki.Result));
         }
 
         return new(
@@ -280,11 +305,14 @@ public sealed class DiscoveryDecisionApplier(
                 TargetAccount = targetAccount,
                 CurrentArchiveFolder = currentFolder,
                 RenamedArchiveFolder = renamedFolder,
-                OldClone = pathResolver.GetCloneFolder(config, renamed.Tracked.Owner, renamed.Tracked.Name),
-                NewClone = pathResolver.GetCloneFolder(config, current.Owner, current.Name),
-                OldWikiClone = pathResolver.GetWikiCloneFolder(config, renamed.Tracked.Owner, renamed.Tracked.Name),
-                NewWikiClone = pathResolver.GetWikiCloneFolder(config, current.Owner, current.Name),
+                OldClone = pathResolver.GetCloneFolder(config, renamed.Tracked.Owner, renamed.Tracked.Name, entry.ClonePath),
+                NewClone = pathResolver.GetCloneFolder(config, current.Owner, current.Name, entry.ClonePath),
+                OldWikiClone = pathResolver.GetWikiCloneFolder(
+                    config, renamed.Tracked.Owner, renamed.Tracked.Name, entry.ClonePath),
+                NewWikiClone = pathResolver.GetWikiCloneFolder(config, current.Owner, current.Name, entry.ClonePath),
                 NewRemoteUrl = remoteUrlProvider.GetRepositoryUrl(current.Owner, current.Name),
+                OldRemoteUrl = remoteUrlProvider.GetRepositoryUrl(renamed.Tracked.Owner, renamed.Tracked.Name),
+                OldWikiUrl = remoteUrlProvider.GetWikiUrl(renamed.Tracked.Owner, renamed.Tracked.Name),
                 NewWikiUrl = remoteUrlProvider.GetWikiUrl(current.Owner, current.Name),
             });
         }
@@ -460,6 +488,7 @@ public sealed class DiscoveryDecisionApplier(
                     Id = repository.Id,
                     Branch = repository.Branch,
                     Path = path,
+                    ClonePath = repository.ClonePath,
                     Status = repository.Status,
                 });
             }
@@ -471,6 +500,7 @@ public sealed class DiscoveryDecisionApplier(
                     Id = repository.Id,
                     Branch = repository.Branch,
                     Path = path,
+                    ClonePath = repository.ClonePath,
                     Status = repository.Status,
                 });
             }
@@ -505,6 +535,12 @@ public sealed class DiscoveryDecisionApplier(
     {
         /// <summary>Gets the <c>path</c> of the entry.</summary>
         public string? Path => AccountRepository?.Path ?? Standalone?.Path;
+
+        /// <summary>Gets the <c>clonePath</c> of the entry.</summary>
+        public string? ClonePath => AccountRepository?.ClonePath ?? Standalone?.ClonePath;
+
+        /// <summary>Gets the configured branch of the entry.</summary>
+        public string? Branch => AccountRepository?.Branch ?? Standalone?.Branch;
 
         /// <summary>Gets or sets the status of the entry.</summary>
         public RepositoryStatus Status
@@ -561,6 +597,12 @@ public sealed class DiscoveryDecisionApplier(
 
         /// <summary>Gets the URL of the wiki under the new name.</summary>
         public required string NewWikiUrl { get; init; }
+
+        /// <summary>Gets the URL of the repository under the old name.</summary>
+        public required string OldRemoteUrl { get; init; }
+
+        /// <summary>Gets the URL of the wiki under the old name.</summary>
+        public required string OldWikiUrl { get; init; }
 
         /// <summary>Gets what the handler is shown about the rename.</summary>
         public required RenameProposal Proposal { get; init; }

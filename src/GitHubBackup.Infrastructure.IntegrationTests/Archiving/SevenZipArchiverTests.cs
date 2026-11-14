@@ -83,6 +83,33 @@ public sealed class SevenZipArchiverTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateAsync_ExcludedPaths_LeavesThemOutOfArchive()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CommitAsync("bin.txt", "tracked", "Tracked file named like the ignored folder", CancellationToken);
+        var clone = await CloneAsync(remote, "MyRepo");
+        Directory.CreateDirectory(Path.Combine(clone, "bin", "Debug"));
+        File.WriteAllText(Path.Combine(clone, "bin", "Debug", "app.dll"), "ignored");
+        Directory.CreateDirectory(Path.Combine(clone, "src", "obj"));
+        File.WriteAllText(Path.Combine(clone, "src", "obj", "x.cache"), "ignored");
+        File.WriteAllText(Path.Combine(clone, "src", "keep.cs"), "kept");
+        File.WriteAllText(Path.Combine(clone, "Файл.log"), "ignored");
+
+        var result = await CreateArchiver().CreateAsync(
+            Request(clone) with { ExcludedPaths = ["bin", @"src\obj", "Файл.log"] }, CancellationToken);
+
+        var restored = Path.Combine(await ExtractAsync(result.Path), "MyRepo");
+        Directory.Exists(Path.Combine(restored, ".git")).ShouldBeTrue();
+        File.ReadAllText(Path.Combine(restored, "README.md")).ShouldBe("repo");
+        File.ReadAllText(Path.Combine(restored, "bin.txt")).ShouldBe("tracked");
+        File.ReadAllText(Path.Combine(restored, "src", "keep.cs")).ShouldBe("kept");
+        Directory.Exists(Path.Combine(restored, "bin")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(restored, "src", "obj")).ShouldBeFalse();
+        File.Exists(Path.Combine(restored, "Файл.log")).ShouldBeFalse();
+        Directory.GetFileSystemEntries(_temporaryFolder).ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task CreateAsync_FolderNameStartsWithDash_ArchivesFolder()
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);

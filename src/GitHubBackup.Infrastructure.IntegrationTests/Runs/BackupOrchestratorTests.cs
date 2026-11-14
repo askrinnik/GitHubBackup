@@ -7,6 +7,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.GitHub;
@@ -17,6 +18,7 @@ using GitHubBackup.Core.State;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.BackupConfiguration;
+using GitHubBackup.Infrastructure.Clones;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
@@ -482,6 +484,498 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     /// <summary>
+    /// The kinds of local work a clone can hold.
+    /// </summary>
+    public enum LocalChange
+    {
+        /// <summary>A tracked file is modified.</summary>
+        Uncommitted,
+
+        /// <summary>A file git neither tracks nor ignores is added.</summary>
+        Untracked,
+
+        /// <summary>Another branch is checked out.</summary>
+        OtherBranch,
+
+        /// <summary>A commit is made that the server does not have.</summary>
+        UnpushedCommit,
+    }
+
+    [Fact]
+    public async Task RunAsync_ClonePath_ClonesIntoItWithWikiNextToItAndArchivesUnderFolderName()
+    {
+        var remote = await AddRemoteAsync("repo");
+        await AddWikiAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(clonePath);
+
+        var first = await RunAsync();
+        var head = await remote.CommitAsync("change.txt", "changed", "Change", CancellationToken);
+        var second = await RunAsync();
+
+        first.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+            [("owner/repo", BackupItemStatus.Archived), ("owner/repo.wiki", BackupItemStatus.Archived)]);
+        second.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+            [("owner/repo", BackupItemStatus.Archived), ("owner/repo.wiki", BackupItemStatus.UpToDate)]);
+        Directory.Exists(Path.Combine(clonePath, ".git")).ShouldBeTrue();
+        Directory.Exists(Path.Combine(clonePath + ".wiki", ".git")).ShouldBeTrue();
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner)).ShouldBeFalse();
+        (await HeadAsync(clonePath)).ShouldBe(head);
+        var archiveFolder = Path.Combine(_archiveRoot, _owner, "repo");
+        ZipRoots(Path.Combine(archiveFolder, second.Items[0].ArchiveFileName!)).ShouldBe(["MyRepo"]);
+        ZipRoots(Path.Combine(archiveFolder, first.Items[1].ArchiveFileName!)).ShouldBe(["MyRepo.wiki"]);
+        File.ReadAllText(Path.Combine(_sourcesRoot, CloneLocations.FileName)).ShouldContain(clonePath.Replace(@"\", @"\\", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData(null, "A")]
+    [InlineData("A", "B")]
+    [InlineData("A", null)]
+    public async Task RunAsync_ClonePathChanged_MovesCloneAndKeepsBackingUp(string? before, string? after)
+    {
+        await AddRemoteAsync("repo");
+        var oldFolder = before is null ? Path.Combine(_sourcesRoot, _owner, "repo") : WorkFolder(before);
+        var newFolder = after is null ? Path.Combine(_sourcesRoot, _owner, "repo") : WorkFolder(after);
+        await SaveClonePathConfigAsync(before is null ? null : oldFolder);
+        await RunAsync();
+        var head = await HeadAsync(oldFolder);
+        await SaveClonePathConfigAsync(after is null ? null : newFolder);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.UpToDate);
+        Directory.Exists(oldFolder).ShouldBeFalse();
+        (await HeadAsync(newFolder)).ShouldBe(head);
+        (await GitAsync(newFolder, "remote", "get-url", "origin")).ShouldBe([_remoteUrls["repo"]]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunAsync_ServerForcePushed_UpdatesCleanCloneWithoutCountingDroppedCommits(bool withClonePath)
+    {
+        var remote = await AddRemoteAsync("repo");
+        var initial = (await remote.GetRemoteRefsAsync(CancellationToken))["refs/heads/main"];
+        await remote.CommitAsync("dropped.txt", "dropped", "Commit to drop", CancellationToken);
+        var folder = withClonePath ? WorkFolder("MyRepo") : Path.Combine(_sourcesRoot, _owner, "repo");
+        await SaveClonePathConfigAsync(withClonePath ? folder : null);
+        await RunAsync();
+        await remote.ForcePushAsync("main", initial, CancellationToken);
+        var head = await remote.CommitAsync("rewritten.txt", "rewritten", "Rewritten commit", CancellationToken);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        (await HeadAsync(folder)).ShouldBe(head);
+        File.Exists(Path.Combine(folder, "dropped.txt")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_ClonePathRemovedWhileWorkingCopyHasIgnoredFiles_FailsAndDoesNotMove()
+    {
+        var remote = await AddRemoteAsync("repo");
+        await remote.CommitAsync(".gitignore", ".env\n", "Ignore settings", CancellationToken);
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(clonePath);
+        await RunAsync();
+        File.WriteAllText(Path.Combine(clonePath, ".env"), "secret settings");
+        await SaveClonePathConfigAsync(null);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith($"The clone '{clonePath}' holds ignored files (.env)");
+        File.ReadAllText(Path.Combine(clonePath, ".env")).ShouldBe("secret settings");
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "repo")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_NewClonePathOccupied_FailsAndDeletesNothing()
+    {
+        await AddRemoteAsync("repo");
+        await AddRemoteAsync("other");
+        var oldFolder = WorkFolder("A");
+        var newFolder = WorkFolder("B");
+        await SaveClonePathConfigAsync(oldFolder, withOther: true);
+        await RunAsync();
+        Directory.CreateDirectory(newFolder);
+        File.WriteAllText(Path.Combine(newFolder, "mine.txt"), "mine");
+        await SaveClonePathConfigAsync(newFolder, withOther: true);
+
+        var result = await RunAsync();
+
+        var item = result.Items[0];
+        (item.Repository, item.Status).ShouldBe(("owner/repo", BackupItemStatus.Failed));
+        item.Message.ShouldNotBeNull().ShouldContain("the target folder already exists");
+        result.Items[1].Status.ShouldBe(BackupItemStatus.UpToDate);
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        Directory.Exists(Path.Combine(oldFolder, ".git")).ShouldBeTrue();
+        Directory.GetFileSystemEntries(newFolder).ShouldBe([Path.Combine(newFolder, "mine.txt")]);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithChangedClonePath_ReportsMoveAndChangesNothing()
+    {
+        await AddRemoteAsync("repo");
+        var oldFolder = WorkFolder("A");
+        var newFolder = WorkFolder("B");
+        await SaveClonePathConfigAsync(oldFolder);
+        await RunAsync();
+        await SaveClonePathConfigAsync(newFolder);
+        var before = SnapshotTree();
+
+        var result = await RunAsync(dryRun: true);
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.UpToDate);
+        item.Message.ShouldBe($"The clone would be moved from '{oldFolder}' to '{newFolder}'.");
+        SnapshotTree().ShouldBe(before);
+    }
+
+    [Theory]
+    [InlineData(LocalChange.Uncommitted)]
+    [InlineData(LocalChange.Untracked)]
+    [InlineData(LocalChange.OtherBranch)]
+    [InlineData(LocalChange.UnpushedCommit)]
+    public async Task RunAsync_LocalChangeInClonePath_FailsWithReasonAndBacksUpOthers(LocalChange change)
+    {
+        var remote = await AddRemoteAsync("repo");
+        var other = await AddRemoteAsync("other");
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(clonePath, withOther: true);
+        await RunAsync();
+        await MakeLocalChangeAsync(clonePath, change);
+        var cloneBefore = await CloneStateAsync(clonePath);
+        await remote.CommitAsync("server.txt", "server", "Server change", CancellationToken);
+        await other.CommitAsync("server.txt", "server", "Server change", CancellationToken);
+
+        var result = await RunAsync();
+
+        var item = result.Items[0];
+        (item.Repository, item.Status, item.ArchiveFileName).ShouldBe(("owner/repo", BackupItemStatus.Failed, null));
+        item.Message.ShouldBe(
+            $"The clone '{clonePath}' has local changes: {Problem(change)}. Commit and push them or switch the branch, then run the backup again.");
+        (result.Items[1].Repository, result.Items[1].Status).ShouldBe(("owner/other", BackupItemStatus.Archived));
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        (await CloneStateAsync(clonePath)).ShouldBe(cloneBefore);
+        var state = await _stateStore.LoadAsync(Path.Combine(_archiveRoot, _owner, "repo"), 1, "owner/repo", CancellationToken);
+        state.Repository.Archives.ShouldHaveSingleItem();
+    }
+
+    [Theory]
+    [InlineData(false, BackupTarget.Repository)]
+    [InlineData(false, BackupTarget.Wiki)]
+    [InlineData(true, BackupTarget.Repository)]
+    [InlineData(true, BackupTarget.Wiki)]
+    public async Task RunAsync_UncommittedChangeInAnyClone_FailsOnlyThatItem(bool withClonePath, BackupTarget target)
+    {
+        var remote = await AddRemoteAsync("repo");
+        var wiki = await AddWikiAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(withClonePath ? clonePath : null);
+        await RunAsync();
+        var repositoryFolder = withClonePath ? clonePath : Path.Combine(_sourcesRoot, _owner, "repo");
+        var changedFolder = target == BackupTarget.Wiki ? repositoryFolder + ".wiki" : repositoryFolder;
+        await MakeLocalChangeAsync(changedFolder, LocalChange.Uncommitted);
+        await remote.CommitAsync("server.txt", "server", "Server change", CancellationToken);
+        await wiki.CommitAsync("server.md", "server", "Server change", CancellationToken);
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Target, item.Status)).ShouldBe(
+        [
+            (BackupTarget.Repository, target == BackupTarget.Repository ? BackupItemStatus.Failed : BackupItemStatus.Archived),
+            (BackupTarget.Wiki, target == BackupTarget.Wiki ? BackupItemStatus.Failed : BackupItemStatus.Archived),
+        ]);
+        result.Items.Single(item => item.Target == target).Message.ShouldNotBeNull()
+            .ShouldStartWith($"The clone '{changedFolder}' has local changes: uncommitted changes.");
+        File.ReadAllText(Path.Combine(changedFolder, "README.md")).ShouldBe("local edit");
+    }
+
+    [Fact]
+    public async Task RunAsync_LocalChangeAndClonePathChanged_DoesNotMove()
+    {
+        await AddRemoteAsync("repo");
+        var oldFolder = WorkFolder("A");
+        var newFolder = WorkFolder("B");
+        await SaveClonePathConfigAsync(oldFolder);
+        await RunAsync();
+        await MakeLocalChangeAsync(oldFolder, LocalChange.Untracked);
+        await SaveClonePathConfigAsync(newFolder);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith($"The clone '{oldFolder}' has local changes: untracked files.");
+        File.Exists(Path.Combine(oldFolder, "notes.txt")).ShouldBeTrue();
+        Directory.Exists(newFolder).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RunAsync_LocalChangeAndRepositoryRenamed_KeepsCloneUnderOldName()
+    {
+        var remote = await AddRemoteAsync("old");
+        await SaveConfigAsync("old");
+        await RunAsync();
+        var oldFolder = Path.Combine(_sourcesRoot, _owner, "old");
+        await MakeLocalChangeAsync(oldFolder, LocalChange.Uncommitted);
+        _gitHubApi.AddRepository(1, _owner, "new", hasWiki: false);
+        _remoteUrls["new"] = remote.Url;
+
+        var result = await RunAsync();
+
+        result.Discovery.ShouldNotBeNull().Renamed.ShouldHaveSingleItem().CloneRelocation
+            .ShouldBe(CloneRelocationResult.LocalChanges);
+        var item = result.Items.ShouldHaveSingleItem();
+        (item.Repository, item.Status).ShouldBe(("owner/new", BackupItemStatus.Failed));
+        item.Message.ShouldNotBeNull().ShouldStartWith($"The clone '{oldFolder}' has local changes: uncommitted changes.");
+        File.ReadAllText(Path.Combine(oldFolder, "README.md")).ShouldBe("local edit");
+        Directory.Exists(Path.Combine(_sourcesRoot, _owner, "new")).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task RunAsync_IgnoredFiles_KeptAndLeftOutOfArchiveOnlyInClonePath(bool withClonePath)
+    {
+        var remote = await AddRemoteAsync("repo");
+        await remote.CommitAsync(".gitignore", "*.log\nbin/\n", "Ignore build output", CancellationToken);
+        var folder = withClonePath ? WorkFolder("MyRepo") : Path.Combine(_sourcesRoot, _owner, "repo");
+        await SaveClonePathConfigAsync(withClonePath ? folder : null);
+        await RunAsync();
+        File.WriteAllText(Path.Combine(folder, "build.log"), "log");
+        Directory.CreateDirectory(Path.Combine(folder, "bin"));
+        File.WriteAllText(Path.Combine(folder, "bin", "app.dll"), "binary");
+        await remote.CommitAsync("change.txt", "changed", "Change", CancellationToken);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Archived);
+        File.Exists(Path.Combine(folder, "build.log")).ShouldBe(withClonePath);
+        File.Exists(Path.Combine(folder, "bin", "app.dll")).ShouldBe(withClonePath);
+        using var zip = ZipFile.OpenRead(Path.Combine(_archiveRoot, _owner, "repo", item.ArchiveFileName!));
+        var entries = zip.Entries.Select(entry => entry.FullName.Replace('\\', '/')).ToList();
+        entries.ShouldContain(entry => entry.EndsWith("/change.txt", StringComparison.Ordinal));
+        entries.ShouldContain(entry => entry.Contains("/.git/", StringComparison.Ordinal));
+        entries.ShouldNotContain(entry => entry.EndsWith("build.log", StringComparison.Ordinal));
+        entries.ShouldNotContain(entry => entry.Contains("/bin/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithLocalChange_ReportsSameFailureAndChangesNothing()
+    {
+        var remote = await AddRemoteAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(clonePath);
+        await RunAsync();
+        await MakeLocalChangeAsync(clonePath, LocalChange.OtherBranch);
+        await remote.CommitAsync("server.txt", "server", "Server change", CancellationToken);
+        var before = SnapshotTree();
+
+        var result = await RunAsync(dryRun: true);
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith(
+            $"The clone '{clonePath}' has local changes: branch 'feature' instead of 'main'.");
+        result.ExitCode.ShouldBe(ExitCode.RepositoriesFailed);
+        SnapshotTree().ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task RunAsync_LocalChangeAndServerUnchanged_ReportsUpToDateWithoutTouchingClone()
+    {
+        await AddRemoteAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        await SaveClonePathConfigAsync(clonePath);
+        await RunAsync();
+        await MakeLocalChangeAsync(clonePath, LocalChange.Uncommitted);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.UpToDate);
+        File.ReadAllText(Path.Combine(clonePath, "README.md")).ShouldBe("local edit");
+    }
+
+    [Fact]
+    public async Task RunAsync_ClonePathNotEmptyWithoutGit_FailsAndLeavesFolder()
+    {
+        await AddRemoteAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        Directory.CreateDirectory(clonePath);
+        File.WriteAllText(Path.Combine(clonePath, "mine.txt"), "mine");
+        await SaveClonePathConfigAsync(clonePath);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith($"The folder '{clonePath}' is not empty and holds no git clone");
+        Directory.GetFileSystemEntries(clonePath).ShouldBe([Path.Combine(clonePath, "mine.txt")]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ClonePathEmpty_ClonesIntoIt()
+    {
+        await AddRemoteAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        Directory.CreateDirectory(clonePath);
+        await SaveClonePathConfigAsync(clonePath);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        Directory.Exists(Path.Combine(clonePath, ".git")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RunAsync_ExistingWorkingCopy_IsUsedAsClone()
+    {
+        var remote = await AddRemoteAsync("repo");
+        var clonePath = WorkFolder("MyRepo");
+        Directory.CreateDirectory(Path.GetDirectoryName(clonePath)!);
+        await GitAsync(Path.GetDirectoryName(clonePath)!, "clone", remote.Url, clonePath);
+        await SaveClonePathConfigAsync(clonePath);
+
+        var result = await RunAsync();
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        (await HeadAsync(clonePath)).ShouldBe((await remote.GetRemoteRefsAsync(CancellationToken))["refs/heads/main"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_WorkingCopyOfOtherRepository_FailsBeforeReadingServer()
+    {
+        await AddRemoteAsync("repo");
+        var foreign = await _sandbox.CreateRemoteAsync("foreign", CancellationToken);
+        var clonePath = WorkFolder("MyRepo");
+        Directory.CreateDirectory(Path.GetDirectoryName(clonePath)!);
+        await GitAsync(Path.GetDirectoryName(clonePath)!, "clone", foreign.Url, clonePath);
+        await SaveClonePathConfigAsync(clonePath);
+
+        var result = await RunAsync();
+
+        var item = result.Items.ShouldHaveSingleItem();
+        item.Status.ShouldBe(BackupItemStatus.Failed);
+        item.Message.ShouldNotBeNull().ShouldStartWith($"The clone '{clonePath}' has an origin that does not point at");
+        (await GitAsync(clonePath, "remote", "get-url", "origin")).ShouldBe([foreign.Url]);
+    }
+
+    /// <summary>
+    /// Returns a folder for working copies inside the sandbox, outside the clone root and the archive root.
+    /// </summary>
+    /// <param name="name">The name of the folder.</param>
+    /// <returns>The absolute folder; it is not created.</returns>
+    private string WorkFolder(string name) => Path.Combine(_sandbox.RootPath, "work", name);
+
+    /// <summary>
+    /// Writes <c>backup-config.json</c> with the standalone repository <c>repo</c> (id 1) and, when asked, the
+    /// standalone repository <c>other</c> (id 2), and registers both with the fake API.
+    /// </summary>
+    /// <param name="clonePath">The <c>clonePath</c> of <c>repo</c>, or <see langword="null"/>.</param>
+    /// <param name="withOther">Whether <c>other</c> is listed too.</param>
+    /// <returns>A task that completes when the file is written.</returns>
+    private Task SaveClonePathConfigAsync(string? clonePath, bool withOther = false)
+    {
+        _gitHubApi.AddRepository(1, _owner, "repo", _wikiEnabled.Contains("repo"));
+        List<RepositoryConfig> repositories =
+            [new() { Url = $"https://github.com/{_owner}/repo", Id = 1, ClonePath = clonePath }];
+        if (withOther)
+        {
+            _gitHubApi.AddRepository(2, _owner, "other", hasWiki: false);
+            repositories.Add(new() { Url = $"https://github.com/{_owner}/other", Id = 2 });
+        }
+
+        return _configStore.SaveAsync(
+            new BackupConfig { BackupRoot = _archiveRoot, SourcesRoot = _sourcesRoot, Repositories = repositories },
+            CancellationToken);
+    }
+
+    /// <summary>
+    /// Makes one kind of local work in a clone with the git of the sandbox.
+    /// </summary>
+    /// <param name="clone">The clone folder.</param>
+    /// <param name="change">The kind of work.</param>
+    /// <returns>A task that completes when the work is made.</returns>
+    private async Task MakeLocalChangeAsync(string clone, LocalChange change)
+    {
+        switch (change)
+        {
+            case LocalChange.Uncommitted:
+                await File.WriteAllTextAsync(Path.Combine(clone, "README.md"), "local edit", CancellationToken);
+                break;
+            case LocalChange.Untracked:
+                await File.WriteAllTextAsync(Path.Combine(clone, "notes.txt"), "notes", CancellationToken);
+                break;
+            case LocalChange.OtherBranch:
+                await GitAsync(clone, "checkout", "-b", "feature");
+                break;
+            default:
+                await File.WriteAllTextAsync(Path.Combine(clone, "local.txt"), "local", CancellationToken);
+                await GitAsync(clone, "add", "local.txt");
+                await GitAsync(clone, "commit", "-m", "Local commit");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Returns the problem the check reports for one kind of local work made by <see cref="MakeLocalChangeAsync"/>.
+    /// </summary>
+    /// <param name="change">The kind of work.</param>
+    /// <returns>The problem text.</returns>
+    private static string Problem(LocalChange change) => change switch
+    {
+        LocalChange.Uncommitted => "uncommitted changes",
+        LocalChange.Untracked => "untracked files",
+        LocalChange.OtherBranch => "branch 'feature' instead of 'main'",
+        _ => "1 unpushed commit(s)",
+    };
+
+    /// <summary>
+    /// Describes what an update would change in a clone: the commit, the branch and the status of the files.
+    /// </summary>
+    /// <param name="clone">The clone folder.</param>
+    /// <returns>The description.</returns>
+    private async Task<string> CloneStateAsync(string clone) =>
+        string.Join(
+            '\n',
+            [
+                await HeadAsync(clone),
+                .. await GitAsync(clone, "rev-parse", "--abbrev-ref", "HEAD"),
+                .. await GitAsync(clone, "status", "--porcelain", "--untracked-files=all"),
+            ]);
+
+    /// <summary>
+    /// Returns the commit <c>HEAD</c> of a clone points at.
+    /// </summary>
+    /// <param name="clone">The clone folder.</param>
+    /// <returns>The commit id.</returns>
+    private async Task<string> HeadAsync(string clone) => (await GitAsync(clone, "rev-parse", "HEAD")).Single();
+
+    /// <summary>
+    /// Runs git in the isolated environment of the sandbox.
+    /// </summary>
+    /// <param name="workingDirectory">The folder git runs in.</param>
+    /// <param name="arguments">The git arguments.</param>
+    /// <returns>The non-empty lines of standard output.</returns>
+    private Task<IReadOnlyList<string>> GitAsync(string workingDirectory, params string[] arguments) =>
+        _sandbox.RunGitAsync(workingDirectory, CancellationToken, arguments);
+
+    /// <summary>
+    /// Returns the distinct root folders of the entries of a ZIP archive.
+    /// </summary>
+    /// <param name="archive">The archive file.</param>
+    /// <returns>The root folder names.</returns>
+    private static List<string> ZipRoots(string archive)
+    {
+        using var zip = ZipFile.OpenRead(archive);
+        return [.. zip.Entries.Select(entry => entry.FullName.Split('/', '\\')[0]).Distinct()];
+    }
+
+    /// <summary>
     /// Deletes the sandbox.
     /// </summary>
     public void Dispose()
@@ -678,6 +1172,8 @@ public sealed class BackupOrchestratorTests : IDisposable
         var runner = new ProcessRunner(masker, _fileSystem, TimeProvider.System, NullLogger<ProcessRunner>.Instance);
         var gitClient = new GitClient(runner, _fileSystem, masker, NullLogger<GitClient>.Instance);
         var backupOptions = Options.Create(new BackupOptions());
+        var cloneGuard = new CloneGuard(gitClient, NullLogger<CloneGuard>.Instance);
+        var cloneRelocator = new CloneRelocator(_fileSystem, gitClient, cloneGuard, NullLogger<CloneRelocator>.Instance);
 
         var toolLocator = Substitute.For<IToolLocator>();
         toolLocator.LocateAsync(Arg.Any<CancellationToken>()).Returns(
@@ -696,7 +1192,7 @@ public sealed class BackupOrchestratorTests : IDisposable
             _configStore,
             pathResolver,
             remoteUrlProvider,
-            new CloneRelocator(_fileSystem, gitClient, NullLogger<CloneRelocator>.Instance),
+            cloneRelocator,
             _fileSystem,
             NullLogger<DiscoveryDecisionApplier>.Instance);
 
@@ -711,7 +1207,10 @@ public sealed class BackupOrchestratorTests : IDisposable
             decisionApplier,
             remoteUrlProvider,
             _gitHubApi,
-            new ChangeDetector(gitClient, _fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance),
+            new ChangeDetector(gitClient, cloneGuard, _fileSystem, _telemetry.Telemetry, NullLogger<ChangeDetector>.Instance),
+            cloneRelocator,
+            new JsonCloneLocationStore(_fileSystem, new AtomicFileWriter(_fileSystem), NullLogger<JsonCloneLocationStore>.Instance),
+            gitClient,
             new ArchiveNameBuilder(_timeProvider, backupOptions),
             new SevenZipArchiver(runner, _fileSystem, backupOptions, NullLogger<SevenZipArchiver>.Instance),
             _stateStore,

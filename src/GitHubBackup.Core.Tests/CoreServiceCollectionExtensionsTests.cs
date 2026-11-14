@@ -5,6 +5,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
@@ -91,6 +92,7 @@ public sealed class CoreServiceCollectionExtensionsTests
     {
         using var provider = new ServiceCollection()
             .AddSingleton<ILogger<ChangeDetector>>(NullLogger<ChangeDetector>.Instance)
+            .AddSingleton<ILogger<CloneGuard>>(NullLogger<CloneGuard>.Instance)
             .AddSingleton(Substitute.For<IGitClient>())
             .AddSingleton<IFileSystem>(new MockFileSystem())
             .AddGitHubBackupCore()
@@ -129,6 +131,7 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IRepositoryPathResolver>())
             .AddSingleton(Substitute.For<IArchiver>())
             .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton(Substitute.For<ICloneLocationStore>())
             .AddSingleton(Substitute.For<IGitHubApi>())
             .AddSingleton(Substitute.For<IRunHistoryStore>())
             .AddGitHubBackupCore()
