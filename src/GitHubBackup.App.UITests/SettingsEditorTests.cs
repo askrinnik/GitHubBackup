@@ -84,6 +84,28 @@ public sealed class SettingsEditorTests : IDisposable
     }
 
     [Fact]
+    public void Open_ShowsFourGroupsWithHeadersAndTheirFields()
+    {
+        OpenSettings();
+
+        var general = _session.WaitFor("SettingsGeneralGroup");
+        var accounts = _session.WaitFor("SettingsAccountsGroup");
+        var tools = _session.WaitFor("SettingsToolsGroup");
+        var token = _session.WaitFor("SettingsTokenGroup");
+        general.Name.ShouldBe("General");
+        accounts.Name.ShouldBe("Accounts and repositories");
+        tools.Name.ShouldBe("Tools");
+        token.Name.ShouldBe("GitHub token");
+        AppSession.WaitFor(general, "BackupRootBox");
+        AppSession.WaitFor(general, "DiscoverAccessibleRepositoriesCheckBox");
+        AppSession.WaitFor(general, "ThemeComboBox").IsEnabled.ShouldBeTrue();
+        AppSession.WaitFor(accounts, "AccountsList");
+        AppSession.WaitFor(accounts, "RepositoriesList");
+        AppSession.WaitFor(tools, "GitPathBox");
+        AppSession.WaitFor(token, "TokenBox");
+    }
+
+    [Fact]
     public void EditField_EmptyBackupRoot_ShowsErrorAtField()
     {
         OpenSettings();

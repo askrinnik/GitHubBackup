@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Threading;
 using GitHubBackup.App.ViewModels;
 
@@ -29,6 +30,24 @@ public sealed partial class RepositoriesView : UserControl
     /// <param name="sender">The view.</param>
     /// <param name="e">No data.</param>
     private void OnLoaded(object sender, RoutedEventArgs e) => (DataContext as RepositoriesViewModel)?.RefreshCommand.Execute(null);
+
+    /// <summary>
+    /// Resizes the summary panel by the vertical movement of the splitter above it; the tree gives or takes the
+    /// difference and keeps its minimum height.
+    /// </summary>
+    /// <remarks>
+    /// The new height goes to the row, whose two-way binding hands it to the preferences that are saved when the
+    /// window closes.
+    /// </remarks>
+    /// <param name="sender">The splitter.</param>
+    /// <param name="e">The vertical movement since the last call.</param>
+    private void OnLogSummarySplitterDragDelta(object sender, DragDeltaEventArgs e)
+    {
+        var current = SummaryRow.ActualHeight;
+        var largest = Math.Min(SummaryRow.MaxHeight, current + Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight));
+        var height = Math.Clamp(current - e.VerticalChange, SummaryRow.MinHeight, Math.Max(SummaryRow.MinHeight, largest));
+        SummaryRow.Height = new GridLength(height);
+    }
 
     /// <summary>
     /// Queues one scroll of the live log to its newest entry when entries are added.

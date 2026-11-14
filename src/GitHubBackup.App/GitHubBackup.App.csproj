@@ -5,6 +5,10 @@
     <UseWPF>true</UseWPF>
     <!-- Shared with the console host so both executables read the same secrets; must equal GitHubBackupHostBuilder.UserSecretsId. -->
     <UserSecretsId>GitHubBackup</UserSecretsId>
+    <!-- One icon for both executables; assets/icon holds its vector source and the script that renders it. -->
+    <ApplicationIcon>..\..\assets\icon\GitHubBackup.ico</ApplicationIcon>
+    <!-- The generated interop code of LibraryImport, which finds the monitors, uses pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!--
@@ -31,6 +35,11 @@
   <ItemGroup>
     <!-- Both executables read one settings file; the shared publish folder holds the single copy next to them. -->
     <None Include="..\GitHubBackup.Cli\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The windows show the same icon as the executable. -->
+    <Resource Include="..\..\assets\icon\GitHubBackup.ico" Link="Assets\GitHubBackup.ico" />
   </ItemGroup>
 
   <ItemGroup>

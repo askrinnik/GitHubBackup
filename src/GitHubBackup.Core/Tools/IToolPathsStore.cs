@@ -26,7 +26,9 @@ public interface IToolPathsStore
     /// <param name="cancellationToken">Cancels the write before the file is replaced.</param>
     /// <returns>A task that completes when the paths are written.</returns>
     /// <exception cref="ArgumentException"><paramref name="paths"/> fails validation; nothing is written.</exception>
-    /// <exception cref="IOException">The file cannot be written.</exception>
-    /// <exception cref="UnauthorizedAccessException">The file cannot be written.</exception>
+    /// <exception cref="IOException">
+    /// The file cannot be read or written, or holds text that is not a JSON object; an existing file is left as it is.
+    /// </exception>
+    /// <exception cref="UnauthorizedAccessException">The file cannot be read or written; an existing file is left as it is.</exception>
     Task SaveAsync(ToolPaths paths, CancellationToken cancellationToken);
 }

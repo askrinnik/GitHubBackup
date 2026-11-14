@@ -37,6 +37,7 @@ namespace GitHubBackup.App.ViewModels;
 /// <param name="environment">The host environment whose content root holds the log folder the summary names.</param>
 /// <param name="timeProvider">Supplies the local date that names the log file of the day.</param>
 /// <param name="navigation">Opens the settings editor and the history screen.</param>
+/// <param name="layout">Holds the heights of the live log and summary panels, which outlive the screen.</param>
 /// <param name="logger">Logs the failures of a run and of reading the tree.</param>
 public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
@@ -48,6 +49,7 @@ public sealed partial class RepositoriesViewModel(
     IHostEnvironment environment,
     TimeProvider timeProvider,
     INavigationService navigation,
+    UiPreferences layout,
     ILogger<RepositoriesViewModel> logger) : ObservableObject, ICloseGuard
 {
     /// <summary>The title of the dialog that shows an unexpected failure of a run.</summary>
@@ -122,6 +124,9 @@ public sealed partial class RepositoriesViewModel(
 
     /// <summary>Gets the live log of the current or the last run.</summary>
     public RunLogViewModel RunLog { get; } = new(uiDispatcher);
+
+    /// <summary>Gets the preferences that hold the heights of the live log and summary panels.</summary>
+    public UiPreferences Layout { get; } = layout;
 
     /// <summary>Gets whether no run is in progress.</summary>
     public bool IsIdle => !IsRunning;

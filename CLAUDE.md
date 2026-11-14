@@ -16,6 +16,8 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 ## Repository layout
 
 ```
+assets/
+  icon/                  application icon: GitHubBackup.Icon.xaml (vector source), GitHubBackup.ico (rendered, committed)
 docs/
   PRD.md                 requirements (source of truth)
   development.md         developer guide: build, tests, publishing, CI
@@ -23,6 +25,7 @@ docs/
   ai/                    AI harness hub (README.md)
 scripts/
   publish.ps1            publishes both hosts into one application folder (NFR-8)
+  render-icon.ps1        renders assets/icon/GitHubBackup.Icon.xaml into GitHubBackup.ico (FR-12.8)
 src/
   GitHubBackup.slnx
   Directory.Build.props, Directory.Packages.props, .editorconfig
@@ -58,6 +61,7 @@ Run from the repository root, each as a separate command:
 | UI tests (build and test both with the property) | `dotnet build src/GitHubBackup.slnx -p:RunUITests=true`, then `dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --filter-trait "Category=UI" --ignore-exit-code 8` |
 | Format check | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
 | Publish the application folder (default `artifacts\publish`; `-OutputPath`, `-Clean`) | `pwsh -File scripts/publish.ps1` |
+| Render the application icon after changing its XAML source (commit the `.ico`) | `pwsh -File scripts/render-icon.ps1` |
 | Restore local tools (`dotnet-ef` from `.config/dotnet-tools.json`) | `dotnet tool restore` |
 | Add a run history migration (after changing the history model) | `dotnet ef migrations add <Name> --project src/GitHubBackup.Infrastructure --output-dir History/Migrations` |
 

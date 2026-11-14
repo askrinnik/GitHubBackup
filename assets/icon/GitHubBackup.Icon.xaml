@@ -1,0 +1,47 @@
+<!--
+    The vector source of the application icon on a 256 x 256 canvas: two arrows that circle an archive box, the
+    symbol of a backup that stays in sync. scripts/render-icon.ps1 renders it into GitHubBackup.ico.
+-->
+<DrawingGroup xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation">
+    <!-- A transparent square that fixes the canvas to 256 x 256 whatever the shapes cover. -->
+    <GeometryDrawing Brush="Transparent" Geometry="M0,0 H256 V256 H0 Z" />
+
+    <!-- The upper arrow: an arc from the left over the top, its head pointing clockwise. -->
+    <GeometryDrawing Geometry="M31.4,102.1 A100,100 0 0 1 209.9,70.6">
+        <GeometryDrawing.Pen>
+            <Pen Brush="#1F6FEB" Thickness="24" StartLineCap="Round" EndLineCap="Flat" />
+        </GeometryDrawing.Pen>
+    </GeometryDrawing>
+    <GeometryDrawing Brush="#1F6FEB" Geometry="M227.1,95.2 L232.0,55.1 L187.8,86.1 Z" />
+
+    <!-- The lower arrow: an arc from the right under the bottom, its head pointing clockwise. -->
+    <GeometryDrawing Geometry="M224.6,153.9 A100,100 0 0 1 46.1,185.4">
+        <GeometryDrawing.Pen>
+            <Pen Brush="#1F6FEB" Thickness="24" StartLineCap="Round" EndLineCap="Flat" />
+        </GeometryDrawing.Pen>
+    </GeometryDrawing>
+    <GeometryDrawing Brush="#1F6FEB" Geometry="M28.9,160.8 L24.0,200.9 L68.2,169.9 Z" />
+
+    <!-- The archive box: body, lid and the handle slot, outlined so it stays distinct at small sizes. -->
+    <GeometryDrawing Brush="#E9A23B">
+        <GeometryDrawing.Pen>
+            <Pen Brush="#7A4A0E" Thickness="6" LineJoin="Round" />
+        </GeometryDrawing.Pen>
+        <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="80,104,96,72" RadiusX="6" RadiusY="6" />
+        </GeometryDrawing.Geometry>
+    </GeometryDrawing>
+    <GeometryDrawing Brush="#C77D1A">
+        <GeometryDrawing.Pen>
+            <Pen Brush="#7A4A0E" Thickness="6" LineJoin="Round" />
+        </GeometryDrawing.Pen>
+        <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="72,82,112,26" RadiusX="6" RadiusY="6" />
+        </GeometryDrawing.Geometry>
+    </GeometryDrawing>
+    <GeometryDrawing Brush="#7A4A0E">
+        <GeometryDrawing.Geometry>
+            <RectangleGeometry Rect="106,122,44,14" RadiusX="7" RadiusY="7" />
+        </GeometryDrawing.Geometry>
+    </GeometryDrawing>
+</DrawingGroup>

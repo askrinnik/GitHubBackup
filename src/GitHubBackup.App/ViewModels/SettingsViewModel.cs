@@ -18,7 +18,7 @@ namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
 /// Backs the settings editor: edits <c>backup-config.json</c>, the tool paths and the token saved in the token store,
-/// and checks a token against the GitHub API.
+/// checks a token against the GitHub API and switches the theme.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -76,6 +76,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     private readonly ISecretMasker _secretMasker;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<SettingsViewModel> _logger;
+    private readonly UiPreferences _preferences;
 
     /// <summary>The configuration as read, whose values the editor does not show are written back.</summary>
     private BackupConfig? _loaded;
@@ -148,6 +149,13 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [ObservableProperty]
     private string? _tokenCheckError;
 
+    /// <summary>
+    /// The theme chosen in the list; it applies and is saved at once, apart from the configuration, so Save and Cancel
+    /// do not concern it.
+    /// </summary>
+    [ObservableProperty]
+    private ThemeOption _selectedTheme;
+
     /// <summary>The errors that belong to no field.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasGeneralErrors))]
@@ -194,6 +202,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <param name="secretMasker">Masks secrets in messages before the editor shows them.</param>
     /// <param name="timeProvider">Supplies the local time zone of the rate limit reset time.</param>
     /// <param name="logger">Logs the failures of reading and writing.</param>
+    /// <param name="preferences">Applies and saves the theme chosen in the list.</param>
     public SettingsViewModel(
         IBackupConfigStore configStore,
         IToolPathsStore toolPathsStore,
@@ -204,7 +213,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         IDialogService dialogs,
         ISecretMasker secretMasker,
         TimeProvider timeProvider,
-        ILogger<SettingsViewModel> logger)
+        ILogger<SettingsViewModel> logger,
+        UiPreferences preferences)
     {
         _configStore = configStore;
         _toolPathsStore = toolPathsStore;
@@ -216,6 +226,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         _secretMasker = secretMasker;
         _timeProvider = timeProvider;
         _logger = logger;
+        _preferences = preferences;
+        _selectedTheme = ThemeOptions.First(option => option.Value == preferences.Theme);
 
         var tools = toolPathsStore.Current;
         _gitPath = tools.GitPath ?? string.Empty;
@@ -227,6 +239,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Gets the standalone repositories, in file order.</summary>
     public ObservableCollection<RepositorySettingsViewModel> Repositories { get; } = [];
+
+    /// <summary>Gets the entries of the theme list.</summary>
+    public static IReadOnlyList<ThemeOption> ThemeOptions => ThemeOption.All;
+
+    /// <summary>Gets the change of theme last started from the list, which completes when the theme is saved.</summary>
+    internal Task ThemeChange { get; private set; } = Task.CompletedTask;
 
     /// <summary>Gets the location of the saved token, for the label of the token field.</summary>
     public string TokenStoreLocation => _tokenStore.Location;
@@ -772,6 +790,11 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         _toolsDirty = true;
         ToolsStatus = null;
     }
+
+    /// <summary>Applies and saves the chosen theme.</summary>
+    /// <param name="value">The chosen entry.</param>
+    partial void OnSelectedThemeChanged(ThemeOption value) =>
+        ThemeChange = _preferences.ChangeThemeAsync(value.Value, CancellationToken.None);
 
     /// <summary>Clears the error of the token field when the user types.</summary>
     /// <param name="value">The new token.</param>

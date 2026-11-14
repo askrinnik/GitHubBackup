@@ -9,6 +9,7 @@
         Title="Discovered repositories" Height="480" Width="1100"
         WindowStartupLocation="CenterOwner"
         ShowInTaskbar="False"
+        Icon="pack://application:,,,/GitHubBackup.App;component/Assets/GitHubBackup.ico"
         AutomationProperties.AutomationId="DiscoveryReviewWindow">
     <Window.InputBindings>
         <KeyBinding Key="Escape" Command="{Binding CancelCommand, Mode=OneWay}" />
