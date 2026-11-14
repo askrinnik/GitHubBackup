@@ -6,7 +6,7 @@ paths:
 
 # Documentation
 
-- Documentation under `docs/` and `README.md` is written in **Russian** (NFR-7). Identifiers, commands, paths, file names and code stay as they are in the code (English).
+- The program documentation — `README.md` (user guide) and `docs/development.md` (developer guide) — is written in **English**. The PRD, plans (`docs/plans/`) and the AI harness documentation (`docs/ai/`) are written in **Russian** (NFR-7). Identifiers, commands, paths, file names and code stay as they are in the code (English).
 - `docs/PRD.md` is the source of truth. Every edit to it:
   - bumps `Версия документа` in the header table and sets `Дата`;
   - adds a row to *История изменений документа* that says what changed;
