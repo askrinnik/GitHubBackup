@@ -113,4 +113,20 @@ internal static partial class AppLog
     /// <param name="path">The path of the missing configuration file.</param>
     [LoggerMessage(EventId = 13, Level = LogLevel.Information, Message = "The backup configuration file {Path} does not exist yet; the settings editor creates it")]
     public static partial void BackupConfigMissing(ILogger logger, string path);
+
+    /// <summary>
+    /// Logs that the preferences of the user interface cannot be read; the defaults apply.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 14, Level = LogLevel.Warning, Message = "The user interface preferences cannot be read; the defaults apply")]
+    public static partial void UiSettingsLoadFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the preferences of the user interface cannot be written; the application goes on without them.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 15, Level = LogLevel.Warning, Message = "The user interface preferences cannot be saved")]
+    public static partial void UiSettingsSaveFailed(ILogger logger, Exception exception);
 }

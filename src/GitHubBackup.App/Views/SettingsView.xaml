@@ -9,9 +9,9 @@
              d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
              Loaded="OnLoaded">
     <UserControl.Resources>
-        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,12,0,4" />
+        <Style x:Key="GroupStyle" TargetType="GroupBox">
+            <Setter Property="Margin" Value="0,0,0,12" />
+            <Setter Property="Padding" Value="8" />
         </Style>
         <Style x:Key="LabelStyle" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,0,2" />
@@ -68,7 +68,7 @@
                    AutomationProperties.AutomationId="SettingsNewConfigMessage" />
         <Border DockPanel.Dock="Top"
                 Visibility="{Binding HasWarnings, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                Background="LightYellow"
+                Background="#33DAA520"
                 BorderBrush="DarkGoldenrod"
                 BorderThickness="1"
                 Padding="8"
@@ -84,219 +84,247 @@
         </Border>
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="0,0,8,0">
-                <StackPanel IsEnabled="{Binding IsLoaded, Mode=OneWay}">
-                    <TextBlock Text="Backup configuration" Style="{StaticResource SectionHeaderStyle}" Margin="0,0,0,4" />
-                    <TextBlock Text="Archive root folder" Style="{StaticResource LabelStyle}" />
-                    <TextBox Text="{Binding BackupRoot, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource FormTextBoxStyle}"
-                             AutomationProperties.AutomationId="BackupRootBox" />
-                    <TextBlock Text="Clone root folder (empty: the sources folder next to the application)" Style="{StaticResource LabelStyle}" />
-                    <TextBox Text="{Binding SourcesRoot, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource FormTextBoxStyle}"
-                             AutomationProperties.AutomationId="SourcesRootBox" />
-                    <TextBlock Text="Exclusion masks for every repository, separated by commas (owner/name or name, with * and ?)" Style="{StaticResource LabelStyle}" />
-                    <TextBox Text="{Binding Exclude, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource FormTextBoxStyle}"
-                             AutomationProperties.AutomationId="GlobalExcludeBox" />
-                    <CheckBox Content="Offer repositories of owners that are not tracked accounts (discoverAccessibleRepositories)"
-                              IsChecked="{Binding DiscoverAccessibleRepositories, Mode=TwoWay}"
-                              Margin="0,4,0,0"
-                              AutomationProperties.AutomationId="DiscoverAccessibleRepositoriesCheckBox" />
+                <GroupBox Header="General"
+                          Style="{StaticResource GroupStyle}"
+                          AutomationProperties.AutomationId="SettingsGeneralGroup">
+                    <StackPanel>
+                        <StackPanel IsEnabled="{Binding IsLoaded, Mode=OneWay}">
+                            <TextBlock Text="Archive root folder" Style="{StaticResource LabelStyle}" />
+                            <TextBox Text="{Binding BackupRoot, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource FormTextBoxStyle}"
+                                     AutomationProperties.AutomationId="BackupRootBox" />
+                            <TextBlock Text="Clone root folder (empty: the sources folder next to the application)" Style="{StaticResource LabelStyle}" />
+                            <TextBox Text="{Binding SourcesRoot, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource FormTextBoxStyle}"
+                                     AutomationProperties.AutomationId="SourcesRootBox" />
+                            <TextBlock Text="Exclusion masks for every repository, separated by commas (owner/name or name, with * and ?)" Style="{StaticResource LabelStyle}" />
+                            <TextBox Text="{Binding Exclude, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                     Style="{StaticResource FormTextBoxStyle}"
+                                     AutomationProperties.AutomationId="GlobalExcludeBox" />
+                            <CheckBox Content="Offer repositories of owners that are not tracked accounts (discoverAccessibleRepositories)"
+                                      IsChecked="{Binding DiscoverAccessibleRepositories, Mode=TwoWay}"
+                                      Margin="0,4,0,0"
+                                      AutomationProperties.AutomationId="DiscoverAccessibleRepositoriesCheckBox" />
+                        </StackPanel>
+                        <!-- The theme applies and is saved at once, so it stays available when backup-config.json cannot be read. -->
+                        <TextBlock Text="Theme" Style="{StaticResource LabelStyle}" Margin="0,8,0,2" />
+                        <ComboBox ItemsSource="{x:Static vm:SettingsViewModel.ThemeOptions}"
+                                  SelectedItem="{Binding SelectedTheme, Mode=TwoWay}"
+                                  DisplayMemberPath="Label"
+                                  HorizontalAlignment="Left"
+                                  MinWidth="160"
+                                  AutomationProperties.AutomationId="ThemeComboBox" />
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="Accounts and repositories"
+                          Style="{StaticResource GroupStyle}"
+                          IsEnabled="{Binding IsLoaded, Mode=OneWay}"
+                          AutomationProperties.AutomationId="SettingsAccountsGroup">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,4">
+                            <Button DockPanel.Dock="Right"
+                                    Content="Add account"
+                                    Command="{Binding AddAccountCommand, Mode=OneWay}"
+                                    Padding="8,2"
+                                    AutomationProperties.AutomationId="AddAccountButton" />
+                            <TextBlock Text="Accounts" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Accounts, Mode=OneWay}" AutomationProperties.AutomationId="AccountsList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:AccountSettingsViewModel}">
+                                    <Border BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
+                                            BorderThickness="1"
+                                            Padding="8"
+                                            Margin="0,0,0,8">
+                                        <StackPanel>
+                                            <DockPanel>
+                                                <Button DockPanel.Dock="Right"
+                                                        Content="Remove account"
+                                                        Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}"
+                                                        CommandParameter="{Binding Mode=OneWay}"
+                                                        Style="{StaticResource RowButtonStyle}"
+                                                        AutomationProperties.AutomationId="RemoveAccountButton" />
+                                                <StackPanel>
+                                                    <TextBlock Text="Account URL (https://github.com/&lt;login&gt;)" Style="{StaticResource LabelStyle}" />
+                                                    <TextBox Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                             Style="{StaticResource FormTextBoxStyle}"
+                                                             AutomationProperties.AutomationId="AccountUrlBox" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                            <TextBlock Text="Archive folder of the account (empty: backup root\owner)" Style="{StaticResource LabelStyle}" />
+                                            <TextBox Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource FormTextBoxStyle}"
+                                                     AutomationProperties.AutomationId="AccountPathBox" />
+                                            <TextBlock Text="Exclusion masks of the account, separated by commas" Style="{StaticResource LabelStyle}" />
+                                            <TextBox Text="{Binding Exclude, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                     Style="{StaticResource FormTextBoxStyle}"
+                                                     AutomationProperties.AutomationId="AccountExcludeBox" />
+                                            <TextBlock Text="Repositories: branch (empty: default) and archive folder (empty: derived from the account)" Style="{StaticResource LabelStyle}" />
+                                            <ItemsControl ItemsSource="{Binding Repositories, Mode=OneWay}"
+                                                          MaxHeight="240"
+                                                          Template="{StaticResource ScrollingItemsTemplate}"
+                                                          ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
+                                                          VirtualizingPanel.IsVirtualizing="True"
+                                                          VirtualizingPanel.VirtualizationMode="Recycling"
+                                                          AutomationProperties.AutomationId="AccountRepositoriesList">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate DataType="{x:Type vm:AccountRepositorySettingsViewModel}">
+                                                        <Grid>
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="180" />
+                                                                <ColumnDefinition Width="140" />
+                                                                <ColumnDefinition Width="*" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <TextBlock Grid.Column="0" Text="{Binding Name, Mode=OneWay}" Margin="0,2,8,0" TextTrimming="CharacterEllipsis" />
+                                                            <TextBox Grid.Column="1"
+                                                                     Text="{Binding Branch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     Style="{StaticResource FormTextBoxStyle}"
+                                                                     AutomationProperties.AutomationId="AccountRepositoryBranchBox" />
+                                                            <TextBox Grid.Column="2"
+                                                                     Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                     Style="{StaticResource FormTextBoxStyle}"
+                                                                     Margin="8,0,0,6"
+                                                                     AutomationProperties.AutomationId="AccountRepositoryPathBox" />
+                                                            <Button Grid.Column="3"
+                                                                    Content="Remove"
+                                                                    Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}, Mode=OneWay}"
+                                                                    CommandParameter="{Binding Mode=OneWay}"
+                                                                    Style="{StaticResource RowButtonStyle}"
+                                                                    AutomationProperties.AutomationId="RemoveAccountRepositoryButton" />
+                                                        </Grid>
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
 
-                    <DockPanel Margin="0,12,0,4">
-                        <Button DockPanel.Dock="Right"
-                                Content="Add account"
-                                Command="{Binding AddAccountCommand, Mode=OneWay}"
-                                Padding="8,2"
-                                AutomationProperties.AutomationId="AddAccountButton" />
-                        <TextBlock Text="Accounts" FontWeight="SemiBold" VerticalAlignment="Center" />
-                    </DockPanel>
-                    <ItemsControl ItemsSource="{Binding Accounts, Mode=OneWay}" AutomationProperties.AutomationId="AccountsList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:AccountSettingsViewModel}">
-                                <Border BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
-                                        BorderThickness="1"
-                                        Padding="8"
-                                        Margin="0,0,0,8">
-                                    <StackPanel>
-                                        <DockPanel>
-                                            <Button DockPanel.Dock="Right"
-                                                    Content="Remove account"
-                                                    Command="{Binding DataContext.RemoveAccountCommand, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}"
-                                                    CommandParameter="{Binding Mode=OneWay}"
-                                                    Style="{StaticResource RowButtonStyle}"
-                                                    AutomationProperties.AutomationId="RemoveAccountButton" />
-                                            <StackPanel>
-                                                <TextBlock Text="Account URL (https://github.com/&lt;login&gt;)" Style="{StaticResource LabelStyle}" />
-                                                <TextBox Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                         Style="{StaticResource FormTextBoxStyle}"
-                                                         AutomationProperties.AutomationId="AccountUrlBox" />
-                                            </StackPanel>
-                                        </DockPanel>
-                                        <TextBlock Text="Archive folder of the account (empty: backup root\owner)" Style="{StaticResource LabelStyle}" />
-                                        <TextBox Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        <DockPanel Margin="0,12,0,4">
+                            <Button DockPanel.Dock="Right"
+                                    Content="Add repository"
+                                    Command="{Binding AddRepositoryCommand, Mode=OneWay}"
+                                    Padding="8,2"
+                                    AutomationProperties.AutomationId="AddRepositoryButton" />
+                            <TextBlock Text="Standalone repositories: URL, branch (empty: default) and archive folder (empty: backup root\owner\repo)"
+                                       FontWeight="SemiBold"
+                                       VerticalAlignment="Center"
+                                       TextWrapping="Wrap" />
+                        </DockPanel>
+                        <ItemsControl ItemsSource="{Binding Repositories, Mode=OneWay}"
+                                      MaxHeight="320"
+                                      Template="{StaticResource ScrollingItemsTemplate}"
+                                      ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
+                                      VirtualizingPanel.IsVirtualizing="True"
+                                      VirtualizingPanel.VirtualizationMode="Recycling"
+                                      AutomationProperties.AutomationId="RepositoriesList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type vm:RepositorySettingsViewModel}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="2*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox Grid.Column="0"
+                                                 Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                  Style="{StaticResource FormTextBoxStyle}"
-                                                 AutomationProperties.AutomationId="AccountPathBox" />
-                                        <TextBlock Text="Exclusion masks of the account, separated by commas" Style="{StaticResource LabelStyle}" />
-                                        <TextBox Text="{Binding Exclude, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 AutomationProperties.AutomationId="RepositoryUrlBox" />
+                                        <TextBox Grid.Column="1"
+                                                 Text="{Binding Branch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                  Style="{StaticResource FormTextBoxStyle}"
-                                                 AutomationProperties.AutomationId="AccountExcludeBox" />
-                                        <TextBlock Text="Repositories: branch (empty: default) and archive folder (empty: derived from the account)" Style="{StaticResource LabelStyle}" />
-                                        <ItemsControl ItemsSource="{Binding Repositories, Mode=OneWay}"
-                                                      MaxHeight="240"
-                                                      Template="{StaticResource ScrollingItemsTemplate}"
-                                                      ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
-                                                      VirtualizingPanel.IsVirtualizing="True"
-                                                      VirtualizingPanel.VirtualizationMode="Recycling"
-                                                      AutomationProperties.AutomationId="AccountRepositoriesList">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="{x:Type vm:AccountRepositorySettingsViewModel}">
-                                                    <Grid>
-                                                        <Grid.ColumnDefinitions>
-                                                            <ColumnDefinition Width="180" />
-                                                            <ColumnDefinition Width="140" />
-                                                            <ColumnDefinition Width="*" />
-                                                            <ColumnDefinition Width="Auto" />
-                                                        </Grid.ColumnDefinitions>
-                                                        <TextBlock Grid.Column="0" Text="{Binding Name, Mode=OneWay}" Margin="0,2,8,0" TextTrimming="CharacterEllipsis" />
-                                                        <TextBox Grid.Column="1"
-                                                                 Text="{Binding Branch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                                 Style="{StaticResource FormTextBoxStyle}"
-                                                                 AutomationProperties.AutomationId="AccountRepositoryBranchBox" />
-                                                        <TextBox Grid.Column="2"
-                                                                 Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                                 Style="{StaticResource FormTextBoxStyle}"
-                                                                 Margin="8,0,0,6"
-                                                                 AutomationProperties.AutomationId="AccountRepositoryPathBox" />
-                                                        <Button Grid.Column="3"
-                                                                Content="Remove"
-                                                                Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}, Mode=OneWay}"
-                                                                CommandParameter="{Binding Mode=OneWay}"
-                                                                Style="{StaticResource RowButtonStyle}"
-                                                                AutomationProperties.AutomationId="RemoveAccountRepositoryButton" />
-                                                    </Grid>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-
-                    <DockPanel Margin="0,12,0,4">
-                        <Button DockPanel.Dock="Right"
-                                Content="Add repository"
-                                Command="{Binding AddRepositoryCommand, Mode=OneWay}"
-                                Padding="8,2"
-                                AutomationProperties.AutomationId="AddRepositoryButton" />
-                        <TextBlock Text="Standalone repositories: URL, branch (empty: default) and archive folder (empty: backup root\owner\repo)"
-                                   FontWeight="SemiBold"
-                                   VerticalAlignment="Center"
-                                   TextWrapping="Wrap" />
-                    </DockPanel>
-                    <ItemsControl ItemsSource="{Binding Repositories, Mode=OneWay}"
-                                  MaxHeight="320"
-                                  Template="{StaticResource ScrollingItemsTemplate}"
-                                  ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
-                                  VirtualizingPanel.IsVirtualizing="True"
-                                  VirtualizingPanel.VirtualizationMode="Recycling"
-                                  AutomationProperties.AutomationId="RepositoriesList">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate DataType="{x:Type vm:RepositorySettingsViewModel}">
-                                <Grid>
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="140" />
-                                        <ColumnDefinition Width="2*" />
-                                        <ColumnDefinition Width="Auto" />
-                                    </Grid.ColumnDefinitions>
-                                    <TextBox Grid.Column="0"
-                                             Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             Style="{StaticResource FormTextBoxStyle}"
-                                             AutomationProperties.AutomationId="RepositoryUrlBox" />
-                                    <TextBox Grid.Column="1"
-                                             Text="{Binding Branch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             Style="{StaticResource FormTextBoxStyle}"
-                                             Margin="8,0,0,6"
-                                             AutomationProperties.AutomationId="RepositoryBranchBox" />
-                                    <TextBox Grid.Column="2"
-                                             Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                             Style="{StaticResource FormTextBoxStyle}"
-                                             Margin="8,0,0,6"
-                                             AutomationProperties.AutomationId="RepositoryPathBox" />
-                                    <Button Grid.Column="3"
-                                            Content="Remove"
-                                            Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}"
-                                            CommandParameter="{Binding Mode=OneWay}"
-                                            Style="{StaticResource RowButtonStyle}"
-                                            AutomationProperties.AutomationId="RemoveRepositoryButton" />
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-
-                <TextBlock Text="Tools (take effect after the application restarts)" Style="{StaticResource SectionHeaderStyle}" />
-                <TextBlock Text="Path of git.exe (empty: git from PATH)" Style="{StaticResource LabelStyle}" />
-                <TextBox Text="{Binding GitPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         Style="{StaticResource FormTextBoxStyle}"
-                         AutomationProperties.AutomationId="GitPathBox" />
-                <TextBlock Text="Path of 7z.exe (empty: the default location)" Style="{StaticResource LabelStyle}" />
-                <TextBox Text="{Binding SevenZipPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                         Style="{StaticResource FormTextBoxStyle}"
-                         AutomationProperties.AutomationId="SevenZipPathBox" />
-                <StackPanel Orientation="Horizontal">
-                    <Button Content="Save tool paths"
-                            Command="{Binding SaveToolsCommand, Mode=OneWay}"
-                            Padding="8,2"
-                            AutomationProperties.AutomationId="SaveToolsButton" />
-                    <TextBlock Text="{Binding ToolsStatus, Mode=OneWay}"
-                               Style="{StaticResource OptionalLineStyle}"
-                               VerticalAlignment="Center"
-                               Margin="8,0,0,0"
-                               AutomationProperties.AutomationId="ToolsStatus" />
-                </StackPanel>
-
-                <TextBlock Text="GitHub token" Style="{StaticResource SectionHeaderStyle}" />
-                <TextBlock Text="{Binding TokenStoreLocation, Mode=OneWay, StringFormat='The token is saved in {0}.'}"
-                           Style="{StaticResource LabelStyle}" />
-                <PasswordBox behaviors:PasswordBoxBinding.Password="{Binding Token, Mode=TwoWay}"
-                             AutomationProperties.AutomationId="TokenBox" />
-                <TextBlock Text="{Binding TokenError, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           Foreground="Firebrick"
-                           AutomationProperties.AutomationId="TokenError" />
-                <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                    <Button Content="Save token"
-                            Command="{Binding SaveTokenCommand, Mode=OneWay}"
-                            Padding="8,2" Margin="0,0,8,0"
-                            AutomationProperties.AutomationId="SaveTokenButton" />
-                    <Button Content="Check token"
-                            Command="{Binding CheckTokenCommand, Mode=OneWay}"
-                            ToolTip="Checks the token in the field, or the token the application uses when the field is empty."
-                            Padding="8,2" Margin="0,0,8,0"
-                            AutomationProperties.AutomationId="CheckTokenButton" />
-                    <Button Content="Cancel check"
-                            Command="{Binding CheckTokenCancelCommand, Mode=OneWay}"
-                            Padding="8,2"
-                            AutomationProperties.AutomationId="CancelTokenCheckButton" />
-                </StackPanel>
-                <TextBlock Text="{Binding TokenStatus, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           Margin="0,6,0,0"
-                           AutomationProperties.AutomationId="TokenStatus" />
-                <TextBlock Text="{Binding TokenWarning, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           Foreground="DarkGoldenrod"
-                           AutomationProperties.AutomationId="TokenWarning" />
-                <ItemsControl ItemsSource="{Binding TokenCheckLines, Mode=OneWay}"
-                              Margin="0,6,0,0"
-                              AutomationProperties.AutomationId="TokenCheckResult" />
-                <TextBlock Text="{Binding TokenCheckError, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           Foreground="Firebrick"
-                           AutomationProperties.AutomationId="TokenCheckError" />
+                                                 Margin="8,0,0,6"
+                                                 AutomationProperties.AutomationId="RepositoryBranchBox" />
+                                        <TextBox Grid.Column="2"
+                                                 Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 Style="{StaticResource FormTextBoxStyle}"
+                                                 Margin="8,0,0,6"
+                                                 AutomationProperties.AutomationId="RepositoryPathBox" />
+                                        <Button Grid.Column="3"
+                                                Content="Remove"
+                                                Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}"
+                                                CommandParameter="{Binding Mode=OneWay}"
+                                                Style="{StaticResource RowButtonStyle}"
+                                                AutomationProperties.AutomationId="RemoveRepositoryButton" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="Tools"
+                          Style="{StaticResource GroupStyle}"
+                          AutomationProperties.AutomationId="SettingsToolsGroup">
+                    <StackPanel>
+                        <TextBlock Text="The tool paths take effect after the application restarts." Style="{StaticResource LabelStyle}" Margin="0,0,0,6" />
+                        <TextBlock Text="Path of git.exe (empty: git from PATH)" Style="{StaticResource LabelStyle}" />
+                        <TextBox Text="{Binding GitPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource FormTextBoxStyle}"
+                                 AutomationProperties.AutomationId="GitPathBox" />
+                        <TextBlock Text="Path of 7z.exe (empty: the default location)" Style="{StaticResource LabelStyle}" />
+                        <TextBox Text="{Binding SevenZipPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource FormTextBoxStyle}"
+                                 AutomationProperties.AutomationId="SevenZipPathBox" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Save tool paths"
+                                    Command="{Binding SaveToolsCommand, Mode=OneWay}"
+                                    Padding="8,2"
+                                    AutomationProperties.AutomationId="SaveToolsButton" />
+                            <TextBlock Text="{Binding ToolsStatus, Mode=OneWay}"
+                                       Style="{StaticResource OptionalLineStyle}"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       AutomationProperties.AutomationId="ToolsStatus" />
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
+                <GroupBox Header="GitHub token"
+                          Style="{StaticResource GroupStyle}"
+                          AutomationProperties.AutomationId="SettingsTokenGroup">
+                    <StackPanel>
+                        <TextBlock Text="{Binding TokenStoreLocation, Mode=OneWay, StringFormat='The token is saved in {0}.'}"
+                                   Style="{StaticResource LabelStyle}" />
+                        <PasswordBox behaviors:PasswordBoxBinding.Password="{Binding Token, Mode=TwoWay}"
+                                     AutomationProperties.AutomationId="TokenBox" />
+                        <TextBlock Text="{Binding TokenError, Mode=OneWay}"
+                                   Style="{StaticResource OptionalLineStyle}"
+                                   Foreground="Firebrick"
+                                   AutomationProperties.AutomationId="TokenError" />
+                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                            <Button Content="Save token"
+                                    Command="{Binding SaveTokenCommand, Mode=OneWay}"
+                                    Padding="8,2" Margin="0,0,8,0"
+                                    AutomationProperties.AutomationId="SaveTokenButton" />
+                            <Button Content="Check token"
+                                    Command="{Binding CheckTokenCommand, Mode=OneWay}"
+                                    ToolTip="Checks the token in the field, or the token the application uses when the field is empty."
+                                    Padding="8,2" Margin="0,0,8,0"
+                                    AutomationProperties.AutomationId="CheckTokenButton" />
+                            <Button Content="Cancel check"
+                                    Command="{Binding CheckTokenCancelCommand, Mode=OneWay}"
+                                    Padding="8,2"
+                                    AutomationProperties.AutomationId="CancelTokenCheckButton" />
+                        </StackPanel>
+                        <TextBlock Text="{Binding TokenStatus, Mode=OneWay}"
+                                   Style="{StaticResource OptionalLineStyle}"
+                                   Margin="0,6,0,0"
+                                   AutomationProperties.AutomationId="TokenStatus" />
+                        <TextBlock Text="{Binding TokenWarning, Mode=OneWay}"
+                                   Style="{StaticResource OptionalLineStyle}"
+                                   Foreground="DarkGoldenrod"
+                                   AutomationProperties.AutomationId="TokenWarning" />
+                        <ItemsControl ItemsSource="{Binding TokenCheckLines, Mode=OneWay}"
+                                      Margin="0,6,0,0"
+                                      AutomationProperties.AutomationId="TokenCheckResult" />
+                        <TextBlock Text="{Binding TokenCheckError, Mode=OneWay}"
+                                   Style="{StaticResource OptionalLineStyle}"
+                                   Foreground="Firebrick"
+                                   AutomationProperties.AutomationId="TokenCheckError" />
+                    </StackPanel>
+                </GroupBox>
             </StackPanel>
         </ScrollViewer>
     </DockPanel>

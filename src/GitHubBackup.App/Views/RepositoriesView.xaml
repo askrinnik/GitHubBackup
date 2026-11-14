@@ -4,9 +4,34 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
+             xmlns:ui="clr-namespace:GitHubBackup.Core.Ui;assembly=GitHubBackup.Core"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=vm:RepositoriesViewModel}"
              Loaded="OnLoaded">
+    <UserControl.Resources>
+        <!-- A splitter between two stacked panels: a wide transparent grip around a one-pixel line. -->
+        <Style x:Key="SplitterThumbStyle" TargetType="Thumb">
+            <Setter Property="Height" Value="9" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="Cursor" Value="SizeNS" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Thumb">
+                        <Border Background="Transparent">
+                            <Border Height="1"
+                                    VerticalAlignment="Center"
+                                    Background="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Between the tree (star) and the live log (fixed), a grid splitter resizes only the log; the tree takes the rest. -->
+        <Style x:Key="RowSplitterStyle" TargetType="GridSplitter" BasedOn="{StaticResource SplitterThumbStyle}">
+            <Setter Property="ResizeDirection" Value="Rows" />
+            <Setter Property="ResizeBehavior" Value="PreviousAndNext" />
+        </Style>
+    </UserControl.Resources>
     <DockPanel Margin="8">
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
             <Button Content="Backup all"
@@ -74,166 +99,228 @@
             <TextBlock Text="{Binding ProgressOperation, Mode=OneWay}"
                        AutomationProperties.AutomationId="RunProgressOperation" />
         </StackPanel>
-        <Border DockPanel.Dock="Bottom"
-                Margin="0,8,0,0"
-                Padding="0,8,0,0"
-                BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
-                Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                AutomationProperties.AutomationId="RunSummary">
-            <StackPanel DataContext="{Binding Summary, Mode=OneWay}">
-                <TextBlock Text="{Binding Header, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           AutomationProperties.AutomationId="RunSummaryHeader" />
-                <ItemsControl ItemsSource="{Binding Errors, Mode=OneWay}"
-                              Visibility="{Binding HasErrors, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                              AutomationProperties.AutomationId="RunSummaryErrors">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Mode=OneWay, StringFormat='Error: {0}'}"
-                                       Foreground="Firebrick"
-                                       TextWrapping="Wrap" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <ItemsControl ItemsSource="{Binding Warnings, Mode=OneWay}"
-                              Visibility="{Binding HasWarnings, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                              AutomationProperties.AutomationId="RunSummaryWarnings">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <TextBlock Text="{Binding Mode=OneWay, StringFormat='Warning: {0}'}"
-                                       Foreground="DarkGoldenrod"
-                                       TextWrapping="Wrap" />
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-                <ListView ItemsSource="{Binding Rows, Mode=OneWay}"
-                          Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                          MaxHeight="160"
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition x:Name="TreeRow" Height="*" MinHeight="60" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="{Binding Layout.LogPanelHeight, Mode=TwoWay, Converter={StaticResource PixelGridLengthConverter}}"
+                               MinHeight="{x:Static ui:UiSettings.MinLogPanelHeight}"
+                               MaxHeight="{x:Static ui:UiSettings.MaxLogPanelHeight}" />
+                <RowDefinition Height="Auto" />
+                <!-- The summary row takes no space until a run has a summary. -->
+                <RowDefinition x:Name="SummaryRow">
+                    <RowDefinition.Height>
+                        <MultiBinding Mode="TwoWay" Converter="{StaticResource OptionalRowHeightConverter}">
+                            <Binding Path="Layout.SummaryPanelHeight" Mode="TwoWay" />
+                            <Binding Path="HasSummary" Mode="OneWay" />
+                        </MultiBinding>
+                    </RowDefinition.Height>
+                    <RowDefinition.Style>
+                        <Style TargetType="RowDefinition">
+                            <Setter Property="MinHeight" Value="{x:Static ui:UiSettings.MinSummaryPanelHeight}" />
+                            <Setter Property="MaxHeight" Value="{x:Static ui:UiSettings.MaxSummaryPanelHeight}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding HasSummary, Mode=OneWay}" Value="False">
+                                    <Setter Property="MinHeight" Value="0" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </RowDefinition.Style>
+                </RowDefinition>
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <TreeView ItemsSource="{Binding Nodes, Mode=OneWay}"
+                          Grid.IsSharedSizeScope="True"
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
-                          AutomationProperties.AutomationId="RunSummaryTable">
-                    <ListView.View>
-                        <GridView>
-                            <GridViewColumn Header="Repository" DisplayMemberBinding="{Binding Repository, Mode=OneWay}" />
-                            <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status, Mode=OneWay}" />
-                            <GridViewColumn Header="Archive" DisplayMemberBinding="{Binding Archive, Mode=OneWay}" />
-                            <GridViewColumn Header="Duration" DisplayMemberBinding="{Binding Duration, Mode=OneWay}" />
-                            <GridViewColumn Header="Error" DisplayMemberBinding="{Binding Error, Mode=OneWay}" />
-                        </GridView>
-                    </ListView.View>
-                </ListView>
-                <TextBlock Text="{Binding NoRepositoriesLine, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           AutomationProperties.AutomationId="RunSummaryNoRepositories" />
-                <ItemsControl ItemsSource="{Binding DiscoveryLines, Mode=OneWay}"
-                              Visibility="{Binding HasDiscoveryLines, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                              AutomationProperties.AutomationId="RunSummaryDiscovery" />
-                <TextBlock Text="{Binding CancelledLine, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           Foreground="DarkGoldenrod"
-                           AutomationProperties.AutomationId="RunSummaryCancelled" />
-                <TextBlock Text="{Binding TotalsLine, Mode=OneWay}"
-                           Style="{StaticResource OptionalLineStyle}"
-                           AutomationProperties.AutomationId="RunSummaryTotals" />
-                <TextBlock Text="{Binding LogPath, Mode=OneWay, StringFormat='Log: {0}'}"
+                          AutomationProperties.AutomationId="RepositoryTree">
+                    <TreeView.ItemContainerStyle>
+                        <Style TargetType="TreeViewItem">
+                            <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName, Mode=OneWay}" />
+                        </Style>
+                    </TreeView.ItemContainerStyle>
+                    <TreeView.Resources>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:AccountNodeViewModel}"
+                                                  ItemsSource="{Binding Children, Mode=OneWay}">
+                            <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
+                        </HierarchicalDataTemplate>
+                        <HierarchicalDataTemplate DataType="{x:Type vm:RepositoryGroupNodeViewModel}"
+                                                  ItemsSource="{Binding Children, Mode=OneWay}">
+                            <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
+                        </HierarchicalDataTemplate>
+                        <DataTemplate DataType="{x:Type vm:RepositoryNodeViewModel}">
+                            <!-- The shared size groups give the name and the status the width of the widest shown row,
+                                 so the columns line up across the accounts and the group of standalone repositories. -->
+                            <Grid ToolTip="{Binding StateError, Mode=OneWay}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" MinWidth="200" SharedSizeGroup="RepositoryNameColumn" />
+                                    <ColumnDefinition Width="Auto" MinWidth="102" SharedSizeGroup="RepositoryStatusColumn" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0"
+                                           Text="{Binding DisplayName, Mode=OneWay}"
+                                           AutomationProperties.AutomationId="RepositoryNameText" />
+                                <TextBlock Grid.Column="1"
+                                           Text="{Binding Status, Mode=OneWay}"
+                                           Margin="12,0,0,0"
+                                           AutomationProperties.AutomationId="RepositoryStatusText" />
+                                <TextBlock Grid.Column="2"
+                                           Text="{Binding LastArchiveText, Mode=OneWay}"
+                                           Margin="12,0,0,0"
+                                           AutomationProperties.AutomationId="RepositoryLastArchiveText" />
+                            </Grid>
+                        </DataTemplate>
+                    </TreeView.Resources>
+                </TreeView>
+                <TextBlock Text="{Binding LoadError, Mode=OneWay}"
+                           Visibility="{Binding HasLoadError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           Background="{DynamicResource ApplicationBackgroundBrush}"
+                           Foreground="Firebrick"
+                           Padding="8"
                            TextWrapping="Wrap"
-                           AutomationProperties.AutomationId="RunSummaryLogPath" />
-            </StackPanel>
-        </Border>
-        <ListBox x:Name="RunLogList"
-                 DockPanel.Dock="Bottom"
-                 Height="160"
-                 Margin="0,8,0,0"
-                 ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
-                 FontFamily="Consolas"
-                 VirtualizingPanel.IsVirtualizing="True"
-                 VirtualizingPanel.VirtualizationMode="Recycling"
-                 ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                 AutomationProperties.AutomationId="RunLog">
-            <ListBox.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
-                        <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
-                        <TextBlock Text="{Binding Message, Mode=OneWay}" />
-                        <StackPanel.Style>
-                            <Style TargetType="StackPanel">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
-                                        <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
-                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
-                                        <Setter Property="TextElement.Foreground" Value="Firebrick" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </StackPanel.Style>
-                    </StackPanel>
-                </DataTemplate>
-            </ListBox.ItemTemplate>
-        </ListBox>
-        <Grid>
-            <TreeView ItemsSource="{Binding Nodes, Mode=OneWay}"
-                      VirtualizingPanel.IsVirtualizing="True"
-                      VirtualizingPanel.VirtualizationMode="Recycling"
-                      AutomationProperties.AutomationId="RepositoryTree">
-                <TreeView.ItemContainerStyle>
-                    <Style TargetType="TreeViewItem">
-                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
-                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
-                        <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName, Mode=OneWay}" />
-                    </Style>
-                </TreeView.ItemContainerStyle>
-                <TreeView.Resources>
-                    <HierarchicalDataTemplate DataType="{x:Type vm:AccountNodeViewModel}"
-                                              ItemsSource="{Binding Children, Mode=OneWay}">
-                        <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
-                    </HierarchicalDataTemplate>
-                    <HierarchicalDataTemplate DataType="{x:Type vm:RepositoryGroupNodeViewModel}"
-                                              ItemsSource="{Binding Children, Mode=OneWay}">
-                        <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
-                    </HierarchicalDataTemplate>
-                    <DataTemplate DataType="{x:Type vm:RepositoryNodeViewModel}">
-                        <StackPanel Orientation="Horizontal"
-                                    ToolTip="{Binding StateError, Mode=OneWay}">
-                            <TextBlock Text="{Binding DisplayName, Mode=OneWay}" MinWidth="200" />
-                            <TextBlock Text="{Binding Status, Mode=OneWay}" MinWidth="90" Margin="12,0,0,0" />
-                            <TextBlock Text="{Binding LastArchiveText, Mode=OneWay}" Margin="12,0,0,0" />
+                           AutomationProperties.AutomationId="TreeLoadError" />
+                <TextBlock Text="backup-config.json lists no accounts and no repositories."
+                           Visibility="{Binding IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           TextWrapping="Wrap"
+                           AutomationProperties.AutomationId="EmptyTreeMessage" />
+                <StackPanel Visibility="{Binding IsConfigMissing, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center">
+                    <TextBlock Text="{x:Static vm:RepositoriesViewModel.ConfigMissingMessage}"
+                               TextWrapping="Wrap"
+                               HorizontalAlignment="Center"
+                               Margin="0,0,0,8"
+                               AutomationProperties.AutomationId="ConfigMissingMessage" />
+                    <Button Content="Open settings"
+                            Command="{Binding OpenSettingsCommand, Mode=OneWay}"
+                            HorizontalAlignment="Center"
+                            Padding="8,2"
+                            AutomationProperties.AutomationId="OpenSettingsFromFirstRunButton" />
+                </StackPanel>
+            </Grid>
+            <GridSplitter Grid.Row="1"
+                          Style="{StaticResource RowSplitterStyle}"
+                          AutomationProperties.AutomationId="TreeLogSplitter" />
+            <ListBox x:Name="RunLogList"
+                     Grid.Row="2"
+                     ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
+                     FontFamily="Consolas"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     AutomationProperties.AutomationId="RunLog">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
+                            <TextBlock Text="{Binding Message, Mode=OneWay}" />
+                            <StackPanel.Style>
+                                <Style TargetType="StackPanel">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
+                                            <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
+                                            <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
+                                            <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </StackPanel.Style>
                         </StackPanel>
                     </DataTemplate>
-                </TreeView.Resources>
-            </TreeView>
-            <TextBlock Text="{Binding LoadError, Mode=OneWay}"
-                       Visibility="{Binding HasLoadError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                       Background="{DynamicResource {x:Static SystemColors.WindowBrushKey}}"
-                       Foreground="Firebrick"
-                       Padding="8"
-                       TextWrapping="Wrap"
-                       AutomationProperties.AutomationId="TreeLoadError" />
-            <TextBlock Text="backup-config.json lists no accounts and no repositories."
-                       Visibility="{Binding IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       TextWrapping="Wrap"
-                       AutomationProperties.AutomationId="EmptyTreeMessage" />
-            <StackPanel Visibility="{Binding IsConfigMissing, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        HorizontalAlignment="Center"
-                        VerticalAlignment="Center">
-                <TextBlock Text="{x:Static vm:RepositoriesViewModel.ConfigMissingMessage}"
-                           TextWrapping="Wrap"
-                           HorizontalAlignment="Center"
-                           Margin="0,0,0,8"
-                           AutomationProperties.AutomationId="ConfigMissingMessage" />
-                <Button Content="Open settings"
-                        Command="{Binding OpenSettingsCommand, Mode=OneWay}"
-                        HorizontalAlignment="Center"
-                        Padding="8,2"
-                        AutomationProperties.AutomationId="OpenSettingsFromFirstRunButton" />
-            </StackPanel>
+                </ListBox.ItemTemplate>
+            </ListBox>
+            <!-- A grid splitter between two fixed rows would resize only the upper one, the live log; this splitter
+                 resizes the summary below it instead, and the tree takes the rest. -->
+            <Thumb Grid.Row="3"
+                   Style="{StaticResource SplitterThumbStyle}"
+                   Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                   DragDelta="OnLogSummarySplitterDragDelta"
+                   AutomationProperties.AutomationId="LogSummarySplitter" />
+            <Border Grid.Row="4"
+                    Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                    AutomationProperties.AutomationId="RunSummary">
+                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              AutomationProperties.AutomationId="RunSummaryScroll">
+                <StackPanel DataContext="{Binding Summary, Mode=OneWay}">
+                    <TextBlock Text="{Binding Header, Mode=OneWay}"
+                               Style="{StaticResource OptionalLineStyle}"
+                               AutomationProperties.AutomationId="RunSummaryHeader" />
+                    <ItemsControl ItemsSource="{Binding Errors, Mode=OneWay}"
+                                  Visibility="{Binding HasErrors, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                  AutomationProperties.AutomationId="RunSummaryErrors">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Mode=OneWay, StringFormat='Error: {0}'}"
+                                           Foreground="Firebrick"
+                                           TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ItemsControl ItemsSource="{Binding Warnings, Mode=OneWay}"
+                                  Visibility="{Binding HasWarnings, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                  AutomationProperties.AutomationId="RunSummaryWarnings">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding Mode=OneWay, StringFormat='Warning: {0}'}"
+                                           Foreground="DarkGoldenrod"
+                                           TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <ListView ItemsSource="{Binding Rows, Mode=OneWay}"
+                              Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              MaxHeight="160"
+                              VirtualizingPanel.IsVirtualizing="True"
+                              VirtualizingPanel.VirtualizationMode="Recycling"
+                              AutomationProperties.AutomationId="RunSummaryTable">
+                        <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Repository" DisplayMemberBinding="{Binding Repository, Mode=OneWay}" />
+                                <GridViewColumn Header="Status" DisplayMemberBinding="{Binding Status, Mode=OneWay}" />
+                                <GridViewColumn Header="Archive" DisplayMemberBinding="{Binding Archive, Mode=OneWay}" />
+                                <GridViewColumn Header="Duration" DisplayMemberBinding="{Binding Duration, Mode=OneWay}" />
+                                <GridViewColumn Header="Error" DisplayMemberBinding="{Binding Error, Mode=OneWay}" />
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                    <TextBlock Text="{Binding NoRepositoriesLine, Mode=OneWay}"
+                               Style="{StaticResource OptionalLineStyle}"
+                               AutomationProperties.AutomationId="RunSummaryNoRepositories" />
+                    <ItemsControl ItemsSource="{Binding DiscoveryLines, Mode=OneWay}"
+                                  Visibility="{Binding HasDiscoveryLines, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                  MaxHeight="160"
+                                  AutomationProperties.AutomationId="RunSummaryDiscovery">
+                        <ItemsControl.Template>
+                            <ControlTemplate TargetType="ItemsControl">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsPresenter />
+                                </ScrollViewer>
+                            </ControlTemplate>
+                        </ItemsControl.Template>
+                    </ItemsControl>
+                    <TextBlock Text="{Binding CancelledLine, Mode=OneWay}"
+                               Style="{StaticResource OptionalLineStyle}"
+                               Foreground="DarkGoldenrod"
+                               AutomationProperties.AutomationId="RunSummaryCancelled" />
+                    <TextBlock Text="{Binding TotalsLine, Mode=OneWay}"
+                               Style="{StaticResource OptionalLineStyle}"
+                               AutomationProperties.AutomationId="RunSummaryTotals" />
+                    <TextBlock Text="{Binding LogPath, Mode=OneWay, StringFormat='Log: {0}'}"
+                               TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="RunSummaryLogPath" />
+                </StackPanel>
+                </ScrollViewer>
+            </Border>
         </Grid>
     </DockPanel>
 </UserControl>

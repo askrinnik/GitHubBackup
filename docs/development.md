@@ -5,8 +5,9 @@ This guide covers building, testing, publishing and maintaining GitHubBackup. Fo
 ## Repository layout
 
 ```
+assets/    icon/: the application icon, its vector source (GitHubBackup.Icon.xaml) and the rendered GitHubBackup.ico
 docs/      documentation: PRD, implementation plans per issue, the AI harness description (docs/ai/), this guide
-scripts/   publish.ps1: publishes the application folder
+scripts/   publish.ps1: publishes the application folder; render-icon.ps1: renders the application icon
 src/       the GitHubBackup.slnx solution: projects and paired test projects
 .claude/ .ai/   AI harness for Claude Code (see docs/ai/README.md)
 ```
@@ -23,6 +24,7 @@ You need the .NET SDK 10.0.100 or a newer feature band of the same major version
 | Run the console application | `dotnet run --project src/GitHubBackup.Cli` |
 | Run the WPF application | `dotnet run --project src/GitHubBackup.App` |
 | Publish the application folder | `pwsh -File scripts/publish.ps1` |
+| Render the application icon | `pwsh -File scripts/render-icon.ps1` |
 
 With `dotnet run`, pass the application arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`.
 
@@ -64,6 +66,18 @@ The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` 
 - git in `PATH` and 7-Zip in `C:\Program Files\7-Zip\7z.exe` (the discovery dialog scenario uses them).
 
 The tests run one at a time. A failing test saves screenshots of the application windows to the folder from the variable `UI_TEST_SCREENSHOTS`; without it, they go to `Screenshots` next to the test assembly.
+
+## Application icon
+
+Both exe files, the windows of the WPF application and its taskbar button use one icon, `assets/icon/GitHubBackup.ico`. Its source is the WPF `DrawingGroup` in `assets/icon/GitHubBackup.Icon.xaml`, drawn on a 256 x 256 canvas. After you change the source, render the icon and commit both files:
+
+```bash
+pwsh -File scripts/render-icon.ps1
+```
+
+The script (PowerShell 7 on Windows) renders the drawing with WPF into PNG frames of 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixels and writes them into the ICO file. It downloads nothing. The build uses the committed ICO and never runs the script, also in CI.
+
+Loading XAML can create arbitrary objects and run code, so render only a source you have reviewed. The script refuses a source that contains `ObjectDataProvider`, `x:Code` or `clr-namespace:System.Diagnostics`.
 
 ## Publishing
 
