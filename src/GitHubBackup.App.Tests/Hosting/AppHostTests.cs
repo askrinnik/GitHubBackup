@@ -1,9 +1,9 @@
+using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
-using GitHubBackup.Core.Discovery;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -69,11 +69,22 @@ public sealed class AppHostTests : IDisposable
     }
 
     [Fact]
-    public void BuildHost_DiscoveryDecisionHandler_IsDeferredHandler()
+    public void BuildHost_DiscoveryDecisionHandlerFactory_CreatesDialogHandler()
     {
         using var host = BuildHost();
 
-        host.Services.GetRequiredService<IDiscoveryDecisionHandler>().ShouldBeOfType<DeferredDiscoveryDecisionHandler>();
+        var factory = host.Services.GetRequiredService<IDiscoveryDecisionHandlerFactory>();
+
+        factory.ShouldBeOfType<DialogDiscoveryDecisionHandlerFactory>();
+        factory.Create(() => { }).ShouldBeOfType<DialogDiscoveryDecisionHandler>();
+    }
+
+    [Fact]
+    public void BuildHost_DiscoveryDialogService_IsWpfService()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IDiscoveryDialogService>().ShouldBeOfType<WpfDiscoveryDialogService>();
     }
 
     [Fact]

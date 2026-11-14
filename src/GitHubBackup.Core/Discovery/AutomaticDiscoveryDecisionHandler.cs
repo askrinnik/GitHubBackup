@@ -12,6 +12,10 @@ namespace GitHubBackup.Core.Discovery;
 public sealed class AutomaticDiscoveryDecisionHandler : IDiscoveryDecisionHandler
 {
     /// <inheritdoc />
+    public Task ReviewAsync(DiscoveryReview review, CancellationToken cancellationToken) =>
+        cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+
+    /// <inheritdoc />
     public Task<NewRepositoryDecision> DecideNewAsync(NewRepositoryProposal proposal, CancellationToken cancellationToken) =>
         cancellationToken.IsCancellationRequested
             ? Task.FromCanceled<NewRepositoryDecision>(cancellationToken)

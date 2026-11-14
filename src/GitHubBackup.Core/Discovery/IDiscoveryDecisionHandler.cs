@@ -10,6 +10,21 @@ namespace GitHubBackup.Core.Discovery;
 public interface IDiscoveryDecisionHandler
 {
     /// <summary>
+    /// Receives every finding of discovery before the first question about a single repository, so a host that
+    /// shows all findings together can collect its answers here.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="IDiscoveryDecisionApplier"/> calls this method once, before anything changes, and then asks
+    /// <see cref="DecideNewAsync"/> and <see cref="DecideRenameAsync"/> about each repository of
+    /// <paramref name="review"/> in the same order.
+    /// </remarks>
+    /// <param name="review">The findings.</param>
+    /// <param name="cancellationToken">Cancels the review.</param>
+    /// <returns>A task that completes when the handler has its answers.</returns>
+    /// <exception cref="OperationCanceledException">The user or <paramref name="cancellationToken"/> cancelled.</exception>
+    Task ReviewAsync(DiscoveryReview review, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Decides whether a new repository is added, skipped or excluded.
     /// </summary>
     /// <param name="proposal">The repository and the entry proposed for it.</param>

@@ -44,6 +44,11 @@ internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDis
     }
 
     /// <inheritdoc />
+    /// <remarks>The console asks about one repository at a time, so the review shows nothing.</remarks>
+    public Task ReviewAsync(DiscoveryReview review, CancellationToken cancellationToken) =>
+        cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken) : Task.CompletedTask;
+
+    /// <inheritdoc />
     public async Task<NewRepositoryDecision> DecideNewAsync(NewRepositoryProposal proposal, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -80,7 +85,7 @@ internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDis
         cancellationToken.ThrowIfCancellationRequested();
         var output = console.Output;
         var renamed = proposal.Renamed;
-        if (IsSameFolder(proposal.CurrentArchiveFolder, proposal.RenamedArchiveFolder))
+        if (ArchiveFolderComparison.IsSameFolder(proposal.CurrentArchiveFolder, proposal.RenamedArchiveFolder))
         {
             output.Write(new Text(
                 $"{renamed.Tracked.FullName} was renamed to {renamed.Current.FullName}; its archive folder "
@@ -139,18 +144,6 @@ internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDis
     private static string Describe(RenameDecision decision) => decision == RenameDecision.KeepArchiveFolder
         ? "b) Keep the current archive folder"
         : "a) Rename the archive folder after the new name";
-
-    /// <summary>
-    /// Returns whether two archive folders are the same folder.
-    /// </summary>
-    /// <param name="first">The first folder.</param>
-    /// <param name="second">The second folder.</param>
-    /// <returns><see langword="true"/> when they differ at most in case and a trailing separator.</returns>
-    private static bool IsSameFolder(string first, string second) =>
-        string.Equals(
-            first.TrimEnd('\\', '/'),
-            second.TrimEnd('\\', '/'),
-            StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Builds the table of the repository and the entry proposed for it.
@@ -242,6 +235,6 @@ internal sealed class ConsoleDiscoveryDecisionHandler(CliConsole console) : IDis
 
         return NewRepositoryDecision.Add(
             branch.Length == 0 ? null : branch,
-            path.Length == 0 || IsSameFolder(path, proposal.ArchiveFolder) ? null : path);
+            path.Length == 0 || ArchiveFolderComparison.IsSameFolder(path, proposal.ArchiveFolder) ? null : path);
     }
 }
