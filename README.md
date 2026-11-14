@@ -22,7 +22,7 @@
 | Компонент | Версия |
 |---|---|
 | Windows | 11 |
-| .NET | 10 |
+| .NET | 10: .NET Desktop Runtime 10 для опубликованной папки, .NET SDK 10 для сборки из исходников |
 | Git | 2.4x+, в `PATH` или путь в настройках |
 | Git LFS | 3.x |
 | 7-Zip | `C:\Program Files\7-Zip\7z.exe` или путь в настройках |
@@ -42,6 +42,7 @@
 
 ```
 docs/   документация: PRD, планы по issues, описание AI Harness (docs/ai/)
+scripts/   publish.ps1: публикация папки приложения
 src/    решение GitHubBackup.slnx: проекты и парные тестовые проекты
 .claude/ .ai/   AI Harness для Claude Code (см. docs/ai/README.md)
 ```
@@ -57,10 +58,11 @@ src/    решение GitHubBackup.slnx: проекты и парные тес�
 | Проверка форматирования | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
 | Запуск консольного приложения | `dotnet run --project src/GitHubBackup.Cli` |
 | Запуск WPF-приложения | `dotnet run --project src/GitHubBackup.App` |
+| Публикация папки приложения | `pwsh -File scripts/publish.ps1` |
 
 Тесты работают на Microsoft.Testing.Platform (xUnit v3). Решение и проект передаются через `--solution` и `--project`, а не позиционным аргументом.
 
-Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Сквозные тесты в `GitHubBackup.Cli.Tests` дополнительно помечены категорией `EndToEnd`: они запускают собранный `GitHubBackup.Cli.exe` отдельным процессом с настоящими git и 7-Zip на локальных bare-репозиториях, а GitHub API подменяют WireMock на loopback. Эти тесты входят в обычный прогон и в CI. Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
+Каждая тестовая сборка помечена трейтом xUnit `Category`: `Unit`, `Integration`, `Architecture` или `UI` (проставляется в `src/Directory.Build.props` по имени проекта). Сквозные тесты в `GitHubBackup.Cli.Tests` дополнительно помечены категорией `EndToEnd`: они запускают собранный `GitHubBackup.Cli.exe` отдельным процессом с настоящими git и 7-Zip на локальных bare-репозиториях, а GitHub API подменяют WireMock на loopback. Эти тесты входят в обычный прогон и в CI. Тесты публикации (`PublishedApplicationTests`, тоже `EndToEnd`) проверяют раскладку опубликованной папки, совпадение её `appsettings.json` с исходным и полный прогон `backup --silent` опубликованного `GitHubBackup.Cli.exe` с базой истории и логом. Папку они берут из переменной `PUBLISHED_APP_PATH`, а без неё сами запускают `scripts/publish.ps1` во временную папку; на это уходит до минуты. Тесты реального GitHub получат категорию `Smoke`. Выбрать набор можно фильтром, например `--filter-not-trait "Category=Smoke"`.
 
 UI-тесты (`GitHubBackup.App.UITests`) управляют запущенным WPF-приложением, поэтому обычный прогон решения их пропускает. Чтобы их запустить, передайте свойство `RunUITests` и в сборку, и в тесты:
 
@@ -74,12 +76,36 @@ dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --fil
 
 Код 8 означает, что в проекте не запущен ни один тест. При фильтре `--filter-trait` так завершаются все проекты, кроме выбранного, поэтому здесь код 8 игнорируется. В обычном прогоне и в CI он не игнорируется: проект, в котором не запустился ни один тест, роняет прогон.
 
-UI-тесты написаны на FlaUI. Каждый тест копирует папку сборки `GitHubBackup.App` во временную папку и запускает приложение оттуда. Токен берётся из `GitHub:Token` тестового `appsettings.json`, GitHub API подменяет WireMock на loopback, поэтому тесты не читают Windows Credential Manager и не ходят в сеть. Для прогона нужны:
+UI-тесты написаны на FlaUI. Каждый тест копирует папку сборки `GitHubBackup.App` во временную папку и запускает приложение оттуда. Если задана переменная `PUBLISHED_APP_PATH`, тест копирует опубликованную папку и запускает `GitHubBackup.exe`; так делает workflow UI-тестов. Токен берётся из `GitHub:Token` тестового `appsettings.json`, GitHub API подменяет WireMock на loopback, поэтому тесты не читают Windows Credential Manager и не ходят в сеть. Для прогона нужны:
 
 - интерактивный рабочий стол (тесты открывают окна; не блокируйте экран и не сворачивайте сеанс);
 - git в `PATH` и 7-Zip в `C:\Program Files\7-Zip\7z.exe` (их использует сценарий диалога обнаружения).
 
 Тесты идут по одному. Если тест падает, он сохраняет снимки окон приложения в папку из переменной `UI_TEST_SCREENSHOTS`, а без неё — в `Screenshots` рядом со сборкой тестов.
+
+#### Публикация
+
+Скрипт `scripts/publish.ps1` (PowerShell 7) собирает папку приложения для `win-x64`:
+
+```bash
+pwsh -File scripts/publish.ps1
+```
+
+| Файл | Назначение |
+|---|---|
+| `GitHubBackup.exe` | WPF-приложение |
+| `GitHubBackup.Cli.exe` | консольное приложение |
+| `appsettings.json` | общие настройки обоих exe |
+
+Оба exe собраны как framework-dependent single-file: на машине нужен только .NET Desktop Runtime 10. Нативная библиотека SQLite лежит внутри exe и распаковывается при запуске. Остальные файлы (`backup-config.json`, `data\`, `logs\`, `sources\`) приложение создаёт рядом с exe само.
+
+| Параметр | По умолчанию | Назначение |
+|---|---|---|
+| `-OutputPath` | `artifacts\publish` в корне репозитория | папка вывода |
+| `-Configuration` | `Release` | конфигурация сборки |
+| `-Clean` | выключен | удалить прежний результат публикации из папки вывода |
+
+Если папка вывода существует и не пуста, а `-Clean` не передан, скрипт ничего не меняет и завершается с кодом 1. Так он не затирает рабочую папку с конфигурацией, историей и клонами. `-Clean` удаляет только файлы, которые пишет публикация. Если в папке есть другие файлы или подпапки, скрипт тоже завершается с кодом 1 и ничего не удаляет. Если опубликованный `appsettings.json` задаёт `GitHub:Token`, скрипт удаляет этот файл и завершается с кодом 1: токен не должен попасть в артефакт. При ошибке `dotnet publish` код тоже 1. Скрипт собирает проекты во временной папке и не трогает `bin` и `obj` обычной сборки.
 
 #### Миграции базы истории
 
@@ -348,8 +374,8 @@ backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 
 | Workflow | Запуск | Что делает |
 |---|---|---|
-| `.github/workflows/ci.yml` | pull request и push в `main` | `windows-latest`: restore, build, проверка форматирования, проверочные случаи хуков Claude Code (`.claude/hooks/tests/*.Cases.ps1`), тесты без категорий `UI` и `Smoke`; результаты (`*.trx`) публикуются артефактом `test-results` |
-| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, тесты выбранной категории (`UI` или `Smoke`); артефакт `test-results-<категория>` с результатами (`*.trx`) и снимками окон приложения из упавших UI-тестов (`Screenshots/*.png`) |
+| `.github/workflows/ci.yml` | pull request и push в `main` | `windows-latest`: restore, build, проверка форматирования, проверочные случаи хуков Claude Code (`.claude/hooks/tests/*.Cases.ps1`), публикация `scripts/publish.ps1`, тесты без категорий `UI` и `Smoke` (тесты публикации проверяют опубликованную папку); результаты (`*.trx`) публикуются артефактом `test-results`, папка приложения — артефактом `GitHubBackup` |
+| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, публикация `scripts/publish.ps1`, тесты выбранной категории (`UI` или `Smoke`; UI-тесты запускают опубликованный `GitHubBackup.exe`); артефакт `test-results-<категория>` с результатами (`*.trx`) и снимками окон приложения из упавших UI-тестов (`Screenshots/*.png`) |
 
 Предупреждения компилятора и анализаторов считаются ошибками. Версии NuGet-пакетов задаются только в `src/Directory.Packages.props`, общие настройки сборки — в `src/Directory.Build.props`.
 

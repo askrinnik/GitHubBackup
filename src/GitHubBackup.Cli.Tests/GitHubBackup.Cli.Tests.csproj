@@ -18,6 +18,8 @@
   <ItemGroup>
     <!-- The end-to-end tests copy the output folder of the console project and run its executable from the copy. -->
     <AssemblyMetadata Include="GitHubBackupCliOutputPath" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\GitHubBackup.Cli\bin\$(Configuration)\$(TargetFramework)'))" />
+    <!-- The publishing tests run scripts/publish.ps1 and compare the published settings with the source file. -->
+    <AssemblyMetadata Include="GitHubBackupRepositoryRoot" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))" />
   </ItemGroup>
 
 </Project>
