@@ -18,6 +18,19 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
   </PropertyGroup>
 
+  <!--
+    Product projects embed their symbols, so a published single-file executable carries them and no .pdb lands next to
+    it. The library projects run the single-file analyzer, which flags APIs that break inside a bundle; the host
+    projects get it from PublishSingleFile.
+  -->
+  <PropertyGroup Condition="!$(MSBuildProjectName.EndsWith('Tests')) and '$(MSBuildProjectName)' != 'GitHubBackup.TestUtilities'">
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'GitHubBackup.Core' or '$(MSBuildProjectName)' == 'GitHubBackup.Infrastructure'">
+    <EnableSingleFileAnalyzer>true</EnableSingleFileAnalyzer>
+  </PropertyGroup>
+
   <!-- Selected by name: IsTestProject is not yet set when Directory.Build.props is evaluated. -->
   <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
     <OutputType>Exe</OutputType>

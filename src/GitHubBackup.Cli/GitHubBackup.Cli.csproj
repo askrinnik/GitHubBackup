@@ -8,6 +8,19 @@
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>
 
+  <!--
+    Published as one framework-dependent executable that needs only the .NET 10 runtime. scripts/publish.ps1 passes
+    the runtime identifier, so the build output path stays free of a RID segment. The native SQLite library goes into
+    the bundle and is extracted on start, so the application folder holds only the executables and appsettings.json.
+  -->
+  <PropertyGroup>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
   </ItemGroup>
@@ -18,7 +31,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- The settings stay a file next to the executable, where the user edits them. -->
+    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

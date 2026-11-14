@@ -51,9 +51,16 @@ jobs:
           }
           if ($failed) { throw "Hook test cases failed: $($failed -join ', ')" }
 
+      # Both hosts as framework-dependent single-file executables in one folder; the tests check that folder.
+      - name: Publish
+        run: ./scripts/publish.ps1 -OutputPath artifacts/publish
+
       # UI and Smoke suites run in ui-smoke-tests.yml; the UI test project is skipped unless built with
       # RunUITests=true. Exit code 8 (zero tests ran) is not ignored, so a project that runs no tests fails CI.
+      # PUBLISHED_APP_PATH points the publishing tests at the folder of the Publish step instead of publishing again.
       - name: Test
+        env:
+          PUBLISHED_APP_PATH: ${{ github.workspace }}/artifacts/publish
         run: >
           dotnet test --solution src/GitHubBackup.slnx --no-build
           --filter-not-trait "Category=Smoke"
@@ -66,3 +73,10 @@ jobs:
           name: test-results
           path: TestResults/*.trx
           if-no-files-found: warn
+
+      - name: Upload application
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: GitHubBackup
+          path: artifacts/publish/
+          if-no-files-found: error

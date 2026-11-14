@@ -22,11 +22,24 @@ internal sealed class AppInstallation : IDisposable
     /// <summary>The token the settings of the installation configure.</summary>
     public const string Token = "ghp_UiTestTokenValue0123456789abcdefABCD";
 
+    /// <summary>
+    /// The environment variable that names a published application folder; when it is set, the installation copies
+    /// that folder and starts its <c>GitHubBackup.exe</c> instead of the build output.
+    /// </summary>
+    public const string PublishedAppPathVariable = "PUBLISHED_APP_PATH";
+
+    /// <summary>The name of the executable in the build output of the WPF project.</summary>
+    private const string _buildExecutableName = "GitHubBackup.App.exe";
+
+    /// <summary>The name of the executable in a published application folder.</summary>
+    private const string _publishedExecutableName = "GitHubBackup.exe";
+
     /// <summary>The name of the executable in the installation folder.</summary>
-    private const string _executableName = "GitHubBackup.App.exe";
+    private readonly string _executableName;
 
     /// <summary>
-    /// Copies the build output of the WPF project and writes valid settings.
+    /// Copies the published application folder named by <see cref="PublishedAppPathVariable"/>, or the build output of
+    /// the WPF project when the variable is not set, and writes valid settings.
     /// </summary>
     /// <param name="apiBaseUrl">The address of the GitHub API the application calls.</param>
     /// <param name="remotesRoot">
@@ -36,10 +49,22 @@ internal sealed class AppInstallation : IDisposable
     public AppInstallation(string apiBaseUrl, string? remotesRoot = null)
     {
         FolderPath = TemporaryFolder.Create();
-        var source = typeof(AppInstallation).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .Single(attribute => attribute.Key == "GitHubBackupAppOutputPath")
-            .Value!;
+        var publishedFolder = System.Environment.GetEnvironmentVariable(PublishedAppPathVariable);
+        string source;
+        if (string.IsNullOrEmpty(publishedFolder))
+        {
+            source = typeof(AppInstallation).Assembly
+                .GetCustomAttributes<AssemblyMetadataAttribute>()
+                .Single(attribute => attribute.Key == "GitHubBackupAppOutputPath")
+                .Value!;
+            _executableName = _buildExecutableName;
+        }
+        else
+        {
+            source = Path.GetFullPath(publishedFolder);
+            _executableName = _publishedExecutableName;
+        }
+
         BuildOutput.CopyTo(source, FolderPath, _executableName);
         WriteAppSettings(ValidAppSettings(apiBaseUrl));
 

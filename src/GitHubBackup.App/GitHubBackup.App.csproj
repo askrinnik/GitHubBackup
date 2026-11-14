@@ -7,6 +7,19 @@
     <UserSecretsId>GitHubBackup</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    Published as one framework-dependent executable next to the console one; see GitHubBackup.Cli.csproj.
+    scripts/publish.ps1 renames the bundle to GitHubBackup.exe, while the assembly keeps its project name, which the
+    logs and the architecture tests rely on.
+  -->
+  <PropertyGroup>
+    <PublishSingleFile>true</PublishSingleFile>
+    <SelfContained>false</SelfContained>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <PublishDocumentationFile>false</PublishDocumentationFile>
+    <PublishReferencesDocumentationFiles>false</PublishReferencesDocumentationFiles>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
   </ItemGroup>
@@ -16,8 +29,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Both executables read one settings file; the shared output folder of the publishing step will hold the single copy. -->
-    <None Include="..\GitHubBackup.Cli\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Both executables read one settings file; the shared publish folder holds the single copy next to them. -->
+    <None Include="..\GitHubBackup.Cli\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

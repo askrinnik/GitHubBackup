@@ -26,17 +26,22 @@ internal sealed class CliInstallation : IDisposable
     private readonly Dictionary<string, string> _environment;
 
     /// <summary>
-    /// Copies the build output of the console project and writes the settings and the git configuration.
+    /// Copies the build output of the console project, or another folder that holds the executable, and writes the
+    /// settings and the git configuration.
     /// </summary>
     /// <param name="apiBaseUrl">The address of the GitHub API the executable calls.</param>
     /// <param name="remotesRoot">
     /// The folder of the bare repositories; <c>https://github.com/&lt;owner&gt;/&lt;name&gt;.git</c> is redirected to
     /// <c>&lt;remotesRoot&gt;\&lt;owner&gt;\&lt;name&gt;.git</c>.
     /// </param>
-    public CliInstallation(string apiBaseUrl, string remotesRoot)
+    /// <param name="sourceFolder">
+    /// The folder to copy, such as a published application folder, or <see langword="null"/> for the build output of
+    /// the console project.
+    /// </param>
+    public CliInstallation(string apiBaseUrl, string remotesRoot, string? sourceFolder = null)
     {
         FolderPath = TemporaryFolder.Create();
-        var source = typeof(CliInstallation).Assembly
+        var source = sourceFolder ?? typeof(CliInstallation).Assembly
             .GetCustomAttributes<AssemblyMetadataAttribute>()
             .Single(attribute => attribute.Key == "GitHubBackupCliOutputPath")
             .Value!;
