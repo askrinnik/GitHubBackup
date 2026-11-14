@@ -1,9 +1,12 @@
+using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using System.Text;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
+using NSubstitute;
+using NSubstitute.ExceptionExtensions;
 using static GitHubBackup.Infrastructure.Tests.BackupConfiguration.BackupConfigSamples;
 
 namespace GitHubBackup.Infrastructure.Tests.BackupConfiguration;
@@ -202,14 +205,39 @@ public sealed class JsonBackupConfigStoreTests
     }
 
     [Fact]
-    public async Task LoadAsync_FileMissing_ThrowsNamingFile()
+    public async Task LoadAsync_FileMissing_ThrowsNotFoundWithHint()
     {
-        var exception = await Should.ThrowAsync<BackupConfigException>(
+        var exception = await Should.ThrowAsync<BackupConfigNotFoundException>(
             () => CreateStore(CreateFileSystem()).LoadAsync(TestContext.Current.CancellationToken));
 
         exception.ConfigPath.ShouldBe(ConfigPath);
-        exception.Errors.ShouldBe([$"The backup configuration file '{ConfigPath}' does not exist."]);
+        exception.Errors.ShouldBe(
+            [$"The backup configuration file '{ConfigPath}' does not exist. Create it in the settings editor of GitHubBackup.exe."]);
         exception.Message.ShouldContain(ConfigPath);
+    }
+
+    [Fact]
+    public async Task LoadAsync_FolderMissing_ThrowsNotFound()
+    {
+        var fileSystem = CreateFailingFileSystem(new DirectoryNotFoundException("Could not find a part of the path."));
+
+        var exception = await Should.ThrowAsync<BackupConfigNotFoundException>(
+            () => CreateStore(fileSystem).LoadAsync(TestContext.Current.CancellationToken));
+
+        exception.Errors.ShouldBe([BackupConfigNotFoundException.FormatError(ConfigPath)]);
+        exception.InnerException.ShouldBeOfType<DirectoryNotFoundException>();
+    }
+
+    [Fact]
+    public async Task LoadAsync_FileUnreadable_ThrowsBaseExceptionNotNotFound()
+    {
+        var fileSystem = CreateFailingFileSystem(new UnauthorizedAccessException("Access is denied."));
+
+        var exception = await Should.ThrowAsync<BackupConfigException>(
+            () => CreateStore(fileSystem).LoadAsync(TestContext.Current.CancellationToken));
+
+        exception.ShouldNotBeOfType<BackupConfigNotFoundException>();
+        exception.Errors.ShouldBe([$"The backup configuration file '{ConfigPath}' cannot be read: Access is denied."]);
     }
 
     [Theory]
@@ -363,6 +391,19 @@ public sealed class JsonBackupConfigStoreTests
     /// <returns>The configuration text.</returns>
     private static string WithStandaloneRepository(string repositoryJson) =>
         $$"""{ "schemaVersion": 1, "backupRoot": "D:\\Backups", "repositories": [ {{repositoryJson}} ] }""";
+
+    /// <summary>
+    /// Creates a file system whose attempt to open the configuration file throws <paramref name="exception"/>.
+    /// </summary>
+    /// <param name="exception">The exception opening the file throws.</param>
+    /// <returns>The file system.</returns>
+    private static IFileSystem CreateFailingFileSystem(Exception exception)
+    {
+        var fileSystem = Substitute.For<IFileSystem>();
+        fileSystem.File.OpenRead(ConfigPath).Throws(exception);
+
+        return fileSystem;
+    }
 
     /// <summary>
     /// Loads <paramref name="json"/> as the configuration file.

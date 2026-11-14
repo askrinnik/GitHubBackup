@@ -35,6 +35,18 @@ public sealed class ConfigurationErrorMessagesTests
     }
 
     [Fact]
+    public void TryGet_BackupConfigNotFoundException_ReturnsHint()
+    {
+        var exception = new BackupConfigNotFoundException(@"C:\app\backup-config.json");
+
+        var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
+
+        found.ShouldBeTrue();
+        messages.ShouldHaveSingleItem().ShouldBe(
+            @"The backup configuration file 'C:\app\backup-config.json' does not exist. Create it in the settings editor of GitHubBackup.exe.");
+    }
+
+    [Fact]
     public void TryGet_ConfigurationFileNotFound_ReturnsMessage()
     {
         var exception = new ConfigurationFileException(new FileNotFoundException("The configuration file 'appsettings.json' was not found."));

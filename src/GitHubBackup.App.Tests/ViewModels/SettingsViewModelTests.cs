@@ -6,6 +6,7 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Tools;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -24,6 +25,8 @@ public sealed class SettingsViewModelTests
     private const string _defaultSourcesRoot = @"C:\app\sources";
     private const string _storeLocation = "Windows Credential Manager (GitHubBackup:https://github.com)";
     private const string _configurationSource = "configuration (GitHub:Token)";
+    private const string _configPath = @"C:\app\backup-config.json";
+    private const int _backupConfigMissingEventId = 13;
 
     private static readonly DateTimeOffset _resetAt = new(2026, 11, 14, 11, 30, 0, TimeSpan.Zero);
 
@@ -107,6 +110,81 @@ public sealed class SettingsViewModelTests
         _viewModel.HasLoadError.ShouldBeTrue();
         _viewModel.LoadError.ShouldBe($"backupRoot must be set.{Environment.NewLine}bad ***");
         _viewModel.SaveCommand.CanExecute(null).ShouldBeFalse();
+        _viewModel.IsNewConfig.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Load_ConfigNotFound_FillsEmptyConfigAndShowsNewConfigMessage()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+
+        await LoadAsync();
+
+        _viewModel.IsLoaded.ShouldBeTrue();
+        _viewModel.HasLoadError.ShouldBeFalse();
+        _viewModel.IsNewConfig.ShouldBeTrue();
+        _viewModel.NewConfigMessage.ShouldBe(@"The file 'C:\app\backup-config.json' does not exist yet. Save creates it.");
+        _viewModel.BackupRoot.ShouldBeEmpty();
+        _viewModel.SourcesRoot.ShouldBeEmpty();
+        _viewModel.Exclude.ShouldBeEmpty();
+        _viewModel.DiscoverAccessibleRepositories.ShouldBeFalse();
+        _viewModel.Accounts.ShouldBeEmpty();
+        _viewModel.Repositories.ShouldBeEmpty();
+        _viewModel.IsDirty.ShouldBeFalse();
+        _viewModel.SaveCommand.CanExecute(null).ShouldBeTrue();
+        var record = _logger.Collector.GetSnapshot().Where(entry => entry.Id.Id == _backupConfigMissingEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_configPath);
+        record.Exception.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task Save_NewConfigEmptyBackupRoot_ShowsErrorAtFieldAndWritesNothing()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+        await LoadAsync();
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.BackupRoot)).ShouldBe(["backupRoot must be set."]);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, TestContext.Current.CancellationToken);
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+        _viewModel.IsNewConfig.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Save_NewConfigFilled_SavesCurrentSchemaVersionAndNavigatesBack()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\Backups";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.SchemaVersion.ShouldBe(BackupConfig.CurrentSchemaVersion);
+        saved.BackupRoot.ShouldBe(@"D:\Backups");
+        saved.SourcesRoot.ShouldBeNull();
+        saved.Exclude.ShouldBeEmpty();
+        saved.DiscoverAccessibleRepositories.ShouldBeFalse();
+        saved.Accounts.ShouldBeEmpty();
+        saved.Repositories.ShouldBeEmpty();
+        _viewModel.IsNewConfig.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+    }
+
+    [Fact]
+    public async Task Cancel_NewConfigNoChanges_NavigatesWithoutSaving()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+        await LoadAsync();
+
+        _viewModel.CancelCommand.Execute(null);
+
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, TestContext.Current.CancellationToken);
     }
 
     [Fact]

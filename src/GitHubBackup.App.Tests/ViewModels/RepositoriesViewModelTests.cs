@@ -46,6 +46,10 @@ public sealed class RepositoriesViewModelTests
 
     private const int _treeLoadFailedEventId = 5;
 
+    private const int _backupConfigMissingEventId = 13;
+
+    private const string _configPath = @"C:\app\backup-config.json";
+
     private const string _token = "ghp_AppTestTokenValue0123456789abcdefABC";
 
     private readonly IDialogService _dialogs = Substitute.For<IDialogService>();
@@ -136,7 +140,7 @@ public sealed class RepositoriesViewModelTests
     public async Task Refresh_ConfigError_SetsLoadErrorAndClearsTree()
     {
         await _viewModel.RefreshCommand.ExecuteAsync(null);
-        var error = new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]);
+        var error = new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]);
         _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
 
         await _viewModel.RefreshCommand.ExecuteAsync(null);
@@ -152,7 +156,7 @@ public sealed class RepositoriesViewModelTests
     public async Task Refresh_ErrorThenSuccess_ClearsLoadError()
     {
         _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(
-            _ => throw new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]),
+            _ => throw new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]),
             _ => _overview);
         await _viewModel.RefreshCommand.ExecuteAsync(null);
 
@@ -160,6 +164,84 @@ public sealed class RepositoriesViewModelTests
 
         _viewModel.LoadError.ShouldBeNull();
         _viewModel.Nodes.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task Refresh_ConfigNotFound_SetsConfigMissingWithoutLoadError()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.IsConfigMissing.ShouldBeTrue();
+        _viewModel.LoadError.ShouldBeNull();
+        _viewModel.HasLoadError.ShouldBeFalse();
+        _viewModel.IsEmpty.ShouldBeFalse();
+        _viewModel.Nodes.ShouldBeEmpty();
+        _viewModel.SelectedNode.ShouldBeNull();
+        _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == _treeLoadFailedEventId);
+        var record = _logger.Collector.GetSnapshot().Where(entry => entry.Id.Id == _backupConfigMissingEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Path").ShouldBe(_configPath);
+        record.Exception.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(BackupScope.All)]
+    [InlineData(BackupScope.Account)]
+    [InlineData(BackupScope.Repository)]
+    public async Task Refresh_ConfigNotFound_CannotStartAnyScope(BackupScope scope)
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.StartBackupCommand.CanExecute(scope).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Refresh_ConfigNotFoundThenFound_ClearsConfigMissingAndEnablesBackup()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(
+            _ => throw new BackupConfigNotFoundException(_configPath),
+            _ => _overview);
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        var raised = 0;
+        _viewModel.StartBackupCommand.CanExecuteChanged += (_, _) => raised++;
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.IsConfigMissing.ShouldBeFalse();
+        _viewModel.Nodes.Count.ShouldBe(3);
+        _viewModel.StartBackupCommand.CanExecute(BackupScope.All).ShouldBeTrue();
+        raised.ShouldBeGreaterThan(0);
+    }
+
+    [Fact]
+    public async Task Refresh_OtherConfigError_DoesNotSetConfigMissing()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns<RepositoryOverview>(
+            _ => throw new BackupConfigNotFoundException(_configPath),
+            _ => throw new BackupConfigException(_configPath, ["backupRoot must be set."]));
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.IsConfigMissing.ShouldBeFalse();
+        _viewModel.HasLoadError.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task OpenSettings_ConfigMissing_NavigatesToSettings()
+    {
+        _provider.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(new BackupConfigNotFoundException(_configPath));
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        _viewModel.OpenSettingsCommand.CanExecute(null).ShouldBeTrue();
+        _viewModel.OpenSettingsCommand.Execute(null);
+
+        _navigation.Received(1).NavigateTo<SettingsViewModel>();
     }
 
     [Theory]
@@ -329,7 +411,7 @@ public sealed class RepositoriesViewModelTests
     public async Task StartBackup_RereadFails_StillStartsRun()
     {
         _provider.LoadAsync(Arg.Any<CancellationToken>())
-            .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]));
+            .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]));
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 

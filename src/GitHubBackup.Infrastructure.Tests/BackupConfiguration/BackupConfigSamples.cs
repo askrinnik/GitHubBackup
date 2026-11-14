@@ -1,3 +1,4 @@
+using System.IO.Abstractions;
 using System.IO.Abstractions.TestingHelpers;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
@@ -55,10 +56,10 @@ internal static class BackupConfigSamples
     /// <summary>
     /// Creates a store over <paramref name="fileSystem"/> with the real validator.
     /// </summary>
-    /// <param name="fileSystem">The mock file system.</param>
+    /// <param name="fileSystem">The mock or substituted file system.</param>
     /// <param name="logger">The logger, or <see langword="null"/> for one that only records.</param>
     /// <returns>The store.</returns>
-    public static JsonBackupConfigStore CreateStore(MockFileSystem fileSystem, FakeLogger<JsonBackupConfigStore>? logger = null)
+    public static JsonBackupConfigStore CreateStore(IFileSystem fileSystem, FakeLogger<JsonBackupConfigStore>? logger = null)
     {
         var environment = Substitute.For<IHostEnvironment>();
         environment.ContentRootPath.Returns(ContentRootPath);
