@@ -14,43 +14,25 @@ namespace GitHubBackup.Infrastructure.GitHub;
 /// The token is resolved through <see cref="ITokenProvider"/> on the first call and kept for the lifetime of the
 /// instance. After every successful call the rate limit state of the last response is logged.
 /// </remarks>
-internal sealed class OctokitGitHubApi : IGitHubApi, IDisposable
+/// <param name="tokenProvider">The provider of the token, asked once on the first call.</param>
+/// <param name="options">The GitHub options that hold the API address.</param>
+/// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
+/// <param name="logger">The logger.</param>
+internal sealed class OctokitGitHubApi(
+    ITokenProvider tokenProvider,
+    IOptions<GitHubOptions> options,
+    TimeProvider timeProvider,
+    ILogger<OctokitGitHubApi> logger) : IGitHubApi, IDisposable
 {
-    private const string _productName = "GitHubBackup";
     private const string _pageSize = "100";
 
-    private readonly ITokenProvider _tokenProvider;
-    private readonly TimeProvider _timeProvider;
-    private readonly ILogger<OctokitGitHubApi> _logger;
-    private readonly GitHubClient _client;
+    private readonly ITokenProvider _tokenProvider = tokenProvider;
+    private readonly TimeProvider _timeProvider = timeProvider;
+    private readonly ILogger<OctokitGitHubApi> _logger = logger;
+    private readonly GitHubClient _client = new(OctokitConnectionFactory.Create(options.Value.ApiBaseUrl));
     private readonly SemaphoreSlim _credentialsLock = new(1, 1);
     private volatile bool _credentialsResolved;
     private bool _isAnonymous;
-
-    /// <summary>
-    /// Initializes the client for the configured API address.
-    /// </summary>
-    /// <param name="tokenProvider">The provider of the token, asked once on the first call.</param>
-    /// <param name="options">The GitHub options that hold the API address.</param>
-    /// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
-    /// <param name="logger">The logger.</param>
-    public OctokitGitHubApi(
-        ITokenProvider tokenProvider,
-        IOptions<GitHubOptions> options,
-        TimeProvider timeProvider,
-        ILogger<OctokitGitHubApi> logger)
-    {
-        _tokenProvider = tokenProvider;
-        _timeProvider = timeProvider;
-        _logger = logger;
-
-        // A Connection keeps the base address as given; the GitHubClient constructor that takes an address would
-        // append api/v3 to every host other than api.github.com.
-        var connection = new Connection(
-            new ProductHeaderValue(_productName, ProductVersion()),
-            CreateBaseAddress(options.Value.ApiBaseUrl));
-        _client = new(connection);
-    }
 
     /// <inheritdoc />
     public Task<GitHubAccount> GetAccountAsync(string login, CancellationToken cancellationToken)
@@ -133,22 +115,6 @@ internal sealed class OctokitGitHubApi : IGitHubApi, IDisposable
 
     /// <inheritdoc />
     public void Dispose() => _credentialsLock.Dispose();
-
-    /// <summary>
-    /// Returns the version sent in the <c>User-Agent</c> header.
-    /// </summary>
-    /// <returns>The version of this assembly.</returns>
-    private static string ProductVersion() =>
-        typeof(OctokitGitHubApi).Assembly.GetName().Version?.ToString(3) ?? "0.0.0";
-
-    /// <summary>
-    /// Returns the API address with a trailing slash, without which a relative resource would replace the last
-    /// path segment of the address instead of being appended to it.
-    /// </summary>
-    /// <param name="apiBaseUrl">The configured API address.</param>
-    /// <returns>The base address.</returns>
-    private static Uri CreateBaseAddress(string apiBaseUrl) =>
-        new(apiBaseUrl.EndsWith('/') ? apiBaseUrl : apiBaseUrl + "/", UriKind.Absolute);
 
     /// <summary>
     /// Rejects a value that is not a GitHub login, so it never becomes part of a request path.

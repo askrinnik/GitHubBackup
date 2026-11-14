@@ -1,9 +1,11 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.Infrastructure.Hosting;
@@ -13,7 +15,7 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// The host starts without the framework defaults so that only the documented sources are read, in this order of
-/// increasing priority: <see cref="AppSettingsFileName"/>, user secrets (<see cref="Environments.Development"/> only),
+/// increasing priority: <see cref="AppSettingsFileName"/>, the optional <see cref="UserSettingsFileName"/>, user secrets (<see cref="Environments.Development"/> only),
 /// environment variables with <see cref="EnvironmentVariablePrefix"/>, the <c>--Section:Key=value</c> arguments of
 /// <see cref="GitHubBackupHostSettings.ConfigurationArguments"/>, and
 /// <see cref="GitHubBackupHostSettings.BackupConfigPath"/>, which sets <see cref="BackupOptions.ConfigPath"/>.
@@ -23,6 +25,12 @@ public static class GitHubBackupHostBuilder
 {
     /// <summary>The name of the required settings file in the folder of the executable.</summary>
     public const string AppSettingsFileName = "appsettings.json";
+
+    /// <summary>
+    /// The name of the optional settings file in the folder of the executable that holds the tool paths written by the
+    /// settings editor.
+    /// </summary>
+    public const string UserSettingsFileName = "user-settings.json";
 
     /// <summary>The prefix of environment variables that override settings, for example <c>GitHubBackup__Backup__ShortHashLength</c>.</summary>
     public const string EnvironmentVariablePrefix = "GitHubBackup__";
@@ -41,8 +49,8 @@ public static class GitHubBackupHostBuilder
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
     /// <exception cref="ConfigurationFileException">
-    /// <see cref="AppSettingsFileName"/> does not exist or is not valid JSON, or the user secrets file is not valid
-    /// JSON.
+    /// <see cref="AppSettingsFileName"/> does not exist or is not valid JSON, or <see cref="UserSettingsFileName"/> or
+    /// the user secrets file is not valid JSON.
     /// </exception>
     public static HostApplicationBuilder Create(GitHubBackupHostSettings settings)
     {
@@ -55,13 +63,11 @@ public static class GitHubBackupHostBuilder
         });
 
         var configuration = builder.Configuration;
+        var fileProvider = settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider;
         try
         {
-            configuration.AddJsonFile(
-                settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider,
-                AppSettingsFileName,
-                optional: false,
-                reloadOnChange: false);
+            configuration.AddJsonFile(fileProvider, AppSettingsFileName, optional: false, reloadOnChange: false);
+            configuration.AddInMemoryCollection(ReadUserSettings(fileProvider));
 
             if (builder.Environment.IsDevelopment())
             {
@@ -93,5 +99,29 @@ public static class GitHubBackupHostBuilder
             .AddGitHubBackupTelemetry(configuration);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Reads the tool paths from <see cref="UserSettingsFileName"/>, if the file exists.
+    /// </summary>
+    /// <remarks>
+    /// Only <see cref="ToolPaths.GitPathKey"/> and <see cref="ToolPaths.SevenZipPathKey"/> are taken: the settings
+    /// editor writes nothing else, and a key such as <c>GitHub:ApiBaseUrl</c> added by hand to a file the application
+    /// writes must not redirect the token to another host.
+    /// </remarks>
+    /// <param name="fileProvider">The provider of the folder of the executable.</param>
+    /// <returns>The tool path keys found in the file with their values.</returns>
+    /// <exception cref="InvalidDataException">The file is not valid JSON.</exception>
+    private static List<KeyValuePair<string, string?>> ReadUserSettings(IFileProvider fileProvider)
+    {
+        var userSettings = new ConfigurationBuilder()
+            .AddJsonFile(fileProvider, UserSettingsFileName, optional: true, reloadOnChange: false)
+            .Build();
+        return
+        [
+            .. userSettings.AsEnumerable().Where(entry =>
+                string.Equals(entry.Key, ToolPaths.GitPathKey, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(entry.Key, ToolPaths.SevenZipPathKey, StringComparison.OrdinalIgnoreCase)),
+        ];
     }
 }

@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Hosting;
+using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
@@ -34,6 +35,7 @@ namespace GitHubBackup.App.ViewModels;
 /// </param>
 /// <param name="environment">The host environment whose content root holds the log folder the summary names.</param>
 /// <param name="timeProvider">Supplies the local date that names the log file of the day.</param>
+/// <param name="navigation">Opens the settings editor.</param>
 /// <param name="logger">Logs the failures of a run and of reading the tree.</param>
 public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
@@ -44,6 +46,7 @@ public sealed partial class RepositoriesViewModel(
     ISecretMasker secretMasker,
     IHostEnvironment environment,
     TimeProvider timeProvider,
+    INavigationService navigation,
     ILogger<RepositoriesViewModel> logger) : ObservableObject, ICloseGuard
 {
     /// <summary>The title of the dialog that shows an unexpected failure of a run.</summary>
@@ -69,10 +72,13 @@ public sealed partial class RepositoriesViewModel(
     [ObservableProperty]
     private bool _isDryRun;
 
-    /// <summary>Whether a run is in progress; the commands that start a run and the dry-run switch are disabled then.</summary>
+    /// <summary>
+    /// Whether a run is in progress; the commands that start a run, the dry-run switch and the settings editor are
+    /// disabled then, because a run writes <c>backup-config.json</c> too.
+    /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIdle))]
-    [NotifyCanExecuteChangedFor(nameof(StartBackupCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartBackupCommand), nameof(OpenSettingsCommand))]
     private bool _isRunning;
 
     /// <summary>Why the tree cannot be read, or <see langword="null"/> when it was read.</summary>
@@ -177,6 +183,12 @@ public sealed partial class RepositoriesViewModel(
     /// <returns>A task that completes when the tree is read or the error is shown.</returns>
     [RelayCommand]
     private Task RefreshAsync(CancellationToken cancellationToken) => LoadAsync(cancellationToken);
+
+    /// <summary>
+    /// Opens the settings editor in place of the tree.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private void OpenSettings() => navigation.NavigateTo<SettingsViewModel>();
 
     /// <summary>
     /// Returns whether a run of <paramref name="scope"/> can start: no run is in progress, and the selection names

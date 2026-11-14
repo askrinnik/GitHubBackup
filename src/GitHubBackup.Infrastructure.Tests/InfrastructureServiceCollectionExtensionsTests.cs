@@ -73,6 +73,18 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         provider.GetRequiredService<IFileSystem>().ShouldBeOfType<FileSystem>();
         provider.GetRequiredService<IBackupConfigStore>().ShouldBeOfType<JsonBackupConfigStore>();
+        provider.GetRequiredService<IToolPathsStore>().ShouldBeOfType<JsonToolPathsStore>();
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_TokenInspector_IsOneInstancePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var inspector = provider.GetRequiredService<IGitHubTokenInspector>();
+
+        inspector.ShouldBeOfType<OctokitGitHubTokenInspector>();
+        provider.GetRequiredService<IGitHubTokenInspector>().ShouldBeSameAs(inspector);
     }
 
     [Fact]

@@ -14,11 +14,22 @@ internal sealed class ToolsOptionsValidator : IValidateOptions<ToolsOptions>
     /// <inheritdoc />
     public ValidateOptionsResult Validate(string? name, ToolsOptions options)
     {
-        List<string> failures = [];
-        AddFailureIfRelative(failures, options.GitPath, nameof(ToolsOptions.GitPath));
-        AddFailureIfRelative(failures, options.SevenZipPath, nameof(ToolsOptions.SevenZipPath));
-
+        var failures = Validate(options.GitPath, options.SevenZipPath);
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    /// <summary>
+    /// Checks the form of the tool paths, for the options read at start-up and for the paths the settings editor writes.
+    /// </summary>
+    /// <param name="gitPath">The path of <c>git.exe</c>; <see langword="null"/> or empty means not set.</param>
+    /// <param name="sevenZipPath">The path of <c>7z.exe</c>; <see langword="null"/> or empty means not set.</param>
+    /// <returns>One failure per path that is set but not absolute, each starting with the configuration key.</returns>
+    public static List<string> Validate(string? gitPath, string? sevenZipPath)
+    {
+        List<string> failures = [];
+        AddFailureIfRelative(failures, gitPath, nameof(ToolsOptions.GitPath));
+        AddFailureIfRelative(failures, sevenZipPath, nameof(ToolsOptions.SevenZipPath));
+        return failures;
     }
 
     /// <summary>

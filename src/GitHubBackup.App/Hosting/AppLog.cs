@@ -46,4 +46,28 @@ internal static partial class AppLog
     /// <param name="exception">The exception, logged with its stack trace.</param>
     [LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "The repository tree cannot be read")]
     public static partial void RepositoryTreeLoadFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the settings editor cannot read <c>backup-config.json</c>.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 6, Level = LogLevel.Warning, Message = "The settings editor cannot read the backup configuration")]
+    public static partial void SettingsLoadFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the settings editor cannot write a settings file.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 7, Level = LogLevel.Error, Message = "The settings editor cannot write the settings")]
+    public static partial void SettingsSaveFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the token check of the settings editor failed unexpectedly.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 8, Level = LogLevel.Warning, Message = "The token check of the settings editor failed")]
+    public static partial void TokenCheckFailed(ILogger logger, Exception exception);
 }
