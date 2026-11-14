@@ -24,6 +24,12 @@ public sealed record RepositoryOverviewEntry(
     DateTimeOffset? LastArchiveAt,
     string? StateError)
 {
+    /// <summary>Gets the GitHub id of the repository.</summary>
+    public required long RepositoryId { get; init; }
+
+    /// <summary>Gets the absolute archive folder of the repository, the same folder a backup run uses.</summary>
+    public required string ArchiveFolder { get; init; }
+
     /// <summary>Gets the repository as <c>owner/name</c>.</summary>
     public string FullName => $"{Owner}/{Name}";
 }

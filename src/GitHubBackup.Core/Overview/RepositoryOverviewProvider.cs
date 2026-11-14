@@ -89,6 +89,10 @@ public sealed class RepositoryOverviewProvider(
             stateError = exception.Message;
         }
 
-        return new(item.Owner, item.Name, item.AccountLogin, status, lastArchiveAt, stateError);
+        return new(item.Owner, item.Name, item.AccountLogin, status, lastArchiveAt, stateError)
+        {
+            RepositoryId = item.Id,
+            ArchiveFolder = item.ArchiveFolder,
+        };
     }
 }

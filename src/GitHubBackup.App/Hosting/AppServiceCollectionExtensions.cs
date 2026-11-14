@@ -2,6 +2,7 @@ using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
+using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.App.Views;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,7 +22,8 @@ internal static class AppServiceCollectionExtensions
         /// <summary>
         /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandlerFactory"/> and
         /// the <see cref="IBackupRunService"/> of a run started from the window, the <see cref="IUiDispatcher"/> that
-        /// brings its progress to the UI thread, the main window and the ViewModels, among them the <see cref="SettingsViewModel"/> of the settings editor.
+        /// brings its progress to the UI thread, the main window and the ViewModels, among them the <see cref="SettingsViewModel"/> of the settings editor and the
+        /// <see cref="HistoryViewModel"/> of the history screen, and the <see cref="IExplorerLauncher"/> it opens archives with.
         /// </summary>
         /// <remarks>
         /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
@@ -41,6 +43,10 @@ internal static class AppServiceCollectionExtensions
             services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
             services.AddTransient<RepositoriesViewModel>();
             services.AddTransient<SettingsViewModel>();
+            services.AddSingleton<IExplorerLauncher, ExplorerLauncher>();
+            services.AddTransient<RunHistoryViewModel>();
+            services.AddTransient<ArchiveHistoryViewModel>();
+            services.AddTransient<HistoryViewModel>();
             return services;
         }
     }

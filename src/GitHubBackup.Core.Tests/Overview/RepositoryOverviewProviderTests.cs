@@ -148,6 +148,26 @@ public sealed class RepositoryOverviewProviderTests
     }
 
     [Fact]
+    public async Task LoadAsync_Repositories_ReturnIdAndArchiveFolderOfRun()
+    {
+        UseConfig(new()
+        {
+            BackupRoot = _backupRoot,
+            Accounts = [CreateAccount("octo", "tool")],
+            Repositories = [CreateStandalone("other", "lib", id: 42)],
+        });
+
+        var overview = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+
+        var account = overview.Accounts[0].Repositories.ShouldHaveSingleItem();
+        account.RepositoryId.ShouldBe(1);
+        account.ArchiveFolder.ShouldBe(@"C:\backup\octo\tool");
+        var standalone = overview.StandaloneRepositories.ShouldHaveSingleItem();
+        standalone.RepositoryId.ShouldBe(42);
+        standalone.ArchiveFolder.ShouldBe(@"C:\backup\other\lib");
+    }
+
+    [Fact]
     public async Task LoadAsync_NoStateFile_ReturnsNullLastArchive()
     {
         UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });

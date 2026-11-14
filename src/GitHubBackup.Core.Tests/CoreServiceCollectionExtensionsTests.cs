@@ -205,6 +205,21 @@ public sealed class CoreServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupCore_ArchiveHistoryProvider_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var historyProvider = provider.GetRequiredService<IArchiveHistoryProvider>();
+
+        historyProvider.ShouldBeOfType<ArchiveHistoryProvider>();
+        provider.GetRequiredService<IArchiveHistoryProvider>().ShouldBeSameAs(historyProvider);
+    }
+
+    [Fact]
     public void AddGitHubBackupCore_TimeProvider_IsSystemClock()
     {
         using var provider = new ServiceCollection().AddGitHubBackupCore().BuildServiceProvider();
