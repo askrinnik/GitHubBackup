@@ -63,6 +63,55 @@ internal sealed class SqliteRunHistoryStore(
         }
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// The mode, the dry-run flag and the exit code are filtered in the database. The period is filtered after
+    /// reading: the provider stores a <see cref="DateTimeOffset"/> as text with its offset and cannot compare
+    /// instants in SQL. Runs never overlap, so the order of recording is the order of starting.
+    /// </remarks>
+    public async Task<IReadOnlyList<RunHistoryEntry>> QueryAsync(
+        RunHistoryQuery query, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var runs = context.Runs.AsNoTracking();
+            if (query.Mode is { } mode)
+            {
+                runs = runs.Where(run => run.Mode == mode);
+            }
+
+            if (query.IsDryRun is { } isDryRun)
+            {
+                runs = runs.Where(run => run.IsDryRun == isDryRun);
+            }
+
+            if (query.ExitCode is { } exitCode)
+            {
+                runs = runs.Where(run => run.ExitCode == exitCode);
+            }
+
+            var entities = await runs
+                .OrderByDescending(run => run.Id)
+                .Include(run => run.Items.OrderBy(item => item.Id))
+                .Include(run => run.DiscoveryEvents.OrderBy(discoveryEvent => discoveryEvent.Id))
+                .AsSplitQuery()
+                .ToListAsync(cancellationToken);
+            return
+            [
+                .. entities
+                    .Where(run => (query.From is not { } from || run.StartedAt >= from)
+                        && (query.To is not { } to || run.StartedAt < to))
+                    .Select(ToEntry),
+            ];
+        }
+        catch (SqliteException exception)
+        {
+            throw new RunHistoryException(
+                options.Value.DatabasePath, $"The runs cannot be read. {exception.Message}", exception);
+        }
+    }
+
     /// <summary>
     /// Maps a run to the rows that store it.
     /// </summary>

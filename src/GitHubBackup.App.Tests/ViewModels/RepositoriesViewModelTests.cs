@@ -30,13 +30,13 @@ public sealed class RepositoriesViewModelTests
         [
             new("octo", "https://github.com/octo",
             [
-                new("octo", "tool", "octo", RepositoryOverviewStatus.Active, _archivedAt, null),
-                new("octo", "old", "octo", RepositoryOverviewStatus.Unavailable, null, null),
-                new("octo", "skip", "octo", RepositoryOverviewStatus.Excluded, null, "The state file is not valid JSON."),
+                new("octo", "tool", "octo", RepositoryOverviewStatus.Active, _archivedAt, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
+                new("octo", "old", "octo", RepositoryOverviewStatus.Unavailable, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
+                new("octo", "skip", "octo", RepositoryOverviewStatus.Excluded, null, "The state file is not valid JSON.") { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
             ]),
             new("empty", "https://github.com/empty", []),
         ],
-        [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null)]);
+        [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }]);
 
     private readonly IRepositoryOverviewProvider _provider = Substitute.For<IRepositoryOverviewProvider>();
 
@@ -113,7 +113,7 @@ public sealed class RepositoriesViewModelTests
     public async Task Refresh_OnlyStandaloneRepositories_ShowsOnlyGroup()
     {
         _provider.LoadAsync(Arg.Any<CancellationToken>())
-            .Returns(new RepositoryOverview([], [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null)]));
+            .Returns(new RepositoryOverview([], [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }]));
 
         await _viewModel.RefreshCommand.ExecuteAsync(null);
 
@@ -249,6 +249,33 @@ public sealed class RepositoriesViewModelTests
         run.SetResult(new([], [], []));
         await execution;
         _viewModel.OpenSettingsCommand.CanExecute(null).ShouldBeTrue();
+    }
+
+    [Fact]
+    public void OpenHistory_Idle_NavigatesToHistory()
+    {
+        _viewModel.OpenHistoryCommand.CanExecute(null).ShouldBeTrue();
+
+        _viewModel.OpenHistoryCommand.Execute(null);
+
+        _navigation.Received(1).NavigateTo<HistoryViewModel>();
+    }
+
+    [Fact]
+    public async Task OpenHistory_Running_CannotExecute()
+    {
+        var run = new TaskCompletionSource<BackupRunResult>();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>()).Returns(run.Task);
+        var raised = 0;
+        _viewModel.OpenHistoryCommand.CanExecuteChanged += (_, _) => raised++;
+
+        var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        _viewModel.OpenHistoryCommand.CanExecute(null).ShouldBeFalse();
+        raised.ShouldBe(1);
+        run.SetResult(new([], [], []));
+        await execution;
+        _viewModel.OpenHistoryCommand.CanExecute(null).ShouldBeTrue();
     }
 
     [Theory]
@@ -537,7 +564,7 @@ public sealed class RepositoriesViewModelTests
     {
         var newArchivedAt = new DateTimeOffset(2026, 11, 13, 18, 45, 0, TimeSpan.FromHours(2));
         var afterRun = new RepositoryOverview(
-            [new("octo", "https://github.com/octo", [new("octo", "tool", "octo", RepositoryOverviewStatus.Active, newArchivedAt, null)])],
+            [new("octo", "https://github.com/octo", [new("octo", "tool", "octo", RepositoryOverviewStatus.Active, newArchivedAt, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }])],
             []);
         _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview, _overview, afterRun);
         await _viewModel.RefreshCommand.ExecuteAsync(null);

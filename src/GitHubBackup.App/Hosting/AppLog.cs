@@ -70,4 +70,38 @@ internal static partial class AppLog
     /// <param name="exception">The exception, logged with its stack trace.</param>
     [LoggerMessage(EventId = 8, Level = LogLevel.Warning, Message = "The token check of the settings editor failed")]
     public static partial void TokenCheckFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the history screen cannot read the run history.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 9, Level = LogLevel.Warning, Message = "The history screen cannot read the run history")]
+    public static partial void RunHistoryLoadFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the history screen cannot read the repositories of the backup configuration.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 10, Level = LogLevel.Warning, Message = "The history screen cannot read the repositories")]
+    public static partial void HistoryRepositoriesLoadFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the history screen cannot read the archive history of a repository.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 11, Level = LogLevel.Warning, Message = "The history screen cannot read the archive history of {Repository}")]
+    public static partial void ArchiveHistoryLoadFailed(ILogger logger, string repository, Exception exception);
+
+    /// <summary>
+    /// Logs that Windows Explorer cannot be started.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="path">The folder or file Explorer was to show.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 12, Level = LogLevel.Error, Message = "Windows Explorer cannot be started for {Path}")]
+    public static partial void ExplorerFailed(ILogger logger, string path, Exception exception);
 }

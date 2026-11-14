@@ -57,6 +57,16 @@ internal sealed class TemporaryHistoryDatabase : IDisposable
     }
 
     /// <summary>
+    /// Returns a store over a database without the schema, whose reads fail because the tables do not exist.
+    /// </summary>
+    /// <returns>The store.</returns>
+    public SqliteRunHistoryStore CreateStoreWithoutSchema()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(DatabasePath)!);
+        return new(ContextFactory, CreateOptions(), new SecretMasker());
+    }
+
+    /// <summary>
     /// Runs a query that returns one value, bypassing EF Core, to see what the database stores.
     /// </summary>
     /// <param name="sql">The query.</param>

@@ -35,7 +35,7 @@ namespace GitHubBackup.App.ViewModels;
 /// </param>
 /// <param name="environment">The host environment whose content root holds the log folder the summary names.</param>
 /// <param name="timeProvider">Supplies the local date that names the log file of the day.</param>
-/// <param name="navigation">Opens the settings editor.</param>
+/// <param name="navigation">Opens the settings editor and the history screen.</param>
 /// <param name="logger">Logs the failures of a run and of reading the tree.</param>
 public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
@@ -73,12 +73,13 @@ public sealed partial class RepositoriesViewModel(
     private bool _isDryRun;
 
     /// <summary>
-    /// Whether a run is in progress; the commands that start a run, the dry-run switch and the settings editor are
-    /// disabled then, because a run writes <c>backup-config.json</c> too.
+    /// Whether a run is in progress; the commands that start a run, the dry-run switch, the settings editor and the
+    /// history screen are disabled then: a run writes <c>backup-config.json</c> too, and leaving the tree would hide
+    /// its progress.
     /// </summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsIdle))]
-    [NotifyCanExecuteChangedFor(nameof(StartBackupCommand), nameof(OpenSettingsCommand))]
+    [NotifyCanExecuteChangedFor(nameof(StartBackupCommand), nameof(OpenSettingsCommand), nameof(OpenHistoryCommand))]
     private bool _isRunning;
 
     /// <summary>Why the tree cannot be read, or <see langword="null"/> when it was read.</summary>
@@ -189,6 +190,12 @@ public sealed partial class RepositoriesViewModel(
     /// </summary>
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void OpenSettings() => navigation.NavigateTo<SettingsViewModel>();
+
+    /// <summary>
+    /// Opens the history screen in place of the tree.
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private void OpenHistory() => navigation.NavigateTo<HistoryViewModel>();
 
     /// <summary>
     /// Returns whether a run of <paramref name="scope"/> can start: no run is in progress, and the selection names

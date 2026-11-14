@@ -2,6 +2,7 @@ using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Runs;
+using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Infrastructure.Logging;
@@ -67,6 +68,27 @@ public sealed class AppHostTests : IDisposable
         var second = host.Services.GetRequiredService<SettingsViewModel>();
 
         second.ShouldNotBeSameAs(first);
+    }
+
+    [Fact]
+    public void BuildHost_HistoryViewModel_IsTransientWithBothTabs()
+    {
+        using var host = BuildHost();
+
+        var first = host.Services.GetRequiredService<HistoryViewModel>();
+        var second = host.Services.GetRequiredService<HistoryViewModel>();
+
+        second.ShouldNotBeSameAs(first);
+        second.Runs.ShouldNotBeSameAs(first.Runs);
+        second.Archives.ShouldNotBeSameAs(first.Archives);
+    }
+
+    [Fact]
+    public void BuildHost_ExplorerLauncher_IsResolved()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IExplorerLauncher>().ShouldBeOfType<ExplorerLauncher>();
     }
 
     [Fact]
