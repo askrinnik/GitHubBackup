@@ -169,6 +169,31 @@ public sealed class CliEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task Backup_BackupConfigMissing_ExitsCriticalWithHintAndLogPath()
+    {
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Critical, result.ToString());
+        var lines = result.ErrorLines();
+        lines.Length.ShouldBe(2, result.ToString());
+        lines[0].ShouldBe(BackupSummaryRenderer.ErrorPrefix + MissingConfigHint());
+        lines[1].ShouldStartWith(
+            BackupSummaryRenderer.LogPrefix + Path.Combine(_installation.LogsPath, LogFiles.FileNamePrefix));
+        File.Exists(_installation.BackupConfigPath).ShouldBeFalse();
+        _installation.FindArchives().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Validate_BackupConfigMissing_ExitsCriticalWithHint()
+    {
+        var result = await _installation.RunAsync("validate");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Critical, result.ToString());
+        result.ErrorLines()[0].ShouldBe(BackupSummaryRenderer.ErrorPrefix + MissingConfigHint(), result.ToString());
+        File.Exists(_installation.BackupConfigPath).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task Backup_DryRunBeforeFirstBackup_ChangesNothingOnDisk()
     {
         _config.WithDiscoverAccessibleRepositories();
@@ -325,6 +350,13 @@ public sealed class CliEndToEndTests : IDisposable
         result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
         (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
     }
+
+    /// <summary>
+    /// Returns the error that names the missing <c>backup-config.json</c> of the installation and tells how to create it.
+    /// </summary>
+    /// <returns>The error.</returns>
+    private string MissingConfigHint() =>
+        $"The backup configuration file '{_installation.BackupConfigPath}' does not exist. Create it in the settings editor of GitHubBackup.exe.";
 
     /// <summary>
     /// Returns the <c>id</c> of each standalone repository of a configuration, <c>0</c> for an entry without one.

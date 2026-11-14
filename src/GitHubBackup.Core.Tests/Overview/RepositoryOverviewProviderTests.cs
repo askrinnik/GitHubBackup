@@ -105,10 +105,22 @@ public sealed class RepositoryOverviewProviderTests
     [Fact]
     public async Task LoadAsync_ConfigStoreThrows_PropagatesBackupConfigException()
     {
-        var error = new BackupConfigException(@"C:\app\backup-config.json", ["The file does not exist."]);
+        var error = new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]);
         _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
 
         var exception = await Should.ThrowAsync<BackupConfigException>(
+            () => _provider.LoadAsync(TestContext.Current.CancellationToken));
+
+        exception.ShouldBeSameAs(error);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ConfigNotFound_PropagatesNotFoundException()
+    {
+        var error = new BackupConfigNotFoundException(@"C:\app\backup-config.json");
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
+
+        var exception = await Should.ThrowAsync<BackupConfigNotFoundException>(
             () => _provider.LoadAsync(TestContext.Current.CancellationToken));
 
         exception.ShouldBeSameAs(error);

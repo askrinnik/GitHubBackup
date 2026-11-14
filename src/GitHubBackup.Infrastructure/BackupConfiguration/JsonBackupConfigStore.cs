@@ -100,7 +100,8 @@ internal sealed class JsonBackupConfigStore(
     /// <param name="path">The path of the configuration file.</param>
     /// <param name="cancellationToken">Cancels reading the file.</param>
     /// <returns>The deserialized configuration, not yet validated.</returns>
-    /// <exception cref="BackupConfigException">The file is missing, unreadable or not a valid configuration document.</exception>
+    /// <exception cref="BackupConfigNotFoundException">The file or its folder does not exist.</exception>
+    /// <exception cref="BackupConfigException">The file is unreadable or not a valid configuration document.</exception>
     private async Task<BackupConfig> ReadAsync(string path, CancellationToken cancellationToken)
     {
         BackupConfig? config;
@@ -111,7 +112,7 @@ internal sealed class JsonBackupConfigStore(
         }
         catch (Exception exception) when (exception is FileNotFoundException or DirectoryNotFoundException)
         {
-            throw new BackupConfigException(path, [$"The backup configuration file '{path}' does not exist."], exception);
+            throw new BackupConfigNotFoundException(path, exception);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

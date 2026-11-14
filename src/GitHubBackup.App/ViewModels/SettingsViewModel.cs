@@ -163,6 +163,14 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [NotifyPropertyChangedFor(nameof(HasLoadError))]
     private string? _loadError;
 
+    /// <summary>
+    /// The note that <c>backup-config.json</c> does not exist yet and that Save creates it, or <see langword="null"/>
+    /// when the file exists.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsNewConfig))]
+    private string? _newConfigMessage;
+
     /// <summary>Whether the configuration is read, so it can be edited and saved.</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
@@ -232,6 +240,9 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Gets whether the configuration cannot be read.</summary>
     public bool HasLoadError => LoadError is not null;
 
+    /// <summary>Gets whether the editor holds a configuration that is not yet saved to any file.</summary>
+    public bool IsNewConfig => NewConfigMessage is not null;
+
     /// <summary>Gets whether leaving the editor would lose a change: the configuration, the tool paths or a typed token.</summary>
     public bool HasUnsavedChanges => IsDirty || _toolsDirty || !string.IsNullOrEmpty(Token);
 
@@ -240,7 +251,16 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     public Task<bool> CanCloseAsync() => Task.FromResult(ConfirmLeave());
 
     /// <summary>
-    /// Reads <c>backup-config.json</c> into the fields, once; a failure is shown instead of the fields.
+    /// Returns the note the editor shows above the fields while <c>backup-config.json</c> does not exist.
+    /// </summary>
+    /// <param name="configPath">The path of the missing configuration file.</param>
+    /// <returns>The note.</returns>
+    public static string FormatNewConfigMessage(string configPath) =>
+        $"The file '{configPath}' does not exist yet. Save creates it.";
+
+    /// <summary>
+    /// Reads <c>backup-config.json</c> into the fields, once; a failure is shown instead of the fields, and a missing
+    /// file fills the fields with an empty configuration that Save creates.
     /// </summary>
     /// <param name="cancellationToken">Cancels reading.</param>
     /// <returns>A task that completes when the fields are filled or the error is shown.</returns>
@@ -256,6 +276,13 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         {
             var result = await _configStore.LoadAsync(cancellationToken);
             Populate(result.Config);
+            LoadError = null;
+        }
+        catch (BackupConfigNotFoundException exception)
+        {
+            AppLog.BackupConfigMissing(_logger, exception.ConfigPath);
+            Populate(new BackupConfig());
+            NewConfigMessage = _secretMasker.Mask(FormatNewConfigMessage(exception.ConfigPath));
             LoadError = null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -307,6 +334,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
         _loaded = config;
         IsDirty = false;
+        NewConfigMessage = null;
         if (ConfirmLeave())
         {
             _navigation.NavigateTo<RepositoriesViewModel>();

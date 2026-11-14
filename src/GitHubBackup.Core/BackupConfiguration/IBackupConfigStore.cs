@@ -10,8 +10,9 @@ public interface IBackupConfigStore
     /// </summary>
     /// <param name="cancellationToken">Cancels reading the file.</param>
     /// <returns>The configuration and its validation warnings.</returns>
+    /// <exception cref="BackupConfigNotFoundException">The file or its folder does not exist.</exception>
     /// <exception cref="BackupConfigException">
-    /// The file does not exist, is not valid JSON, has an unsupported schema version or fails validation.
+    /// The file cannot be read, is not valid JSON, has an unsupported schema version or fails validation.
     /// </exception>
     Task<BackupConfigLoadResult> LoadAsync(CancellationToken cancellationToken);
 

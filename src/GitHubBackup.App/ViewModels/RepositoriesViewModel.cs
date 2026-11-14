@@ -4,6 +4,7 @@ using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
+using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -59,6 +60,10 @@ public sealed partial class RepositoriesViewModel(
     public const string CloseDuringRunMessage =
         "A backup is running. Cancel it and close the window when it has stopped?";
 
+    /// <summary>The message the screen shows in place of the tree while <c>backup-config.json</c> does not exist.</summary>
+    public const string ConfigMissingMessage =
+        "No settings yet. Open the settings editor to create backup-config.json.";
+
     /// <summary>The nodes at the top of the tree: the accounts in file order, then the group of standalone repositories.</summary>
     [ObservableProperty]
     private IReadOnlyList<TreeNodeViewModel> _nodes = [];
@@ -86,6 +91,14 @@ public sealed partial class RepositoriesViewModel(
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasLoadError))]
     private string? _loadError;
+
+    /// <summary>
+    /// Whether <c>backup-config.json</c> does not exist yet; the screen then invites the user to the settings editor,
+    /// and no run can start because there is nothing to back up.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(StartBackupCommand))]
+    private bool _isConfigMissing;
 
     /// <summary>Whether the configuration was read and lists neither an account nor a standalone repository.</summary>
     [ObservableProperty]
@@ -198,12 +211,13 @@ public sealed partial class RepositoriesViewModel(
     private void OpenHistory() => navigation.NavigateTo<HistoryViewModel>();
 
     /// <summary>
-    /// Returns whether a run of <paramref name="scope"/> can start: no run is in progress, and the selection names
+    /// Returns whether a run of <paramref name="scope"/> can start: no run is in progress, the configuration file
+    /// exists, and the selection names
     /// an account for <see cref="BackupScope.Account"/> or an active repository for <see cref="BackupScope.Repository"/>.
     /// </summary>
     /// <param name="scope">The repositories the run would cover.</param>
     /// <returns><see langword="true"/> when the run can start.</returns>
-    private bool CanStartBackup(BackupScope scope) => !IsRunning && CreateFilter(scope) is not null;
+    private bool CanStartBackup(BackupScope scope) => !IsRunning && !IsConfigMissing && CreateFilter(scope) is not null;
 
     /// <summary>
     /// Reads the tree again, runs the backup of <paramref name="scope"/> and shows its summary.
@@ -301,7 +315,8 @@ public sealed partial class RepositoriesViewModel(
 
     /// <summary>
     /// Reads the tree and rebuilds the nodes, keeping the selected node and the collapsed nodes by their keys; a
-    /// failure clears the tree and shows the error instead.
+    /// failure clears the tree and shows the error instead, and a missing configuration file shows the invitation to
+    /// create it.
     /// </summary>
     /// <param name="cancellationToken">Cancels reading.</param>
     /// <returns>A task that completes when the nodes are rebuilt or the error is set.</returns>
@@ -316,11 +331,21 @@ public sealed partial class RepositoriesViewModel(
             SelectedNode = null;
             Nodes = BuildNodes(overview, collapsedKeys);
             LoadError = null;
+            IsConfigMissing = false;
             IsEmpty = overview.IsEmpty;
             if (selectedKey is not null && FindNode(Nodes, selectedKey) is { } selected)
             {
                 selected.IsSelected = true;
             }
+        }
+        catch (BackupConfigNotFoundException exception)
+        {
+            AppLog.BackupConfigMissing(logger, exception.ConfigPath);
+            SelectedNode = null;
+            Nodes = [];
+            IsEmpty = false;
+            LoadError = null;
+            IsConfigMissing = true;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -328,6 +353,7 @@ public sealed partial class RepositoriesViewModel(
             SelectedNode = null;
             Nodes = [];
             IsEmpty = false;
+            IsConfigMissing = false;
             LoadError = secretMasker.Mask(exception.Message);
         }
     }

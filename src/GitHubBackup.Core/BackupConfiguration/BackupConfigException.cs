@@ -6,7 +6,7 @@ namespace GitHubBackup.Core.BackupConfiguration;
 /// <param name="configPath">The path of the configuration file.</param>
 /// <param name="errors">The errors, at least one, one sentence each.</param>
 /// <param name="innerException">The exception that caused the errors, or <see langword="null"/>.</param>
-public sealed class BackupConfigException(
+public class BackupConfigException(
     string configPath, IReadOnlyList<string> errors, Exception? innerException = null)
     : Exception(CreateMessage(configPath, errors), innerException)
 {

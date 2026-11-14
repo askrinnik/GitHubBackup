@@ -220,6 +220,20 @@
                        VerticalAlignment="Center"
                        TextWrapping="Wrap"
                        AutomationProperties.AutomationId="EmptyTreeMessage" />
+            <StackPanel Visibility="{Binding IsConfigMissing, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                <TextBlock Text="{x:Static vm:RepositoriesViewModel.ConfigMissingMessage}"
+                           TextWrapping="Wrap"
+                           HorizontalAlignment="Center"
+                           Margin="0,0,0,8"
+                           AutomationProperties.AutomationId="ConfigMissingMessage" />
+                <Button Content="Open settings"
+                        Command="{Binding OpenSettingsCommand, Mode=OneWay}"
+                        HorizontalAlignment="Center"
+                        Padding="8,2"
+                        AutomationProperties.AutomationId="OpenSettingsFromFirstRunButton" />
+            </StackPanel>
         </Grid>
     </DockPanel>
 </UserControl>

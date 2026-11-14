@@ -1,4 +1,5 @@
 using FlaUI.Core.Definitions;
+using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core;
 using GitHubBackup.TestUtilities;
 
@@ -49,11 +50,17 @@ public sealed class AppLaunchTests : IDisposable
     }
 
     [Fact]
-    public void Launch_BackupConfigMissing_ShowsTreeLoadError()
+    public void Launch_BackupConfigMissing_ShowsFirstRunMessageAndDisablesBackup()
     {
         var session = Start();
 
-        session.WaitFor("TreeLoadError").Name.ShouldContain("backup-config.json");
+        session.WaitFor("ConfigMissingMessage").Name.ShouldBe(RepositoriesViewModel.ConfigMissingMessage);
+        session.WaitFor("OpenSettingsFromFirstRunButton").IsEnabled.ShouldBeTrue();
+        session.WaitFor("BackupAllButton").IsEnabled.ShouldBeFalse();
+        session.WaitFor("BackupAccountButton").IsEnabled.ShouldBeFalse();
+        session.WaitFor("BackupRepositoryButton").IsEnabled.ShouldBeFalse();
+        session.MainWindow.FindFirstDescendant(condition => condition.ByAutomationId("TreeLoadError")).ShouldBeNull();
+        File.Exists(_installation.BackupConfigPath).ShouldBeFalse();
     }
 
     [Fact]

@@ -537,6 +537,21 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_ConfigNotFound_ReturnsCriticalWithHint()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BackupConfigNotFoundException(@"C:\app\backup-config.json"));
+
+        var result = await RunAsync();
+
+        result.CriticalErrors.ShouldBe(
+            [@"The backup configuration file 'C:\app\backup-config.json' does not exist. Create it in the settings editor of GitHubBackup.exe."]);
+        result.Items.ShouldBeEmpty();
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _toolLocator.DidNotReceiveWithAnyArgs().LocateAsync(CancellationToken);
+    }
+
+    [Fact]
     public async Task RunAsync_ToolMissing_ReturnsCriticalWithWarningsWithoutTouchingAnything()
     {
         _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(_config, ["a warning"]));

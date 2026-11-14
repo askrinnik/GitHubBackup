@@ -104,4 +104,13 @@ internal static partial class AppLog
     /// <param name="exception">The exception, logged with its stack trace.</param>
     [LoggerMessage(EventId = 12, Level = LogLevel.Error, Message = "Windows Explorer cannot be started for {Path}")]
     public static partial void ExplorerFailed(ILogger logger, string path, Exception exception);
+
+    /// <summary>
+    /// Logs that <c>backup-config.json</c> does not exist yet; this is the first run, not a failure, so no stack trace
+    /// is logged.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="path">The path of the missing configuration file.</param>
+    [LoggerMessage(EventId = 13, Level = LogLevel.Information, Message = "The backup configuration file {Path} does not exist yet; the settings editor creates it")]
+    public static partial void BackupConfigMissing(ILogger logger, string path);
 }
