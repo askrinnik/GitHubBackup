@@ -1,13 +1,13 @@
 using System.Text.Json;
 
-namespace GitHubBackup.Cli.Tests;
+namespace GitHubBackup.TestUtilities;
 
 /// <summary>
 /// Builds the text of a <c>backup-config.json</c> with standalone repositories and accounts, no exclusion masks and
 /// the default clone and archive paths of every repository.
 /// </summary>
 /// <param name="backupRoot">The absolute path of the archive root.</param>
-internal sealed class BackupConfigJson(string backupRoot)
+public sealed class BackupConfigJson(string backupRoot)
 {
     private readonly List<string> _accounts = [];
     private readonly List<string> _repositories = [];

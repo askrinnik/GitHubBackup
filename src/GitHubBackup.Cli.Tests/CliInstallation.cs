@@ -4,6 +4,7 @@ using GitHubBackup.Core.State;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
+using GitHubBackup.TestUtilities.Git;
 using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.Cli.Tests;
@@ -22,12 +23,6 @@ internal sealed class CliInstallation : IDisposable
     /// <summary>The name of the executable in the installation folder.</summary>
     private const string _executableName = "GitHubBackup.Cli.exe";
 
-    /// <summary>The name of the git configuration file that replaces the user's global one for the executable.</summary>
-    private const string _gitConfigName = "redirect.gitconfig";
-
-    /// <summary>The folders of the build output that runs create; they are not copied.</summary>
-    private static readonly string[] _runFolders = [LogFiles.FolderName, "data", BackupConfig.DefaultSourcesFolderName];
-
     private readonly Dictionary<string, string> _environment;
 
     /// <summary>
@@ -41,26 +36,20 @@ internal sealed class CliInstallation : IDisposable
     public CliInstallation(string apiBaseUrl, string remotesRoot)
     {
         FolderPath = TemporaryFolder.Create();
-        CopyBuildOutput(FolderPath);
+        var source = typeof(CliInstallation).Assembly
+            .GetCustomAttributes<AssemblyMetadataAttribute>()
+            .Single(attribute => attribute.Key == "GitHubBackupCliOutputPath")
+            .Value!;
+        BuildOutput.CopyTo(source, FolderPath, _executableName);
         File.WriteAllText(
             Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName),
             CliApplicationTests.ValidAppSettings.Replace("https://api.github.com", apiBaseUrl, StringComparison.Ordinal));
 
-        var gitConfigPath = Path.Combine(FolderPath, _gitConfigName);
-        var remotesUrl = new Uri(Path.TrimEndingDirectorySeparator(remotesRoot) + Path.DirectorySeparatorChar).AbsoluteUri;
-        File.WriteAllText(
-            gitConfigPath,
-            $"""
-            [url "{remotesUrl}"]
-                insteadOf = https://github.com/
-            """);
-
-        _environment = new(StringComparer.OrdinalIgnoreCase)
+        var redirect = new GitRemoteRedirect(FolderPath, remotesRoot);
+        _environment = new(redirect.EnvironmentVariables(), StringComparer.OrdinalIgnoreCase)
         {
             // Production skips the user secrets of the developer, which could supply another token or API address.
             [GitHubBackupHostSettings.EnvironmentVariableName] = Environments.Production,
-            ["GIT_CONFIG_GLOBAL"] = gitConfigPath,
-            ["GIT_CONFIG_NOSYSTEM"] = "1",
         };
     }
 
@@ -137,37 +126,4 @@ internal sealed class CliInstallation : IDisposable
     /// <returns>The absolute paths, or none when the folder does not exist.</returns>
     private static string[] FindFiles(string folder, string pattern) =>
         Directory.Exists(folder) ? Directory.GetFiles(folder, pattern, SearchOption.AllDirectories) : [];
-
-    /// <summary>
-    /// Copies the build output of the console project into <paramref name="target"/>, without the folders and the
-    /// configuration file that runs create.
-    /// </summary>
-    /// <param name="target">The installation folder.</param>
-    /// <exception cref="InvalidOperationException">The build output has no executable.</exception>
-    private static void CopyBuildOutput(string target)
-    {
-        var source = typeof(CliInstallation).Assembly
-            .GetCustomAttributes<AssemblyMetadataAttribute>()
-            .Single(attribute => attribute.Key == "GitHubBackupCliOutputPath")
-            .Value!;
-        if (!File.Exists(Path.Combine(source, _executableName)))
-        {
-            throw new InvalidOperationException($"{_executableName} was not found in '{source}'. Build the solution first.");
-        }
-
-        foreach (var file in Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(source, file);
-            var topSegment = relativePath.Split(Path.DirectorySeparatorChar)[0];
-            if (_runFolders.Contains(topSegment, StringComparer.OrdinalIgnoreCase)
-                || relativePath.Equals("backup-config.json", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            var destination = Path.Combine(target, relativePath);
-            Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-            File.Copy(file, destination);
-        }
-    }
 }

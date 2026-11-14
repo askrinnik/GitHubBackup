@@ -11,6 +11,16 @@
 
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.App\GitHubBackup.App.csproj" />
+    <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FlaUI.UIA3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The tests copy the output folder of the WPF project and start its executable from the copy. -->
+    <AssemblyMetadata Include="GitHubBackupAppOutputPath" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\GitHubBackup.App\bin\$(Configuration)\$(TargetFramework)'))" />
   </ItemGroup>
 
 </Project>
