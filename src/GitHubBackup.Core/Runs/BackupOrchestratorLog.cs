@@ -236,4 +236,29 @@ internal static partial class BackupOrchestratorLog
         Level = LogLevel.Error,
         Message = "The repository has no id in backup-config.json and is not backed up: {Reason}")]
     public static partial void RepositoryIdUnresolved(ILogger logger, string reason);
+
+    /// <summary>
+    /// Logs that a backup run would move the clone to its configured folder, which a dry run does not do.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="oldFolder">The folder the clone is in.</param>
+    /// <param name="newFolder">The configured clone folder.</param>
+    [LoggerMessage(
+        EventId = 23,
+        Level = LogLevel.Information,
+        Message = "Dry run: the clone would be moved from {OldFolder} to {NewFolder}")]
+    public static partial void CloneMovePlanned(ILogger logger, string oldFolder, string newFolder);
+
+    /// <summary>
+    /// Logs that the file of the recorded clone folders could not be written; the next run treats the folders it did
+    /// not record as unknown and moves no clone from them.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="sourcesRoot">The clone root that holds the file.</param>
+    /// <param name="exception">The failure.</param>
+    [LoggerMessage(
+        EventId = 24,
+        Level = LogLevel.Warning,
+        Message = "Cannot record the clone folders in {SourcesRoot}")]
+    public static partial void CloneLocationsNotSaved(ILogger logger, string sourcesRoot, Exception exception);
 }

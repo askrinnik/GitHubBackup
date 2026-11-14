@@ -57,6 +57,59 @@ public sealed class GitClientUpdateTests : GitClientTestBase
     }
 
     [Fact]
+    public async Task UpdateAsync_KeepIgnoredFiles_KeepsIgnoredFilesAndRemovesUntrackedOnes()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CommitAsync(".gitignore", "*.log\nbin/\n", "Ignore logs", CancellationToken);
+        await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+        File.WriteAllText(Path.Combine(_clonePath, "untracked.txt"), "untracked");
+        File.WriteAllText(Path.Combine(_clonePath, "build.log"), "ignored");
+        Directory.CreateDirectory(Path.Combine(_clonePath, "bin"));
+        File.WriteAllText(Path.Combine(_clonePath, "bin", "app.dll"), "ignored");
+        var head = await remote.CommitAsync("new.txt", "new", "New commit", CancellationToken);
+
+        await CreateClient().UpdateAsync(Request() with { KeepIgnoredFiles = true }, CancellationToken);
+
+        (await HeadAsync(_clonePath)).ShouldBe(head);
+        File.Exists(Path.Combine(_clonePath, "untracked.txt")).ShouldBeFalse();
+        File.ReadAllText(Path.Combine(_clonePath, "build.log")).ShouldBe("ignored");
+        File.ReadAllText(Path.Combine(_clonePath, "bin", "app.dll")).ShouldBe("ignored");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdateAsync_HooksInCloneOrHooksPath_DoNotRun(bool configuredHooksPath)
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
+        var hooksFolder = configuredHooksPath ? Path.Combine(_clonePath, ".husky") : Path.Combine(_clonePath, ".git", "hooks");
+        Directory.CreateDirectory(hooksFolder);
+        var marker = Path.Combine(_sandbox.RootPath, "hook-ran.txt");
+        var script = "#!/bin/sh\necho ran > '" + marker.Replace('\\', '/') + "'\n";
+        foreach (var hook in new[] { "post-checkout", "post-merge", "reference-transaction" })
+        {
+            File.WriteAllText(Path.Combine(hooksFolder, hook), script);
+        }
+
+        if (configuredHooksPath)
+        {
+            await GitAsync(_clonePath, "config", "core.hooksPath", ".husky");
+        }
+
+        // Plain git runs the hook, so its absence below comes from the client and not from the machine.
+        await GitAsync(_clonePath, "checkout", "main");
+        File.Exists(marker).ShouldBeTrue();
+        File.Delete(marker);
+        await remote.CommitAsync("new.txt", "new", "New commit", CancellationToken);
+
+        await CreateClient().UpdateAsync(Request() with { KeepIgnoredFiles = true }, CancellationToken);
+
+        File.Exists(Path.Combine(_clonePath, "new.txt")).ShouldBeTrue();
+        File.Exists(marker).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task UpdateAsync_BranchDeletedAndTagsChanged_MirrorsServerRefs()
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);

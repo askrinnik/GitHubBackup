@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Processes;
 
@@ -27,6 +28,10 @@ public interface IChangeDetector
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
     /// <exception cref="GitRepositoryNotFoundException">The server has no repository at the remote URL.</exception>
+    /// <exception cref="CloneFolderException">
+    /// The clone folder is not empty and holds no git clone, or its <c>origin</c> does not point at the remote URL.
+    /// </exception>
+    /// <exception cref="LocalChangesException">The clone holds local work that an update would overwrite.</exception>
     /// <exception cref="GitCommandException">A git command exits with a non-zero code.</exception>
     /// <exception cref="ProcessStartException">git cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
@@ -37,7 +42,8 @@ public interface IChangeDetector
     /// the clone.
     /// </summary>
     /// <remarks>
-    /// Without a clone the result is <see cref="ChangeDecision.CloneNeeded"/> and git is not called. Otherwise the
+    /// Without a clone the result is <see cref="ChangeDecision.CloneNeeded"/> and git is not called. The clone folder
+    /// and the clone are checked as <see cref="DetectAsync"/> checks them, so the same failure is reported. Otherwise the
     /// refs of the server stand in for the refs the clone would hold after an update, so
     /// <see cref="ChangeDetection.Refs"/> holds the server's branches and tags.
     /// </remarks>
@@ -51,6 +57,10 @@ public interface IChangeDetector
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
     /// <exception cref="GitRepositoryNotFoundException">The server has no repository at the remote URL.</exception>
+    /// <exception cref="CloneFolderException">
+    /// The clone folder is not empty and holds no git clone, or its <c>origin</c> does not point at the remote URL.
+    /// </exception>
+    /// <exception cref="LocalChangesException">The clone holds local work that an update would overwrite.</exception>
     /// <exception cref="GitCommandException">A git command exits with a non-zero code.</exception>
     /// <exception cref="ProcessStartException">git cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>

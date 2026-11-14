@@ -5,7 +5,7 @@ namespace GitHubBackup.Core.BackupConfiguration;
 /// </summary>
 /// <remarks>
 /// Archives and clones live in separate trees: the <c>path</c> of an account or a repository moves only the archive
-/// folder, and every clone stays under the clone root. The same rule applies to repositories of any owner. The
+/// folder, and every clone stays under the clone root unless its entry sets <c>clonePath</c>. The same rule applies to repositories of any owner. The
 /// methods expect a configuration that has passed <see cref="IBackupConfigValidator"/>.
 /// </remarks>
 public interface IRepositoryPathResolver
@@ -45,24 +45,28 @@ public interface IRepositoryPathResolver
     string GetSourcesRoot(BackupConfig config);
 
     /// <summary>
-    /// Returns the clone folder of a repository, <c>&lt;sourcesRoot&gt;\&lt;owner&gt;\&lt;repo&gt;</c>.
+    /// Returns the clone folder of a repository: <paramref name="clonePath"/> when set, otherwise
+    /// <c>&lt;sourcesRoot&gt;\&lt;owner&gt;\&lt;repo&gt;</c>.
     /// </summary>
     /// <param name="config">The backup configuration.</param>
     /// <param name="owner">The login of the repository owner.</param>
     /// <param name="repository">The repository name.</param>
-    /// <returns>The absolute clone folder.</returns>
+    /// <param name="clonePath">The <c>clonePath</c> of the repository entry, or <see langword="null"/>.</param>
+    /// <returns>The absolute clone folder, without a trailing separator.</returns>
     /// <exception cref="ArgumentException">The login or the repository name is not valid on GitHub.</exception>
-    string GetCloneFolder(BackupConfig config, string owner, string repository);
+    string GetCloneFolder(BackupConfig config, string owner, string repository, string? clonePath);
 
     /// <summary>
-    /// Returns the clone folder of the wiki of a repository, <c>&lt;sourcesRoot&gt;\&lt;owner&gt;\&lt;repo&gt;.wiki</c>.
+    /// Returns the clone folder of the wiki of a repository: <paramref name="clonePath"/> with <c>.wiki</c> appended
+    /// when set, otherwise <c>&lt;sourcesRoot&gt;\&lt;owner&gt;\&lt;repo&gt;.wiki</c>.
     /// </summary>
     /// <param name="config">The backup configuration.</param>
     /// <param name="owner">The login of the repository owner.</param>
     /// <param name="repository">The repository name.</param>
+    /// <param name="clonePath">The <c>clonePath</c> of the repository entry, or <see langword="null"/>.</param>
     /// <returns>The absolute clone folder of the wiki.</returns>
     /// <exception cref="ArgumentException">The login or the repository name is not valid on GitHub.</exception>
-    string GetWikiCloneFolder(BackupConfig config, string owner, string repository);
+    string GetWikiCloneFolder(BackupConfig config, string owner, string repository, string? clonePath);
 
     /// <summary>
     /// Returns the folder that holds archives while they are created, <c>&lt;sourcesRoot&gt;\.tmp</c>.

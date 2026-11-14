@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
@@ -10,14 +11,22 @@ namespace GitHubBackup.Core.Changes;
 /// <summary>
 /// Implements <see cref="IChangeDetector"/> on top of <see cref="IGitClient"/>.
 /// </summary>
-/// <param name="gitClient">Clones and updates the clone and reads the refs of the server.</param>
+/// <param name="gitClient">Clones and updates the clone and reads the refs of the server and the origin of the clone.</param>
+/// <param name="cloneGuard">Checks the clone for local work before it is updated.</param>
 /// <param name="fileSystem">Checks that the clone and the last archive exist; no file is read.</param>
 /// <param name="telemetry">Traces each git operation as a child of the span of the repository.</param>
 /// <param name="logger">The logger.</param>
 public sealed class ChangeDetector(
-    IGitClient gitClient, IFileSystem fileSystem, BackupTelemetry telemetry, ILogger<ChangeDetector> logger)
+    IGitClient gitClient,
+    ICloneGuard cloneGuard,
+    IFileSystem fileSystem,
+    BackupTelemetry telemetry,
+    ILogger<ChangeDetector> logger)
     : IChangeDetector
 {
+    /// <summary>The name of the folder that holds the repository of a git clone.</summary>
+    private const string _gitFolderName = ".git";
+
     /// <inheritdoc />
     public async Task<ChangeDetection> DetectAsync(ChangeDetectionRequest request, CancellationToken cancellationToken)
     {
@@ -26,7 +35,7 @@ public sealed class ChangeDetector(
 
         var last = request.LastArchive;
         var archiveMissing = IsArchiveMissing(request);
-        var cloneExists = CloneExists(request);
+        var cloneExists = await InspectCloneAsync(request, cancellationToken);
 
         GitSyncResult sync;
         if (!cloneExists)
@@ -38,18 +47,20 @@ public sealed class ChangeDetector(
         }
         else
         {
+            RefSnapshot? remote = null;
             if (last is not null && !archiveMissing)
             {
-                var unchanged = await TryConfirmUnchangedAsync(request, last, cancellationToken);
+                (var unchanged, remote) = await TryConfirmUnchangedAsync(request, last, cancellationToken);
                 if (unchanged is not null)
                 {
                     return Log(request, unchanged);
                 }
             }
 
+            var check = await EnsureNoLocalChangesAsync(request, remote, cancellationToken);
             request.OperationProgress?.Report(BackupProgressStage.Fetching);
             sync = await telemetry.TraceOperationAsync(
-                BackupTelemetry.FetchOperation, () => gitClient.UpdateAsync(request.Git, cancellationToken));
+                BackupTelemetry.FetchOperation, () => UpdateAsync(request, check, cancellationToken));
         }
 
         return Log(request, Decide(sync, last, archiveMissing));
@@ -60,7 +71,7 @@ public sealed class ChangeDetector(
     {
         ValidateArchiveFolder(request);
 
-        if (!CloneExists(request))
+        if (!await InspectCloneAsync(request, cancellationToken))
         {
             return Log(
                 request,
@@ -73,7 +84,105 @@ public sealed class ChangeDetector(
         var sync = remote.HasBranches
             ? await ChooseBranchAsync(git, remote, cancellationToken)
             : new GitSyncResult(null, false, remote);
-        return Log(request, Decide(sync, request.LastArchive, IsArchiveMissing(request)));
+        var detection = Decide(sync, request.LastArchive, IsArchiveMissing(request));
+
+        // Only an unchanged repository skips the update, so every other decision meets the check a backup run makes.
+        if (detection.Decision != ChangeDecision.UpToDate)
+        {
+            await EnsureNoLocalChangesAsync(request, remote, cancellationToken);
+        }
+
+        return Log(request, detection);
+    }
+
+    /// <summary>
+    /// Decides whether the clone folder holds a clone to use, and rejects a folder that must not be touched.
+    /// </summary>
+    /// <param name="request">The request with the clone folder and the URL of the repository.</param>
+    /// <param name="cancellationToken">Cancels reading the origin of the clone.</param>
+    /// <returns>
+    /// <see langword="true"/> for a clone whose <c>origin</c> points at the repository; <see langword="false"/> when
+    /// the folder is missing or empty, so it can be cloned into.
+    /// </returns>
+    /// <exception cref="CloneFolderException">
+    /// The folder holds files but no <c>.git</c> folder, or the clone's <c>origin</c> points elsewhere.
+    /// </exception>
+    private async Task<bool> InspectCloneAsync(ChangeDetectionRequest request, CancellationToken cancellationToken)
+    {
+        var folder = request.Git.ClonePath;
+        if (!fileSystem.Directory.Exists(folder))
+        {
+            return false;
+        }
+
+        if (!fileSystem.Directory.Exists(fileSystem.Path.Combine(folder, _gitFolderName)))
+        {
+            if (!fileSystem.Directory.EnumerateFileSystemEntries(folder).Any())
+            {
+                return false;
+            }
+
+            // A linked worktree has a .git file, and anything else may be the user's files; cloning into the folder
+            // would fail or mix the clone with them, so the folder is reported and left alone.
+            throw new CloneFolderException(
+                $"The folder '{folder}' is not empty and holds no git clone, so it is not used. Empty it, move it away or change clonePath, then run the backup again.",
+                folder);
+        }
+
+        var origin = await gitClient.GetOriginUrlAsync(request.Git, cancellationToken);
+        if (origin is null || !OriginUrl.Matches(origin, request.RemoteUrl))
+        {
+            // The origin is not quoted: a URL the user set may carry credentials.
+            throw new CloneFolderException(
+                $"The clone '{folder}' has an origin that does not point at '{request.RemoteUrl}', so it is not used. Point origin at that URL or change clonePath, then run the backup again.",
+                folder);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Checks the clone for local work an update would overwrite.
+    /// </summary>
+    /// <param name="request">The request with the clone, the configured branch and the last archive.</param>
+    /// <param name="remote">The refs of the server when they were just read, or <see langword="null"/>.</param>
+    /// <param name="cancellationToken">Cancels the git commands.</param>
+    /// <returns>The passed check, whose expected branch the repeated check reuses.</returns>
+    /// <exception cref="LocalChangesException">The clone holds local work.</exception>
+    private async Task<CloneCheckResult> EnsureNoLocalChangesAsync(
+        ChangeDetectionRequest request, RefSnapshot? remote, CancellationToken cancellationToken)
+    {
+        var check = await cloneGuard.CheckAsync(request.Git, remote, request.LastArchive?.Branch, cancellationToken);
+        return check.Passed ? check : throw new LocalChangesException(check);
+    }
+
+    /// <summary>
+    /// Fetches, checks the clone again without the network and only then resets it to the server.
+    /// </summary>
+    /// <remarks>
+    /// A fetch can take minutes, and the user may save or commit in the working copy meanwhile; the second check
+    /// catches that work right before checkout, reset and clean would overwrite it. It counts unpushed commits against
+    /// the remote-tracking branches as they were before the fetch, so commits the server dropped by a force-push are
+    /// not mistaken for the user's work, and the update checks out exactly the branch both checks expected.
+    /// </remarks>
+    /// <param name="request">The request with the clone, the configured branch and the last archive.</param>
+    /// <param name="check">The check that passed before the fetch.</param>
+    /// <param name="cancellationToken">Cancels the git commands.</param>
+    /// <returns>The state of the clone after the update.</returns>
+    /// <exception cref="LocalChangesException">The clone holds local work after the fetch.</exception>
+    private async Task<GitSyncResult> UpdateAsync(
+        ChangeDetectionRequest request, CloneCheckResult check, CancellationToken cancellationToken)
+    {
+        var beforeFetch = await gitClient.GetLocalRefsAsync(request.Git, cancellationToken);
+        await gitClient.FetchAsync(request.Git, cancellationToken);
+        var recheck = await cloneGuard.CheckLocalAsync(
+            request.Git, check.ExpectedBranch, request.LastArchive?.Branch, beforeFetch, cancellationToken);
+        if (!recheck.Passed)
+        {
+            throw new LocalChangesException(recheck);
+        }
+
+        return await gitClient.SyncAsync(request.Git, check.ExpectedBranch, cancellationToken);
     }
 
     /// <summary>
@@ -177,14 +286,6 @@ public sealed class ChangeDetector(
         || !fileSystem.File.Exists(fileSystem.Path.Combine(request.ArchiveFolder, last.File));
 
     /// <summary>
-    /// Returns whether the clone folder holds a git repository.
-    /// </summary>
-    /// <param name="request">The request.</param>
-    /// <returns><see langword="true"/> when the clone has a <c>.git</c> folder.</returns>
-    private bool CloneExists(ChangeDetectionRequest request) =>
-        fileSystem.Directory.Exists(fileSystem.Path.Combine(request.Git.ClonePath, ".git"));
-
-    /// <summary>
     /// Compares the refs of the server and the branch to check out with the last archive, without fetching.
     /// </summary>
     /// <param name="request">The request, with the clone, the requested branch and the receiver of progress.</param>
@@ -192,9 +293,9 @@ public sealed class ChangeDetector(
     /// <param name="cancellationToken">Cancels the git commands.</param>
     /// <returns>
     /// The <see cref="ChangeDecision.UpToDate"/> result, or <see langword="null"/> when the clone must be updated to
-    /// decide.
+    /// decide, and the refs of the server.
     /// </returns>
-    private async Task<ChangeDetection?> TryConfirmUnchangedAsync(
+    private async Task<(ChangeDetection? Unchanged, RefSnapshot Remote)> TryConfirmUnchangedAsync(
         ChangeDetectionRequest request, ArchiveRecord last, CancellationToken cancellationToken)
     {
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
@@ -202,7 +303,7 @@ public sealed class ChangeDetector(
         var remote = await GetRemoteRefsAsync(git, cancellationToken);
         if (!remote.Equals(last.Refs))
         {
-            return null;
+            return (null, remote);
         }
 
         string? branch;
@@ -216,15 +317,15 @@ public sealed class ChangeDetector(
             branch = await GetDefaultBranchAsync(git, cancellationToken);
             if (branch is null || !remote.ContainsBranch(branch))
             {
-                return null;
+                return (null, remote);
             }
 
             fallback = git.Branch is not null;
         }
 
         return string.Equals(branch, last.Branch, StringComparison.Ordinal)
-            ? new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, branch, fallback, remote)
-            : null;
+            ? (new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, branch, fallback, remote), remote)
+            : (null, remote);
     }
 
     /// <summary>

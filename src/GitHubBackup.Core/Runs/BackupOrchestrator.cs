@@ -4,6 +4,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Discovery;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
@@ -39,6 +40,9 @@ namespace GitHubBackup.Core.Runs;
 /// Tells whether the wiki feature of a repository is enabled when discovery did not report the repository.
 /// </param>
 /// <param name="changeDetector">Brings each clone up to date and decides whether it needs an archive.</param>
+/// <param name="cloneRelocator">Moves a clone whose configured folder changed.</param>
+/// <param name="cloneLocationStore">Reads and records the folder each clone was left in.</param>
+/// <param name="gitClient">Lists the ignored files a working copy set by <c>clonePath</c> keeps out of its archive.</param>
 /// <param name="nameBuilder">Names each new archive.</param>
 /// <param name="archiver">Creates each archive.</param>
 /// <param name="stateStore">Reads and records the archives of each repository.</param>
@@ -60,6 +64,9 @@ public sealed class BackupOrchestrator(
     IRemoteUrlProvider remoteUrlProvider,
     IGitHubApi gitHubApi,
     IChangeDetector changeDetector,
+    ICloneRelocator cloneRelocator,
+    ICloneLocationStore cloneLocationStore,
+    IGitClient gitClient,
     IArchiveNameBuilder nameBuilder,
     IArchiver archiver,
     IBackupStateStore stateStore,
@@ -219,6 +226,9 @@ public sealed class BackupOrchestrator(
             EmptyTemporaryFolder(temporaryFolder);
         }
 
+        var sourcesRoot = pathResolver.GetSourcesRoot(config);
+        var recordedLocations = await cloneLocationStore.LoadAsync(sourcesRoot, cancellationToken);
+        IReadOnlyDictionary<long, BackupWorkItem> currentLocations = new Dictionary<long, BackupWorkItem>();
         DiscoveryResult discovery;
         DiscoveryApplyResult? applied = null;
         RepositoryIdResolution resolution;
@@ -236,6 +246,9 @@ public sealed class BackupOrchestrator(
                     items = BackupWorkItem.CreateAll(config, pathResolver);
                 }
 
+                // Taken before a rename changes the folders, so a clone the applier could not move is still found
+                // under its old name when the file has no record of it.
+                currentLocations = GetConfiguredLocations(items);
                 discovery = await DiscoverAsync(config, filter, request.Progress, cancellationToken);
 
                 // The applier always saves the configuration and may move folders, so a dry run only shows what
@@ -243,7 +256,7 @@ public sealed class BackupOrchestrator(
                 if (discovery.HasChanges && !dryRun)
                 {
                     applied = await decisionApplier.ApplyAsync(
-                        config, discovery, request.DecisionHandler, tools.Git.Path, cancellationToken);
+                        config, discovery, request.DecisionHandler, tools.Git.Path, token.Value, cancellationToken);
                     items = BackupWorkItem.CreateAll(config, pathResolver);
                 }
 
@@ -273,12 +286,17 @@ public sealed class BackupOrchestrator(
         }
 
         var missing = dryRun ? discovery.Missing.Select(repository => repository.Id).ToHashSet() : [];
-        var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress);
+        var locations = new LocationBook(recordedLocations, currentLocations, remoteUrlProvider);
+        var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress, locations, sourcesRoot);
         var work = ExcludeMatching(config, SelectIncluded(items, filter));
         var results = new List<BackupItemResult>(work.Count);
         var unresolved = GetUnresolved(resolution);
         var discovered = MergeResolved(discovery.Repositories, resolution);
         var cancelled = await ProcessAllAsync(work, missing, unresolved, discovered, settings, results, cancellationToken);
+        if (!dryRun)
+        {
+            await SaveLocationsAsync(sourcesRoot, recordedLocations);
+        }
 
         foreach (var repository in applied?.Skipped ?? [])
         {
@@ -671,6 +689,216 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
+    /// Returns every entry with an ID as configured, with its clone folders and its name.
+    /// </summary>
+    /// <param name="items">The repositories of the configuration.</param>
+    /// <returns>The entries by GitHub ID.</returns>
+    private static Dictionary<long, BackupWorkItem> GetConfiguredLocations(IReadOnlyList<BackupWorkItem> items)
+    {
+        var locations = new Dictionary<long, BackupWorkItem>();
+        foreach (var item in items.Where(item => item.Id > 0))
+        {
+            locations.TryAdd(item.Id, item);
+        }
+
+        return locations;
+    }
+
+    /// <summary>
+    /// Writes the clone folders the run recorded, when any changed.
+    /// </summary>
+    /// <remarks>
+    /// The write runs after a cancelled run too and ignores the token: a clone moved before the cancellation is in its
+    /// new folder, and without the record the next run would look for it in the old one. A failed write is a warning
+    /// only, because no clone or archive depends on it.
+    /// </remarks>
+    /// <param name="sourcesRoot">The clone root that holds the file.</param>
+    /// <param name="locations">The recorded folders.</param>
+    /// <returns>A task that completes when the file is written or the failure is logged.</returns>
+    private async Task SaveLocationsAsync(string sourcesRoot, CloneLocations locations)
+    {
+        if (!locations.IsChanged)
+        {
+            return;
+        }
+
+        try
+        {
+            await cloneLocationStore.SaveAsync(sourcesRoot, locations, CancellationToken.None);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            BackupOrchestratorLog.CloneLocationsNotSaved(logger, sourcesRoot, exception);
+        }
+    }
+
+    /// <summary>
+    /// Moves the clone of a repository or wiki to its configured folder when the folder it was left in differs, and
+    /// records the folder once the clone is there; a dry run only checks the move.
+    /// </summary>
+    /// <param name="item">The repository, which supplies the GitHub ID.</param>
+    /// <param name="source">The repository or its wiki, with its configured clone folder.</param>
+    /// <param name="settings">The tools, the token, the mode and the clone folders of the run.</param>
+    /// <param name="cancellationToken">Cancels the check and the move.</param>
+    /// <returns>
+    /// The source to back up: unchanged, or in a dry run that would move the clone, pointing at the old folder and
+    /// carrying the notice of the move.
+    /// </returns>
+    /// <exception cref="CloneFolderException">The clone cannot be moved; nothing was moved or deleted.</exception>
+    private async Task<BackupSource> PrepareCloneFolderAsync(
+        BackupWorkItem item, BackupSource source, RunSettings settings, CancellationToken cancellationToken)
+    {
+        if (item.Id <= 0)
+        {
+            return source;
+        }
+
+        var previous = settings.Locations.GetPrevious(item.Id, source.Target);
+        if (previous is null || IsSameFolder(previous, source.CloneFolder))
+        {
+            if (!settings.DryRun)
+            {
+                settings.Locations.Record(item.Id, source.Target, source.CloneFolder, source.RemoteUrl);
+            }
+
+            return source;
+        }
+
+        await EnsureIgnoredFilesSurviveAsync(item, source, previous, settings, cancellationToken);
+
+        var request = new CloneRelocationRequest
+        {
+            GitPath = settings.Tools.Git.Path,
+            OldFolder = previous,
+            NewFolder = source.CloneFolder,
+            RemoteUrl = source.RemoteUrl,
+            PreviousRemoteUrl = settings.Locations.GetPreviousRemoteUrl(item.Id, source.Target),
+            Branch = source.Branch,
+            Token = settings.Token.Value,
+            DeleteOnFailure = false,
+        };
+        if (settings.DryRun)
+        {
+            var preview = await cloneRelocator.PreviewAsync(request, cancellationToken);
+            if (preview.Result == CloneRelocationResult.Moved)
+            {
+                BackupOrchestratorLog.CloneMovePlanned(logger, previous, source.CloneFolder);
+                return source with
+                {
+                    CloneFolder = previous,
+                    Notice = $"The clone would be moved from '{previous}' to '{source.CloneFolder}'.",
+                };
+            }
+
+            return preview.Succeeded ? source : throw new CloneFolderException(preview.Reason!, previous);
+        }
+
+        var relocation = await cloneRelocator.RelocateAsync(request, cancellationToken);
+        if (relocation.Succeeded || relocation.Result == CloneRelocationResult.RemoteUrlNotSet)
+        {
+            settings.Locations.Record(item.Id, source.Target, source.CloneFolder, source.RemoteUrl);
+        }
+
+        return relocation.Succeeded
+            ? source
+            : throw new CloneFolderException(relocation.Reason!, previous);
+    }
+
+    /// <summary>
+    /// Returns whether two absolute paths name the same folder, without regard to case or a trailing separator.
+    /// </summary>
+    /// <param name="first">An absolute folder.</param>
+    /// <param name="second">Another absolute folder.</param>
+    /// <returns><see langword="true"/> for the same folder.</returns>
+    private bool IsSameFolder(string first, string second) =>
+        string.Equals(
+            fileSystem.Path.TrimEndingDirectorySeparator(fileSystem.Path.GetFullPath(first)),
+            fileSystem.Path.TrimEndingDirectorySeparator(fileSystem.Path.GetFullPath(second)),
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Refuses to move a working copy into the clone root while it holds ignored files.
+    /// </summary>
+    /// <remarks>
+    /// A clone under the clone root is updated with <c>git clean -ffdx</c>, which would delete those files, such as
+    /// local settings or secrets, after the move.
+    /// </remarks>
+    /// <param name="item">The repository.</param>
+    /// <param name="source">The repository or its wiki, with its configured clone folder.</param>
+    /// <param name="previous">The folder the clone is in.</param>
+    /// <param name="settings">The tools and the clone root of the run.</param>
+    /// <param name="cancellationToken">Cancels the git commands.</param>
+    /// <returns>A task that completes when the move may go on.</returns>
+    /// <exception cref="CloneFolderException">The working copy holds ignored files.</exception>
+    private async Task EnsureIgnoredFilesSurviveAsync(
+        BackupWorkItem item, BackupSource source, string previous, RunSettings settings, CancellationToken cancellationToken)
+    {
+        if (item.HasClonePath
+            || !IsInside(source.CloneFolder, settings.SourcesRoot)
+            || IsInside(previous, settings.SourcesRoot)
+            || !fileSystem.Directory.Exists(fileSystem.Path.Combine(previous, ".git")))
+        {
+            return;
+        }
+
+        var ignored = await gitClient.GetIgnoredPathsAsync(
+            new() { GitPath = settings.Tools.Git.Path, ClonePath = previous }, cancellationToken);
+        if (ignored.Count > 0)
+        {
+            throw new CloneFolderException(
+                $"The clone '{previous}' holds ignored files ({string.Join(", ", ignored.Take(3))}), which the clone root does not keep, so it is not moved to '{source.CloneFolder}'. Move or delete them, or set clonePath again, then run the backup again.",
+                previous);
+        }
+    }
+
+    /// <summary>
+    /// Refuses to archive a clone whose tracked symbolic links are real links on disk.
+    /// </summary>
+    /// <remarks>
+    /// The application checks links out as plain files, but a working copy the user checked out with links enabled
+    /// holds real ones, also after it moved into the clone root or was adopted there, and 7-Zip follows them, which
+    /// would put files from outside the clone into the archive.
+    /// </remarks>
+    /// <param name="source">The repository or its wiki.</param>
+    /// <param name="settings">The tools of the run.</param>
+    /// <param name="cancellationToken">Cancels the git commands.</param>
+    /// <returns>A task that completes when the clone may be archived.</returns>
+    /// <exception cref="CloneFolderException">A tracked symbolic link is a link on disk.</exception>
+    private async Task EnsureNoSymbolicLinksAsync(
+        BackupSource source, RunSettings settings, CancellationToken cancellationToken)
+    {
+        var links = await gitClient.GetSymbolicLinkPathsAsync(
+            new() { GitPath = settings.Tools.Git.Path, ClonePath = source.CloneFolder }, cancellationToken);
+        var onDisk = links.Where(link => IsReparsePoint(fileSystem.Path.Combine(source.CloneFolder, link))).ToList();
+        if (onDisk.Count > 0)
+        {
+            throw new CloneFolderException(
+                $"The clone '{source.CloneFolder}' holds symbolic links ({string.Join(", ", onDisk.Take(3))}), which would put files from outside the clone into the archive, so it is not archived. Replace them with plain files, then run the backup again.",
+                source.CloneFolder);
+        }
+    }
+
+    /// <summary>
+    /// Returns whether a path is a symbolic link or a junction on disk.
+    /// </summary>
+    /// <param name="path">The absolute path.</param>
+    /// <returns><see langword="true"/> for an existing reparse point.</returns>
+    private bool IsReparsePoint(string path) =>
+        (fileSystem.File.Exists(path) || fileSystem.Directory.Exists(path))
+        && fileSystem.File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint);
+
+    /// <summary>
+    /// Returns whether a path lies strictly inside a folder, without regard to case.
+    /// </summary>
+    /// <param name="path">An absolute path.</param>
+    /// <param name="folder">An absolute folder.</param>
+    /// <returns><see langword="true"/> when the path is below the folder.</returns>
+    private bool IsInside(string path, string folder) =>
+        fileSystem.Path.GetFullPath(path).StartsWith(
+            fileSystem.Path.TrimEndingDirectorySeparator(fileSystem.Path.GetFullPath(folder)) + fileSystem.Path.DirectorySeparatorChar,
+            StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
     /// Deletes the files and folders that interrupted runs left in the folder of temporary archives.
     /// </summary>
     /// <remarks>
@@ -761,6 +989,7 @@ public sealed class BackupOrchestrator(
                     item.CloneFolder,
                     remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
                     item.Branch);
+                source = await PrepareCloneFolderAsync(item, source, settings, cancellationToken);
                 outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -852,6 +1081,7 @@ public sealed class BackupOrchestrator(
                 item.WikiCloneFolder,
                 remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
                 Branch: null);
+            source = await PrepareCloneFolderAsync(item, source, settings, cancellationToken);
             outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
         }
         catch (GitRepositoryNotFoundException)
@@ -943,6 +1173,7 @@ public sealed class BackupOrchestrator(
                 ClonePath = source.CloneFolder,
                 Branch = source.Branch,
                 Token = settings.Token.Value,
+                KeepIgnoredFiles = item.HasClonePath,
             },
             RemoteUrl = source.RemoteUrl,
             ArchiveFolder = item.ArchiveFolder,
@@ -954,7 +1185,7 @@ public sealed class BackupOrchestrator(
             : await changeDetector.DetectAsync(request, cancellationToken);
         if (detection.Decision == ChangeDecision.CloneNeeded)
         {
-            return new(BackupItemStatus.WouldClone, null, null);
+            return new(BackupItemStatus.WouldClone, null, source.Notice);
         }
 
         string? archive = null;
@@ -986,7 +1217,10 @@ public sealed class BackupOrchestrator(
         }
 
         // Only a new archive captures refs, so an item without one reports no changed refs even when the server moved.
-        return new(status, archive, warning)
+        var message = warning is null ? source.Notice
+            : source.Notice is null ? warning
+            : $"{warning} {source.Notice}";
+        return new(status, archive, message)
         {
             Branch = detection.Branch,
             HeadCommit = detection.Branch is { } branch
@@ -1020,6 +1254,15 @@ public sealed class BackupOrchestrator(
         {
             var (branch, headCommit) = GetHeadCommit(source, detection);
             var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
+
+            await EnsureNoSymbolicLinksAsync(source, settings, cancellationToken);
+
+            // A working copy keeps its build output and local settings, which belong to the user and not to the
+            // repository, so only .git and the tracked files go into the archive.
+            var excluded = item.HasClonePath
+                ? await gitClient.GetIgnoredPathsAsync(
+                    new() { GitPath = settings.Tools.Git.Path, ClonePath = source.CloneFolder }, cancellationToken)
+                : [];
             var result = await archiver.CreateAsync(
                 new()
                 {
@@ -1028,6 +1271,7 @@ public sealed class BackupOrchestrator(
                     TemporaryFolder = settings.TemporaryFolder,
                     DestinationFolder = item.ArchiveFolder,
                     FileName = name.FileName,
+                    ExcludedPaths = excluded,
                 },
                 cancellationToken);
             telemetry.RecordArchiveSize(result.SizeBytes, source.Target);
@@ -1064,8 +1308,64 @@ public sealed class BackupOrchestrator(
     /// <param name="TemporaryFolder">The folder in which archives are built.</param>
     /// <param name="DryRun">Whether the run only shows what a backup run would do.</param>
     /// <param name="Progress">Receives the current repository and operation, or <see langword="null"/>.</param>
+    /// <param name="Locations">The folders the clones were left in and the folders the run records.</param>
+    /// <param name="SourcesRoot">The clone root.</param>
     private readonly record struct RunSettings(
-        ToolSet Tools, GitHubToken Token, string TemporaryFolder, bool DryRun, IProgress<BackupProgress>? Progress);
+        ToolSet Tools,
+        GitHubToken Token,
+        string TemporaryFolder,
+        bool DryRun,
+        IProgress<BackupProgress>? Progress,
+        LocationBook Locations,
+        string SourcesRoot);
+
+    /// <summary>
+    /// Tells where each clone was left and records where the run leaves it.
+    /// </summary>
+    /// <param name="recorded">The folders read from the file, which receive the folders the run records.</param>
+    /// <param name="configured">
+    /// The entries as configured before discovery decisions are applied, used for an entry the file does not know.
+    /// </param>
+    /// <param name="remoteUrlProvider">Supplies the URLs of a configured entry.</param>
+    private sealed class LocationBook(
+        CloneLocations recorded, IReadOnlyDictionary<long, BackupWorkItem> configured, IRemoteUrlProvider remoteUrlProvider)
+    {
+        /// <summary>
+        /// Returns the folder the clone of a repository or wiki was left in.
+        /// </summary>
+        /// <param name="id">The GitHub ID of the repository.</param>
+        /// <param name="target">Whether the repository or its wiki is meant.</param>
+        /// <returns>The folder, or <see langword="null"/> when it is not known.</returns>
+        public string? GetPrevious(long id, BackupTarget target) =>
+            recorded.Get(id, target)
+            ?? (configured.TryGetValue(id, out var item)
+                ? target == BackupTarget.Wiki ? item.WikiCloneFolder : item.CloneFolder
+                : null);
+
+        /// <summary>
+        /// Returns the URL the clone of a repository or wiki pointed at when it was left in its folder.
+        /// </summary>
+        /// <param name="id">The GitHub ID of the repository.</param>
+        /// <param name="target">Whether the repository or its wiki is meant.</param>
+        /// <returns>The URL, or <see langword="null"/> when it is not known.</returns>
+        public string? GetPreviousRemoteUrl(long id, BackupTarget target) =>
+            recorded.GetRemoteUrl(id, target)
+            ?? (configured.TryGetValue(id, out var item)
+                ? target == BackupTarget.Wiki
+                    ? remoteUrlProvider.GetWikiUrl(item.Owner, item.Name)
+                    : remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name)
+                : null);
+
+        /// <summary>
+        /// Records the folder the clone of a repository or wiki is in now and the URL it points at.
+        /// </summary>
+        /// <param name="id">The GitHub ID of the repository.</param>
+        /// <param name="target">Whether the repository or its wiki is meant.</param>
+        /// <param name="folder">The clone folder.</param>
+        /// <param name="remoteUrl">The URL of the repository or wiki.</param>
+        public void Record(long id, BackupTarget target, string folder, string remoteUrl) =>
+            recorded.Set(id, target, folder, remoteUrl);
+    }
 
     /// <summary>
     /// Turns the operations on one repository or wiki into <see cref="BackupProgress"/> reports that name the item and
@@ -1136,5 +1436,12 @@ public sealed class BackupOrchestrator(
     /// <param name="RemoteUrl">The URL git clones the source from, without credentials.</param>
     /// <param name="Branch">The branch to check out, or <see langword="null"/> for the server's default branch.</param>
     private readonly record struct BackupSource(
-        BackupTarget Target, string FullName, string CloneFolder, string RemoteUrl, string? Branch);
+        BackupTarget Target, string FullName, string CloneFolder, string RemoteUrl, string? Branch)
+    {
+        /// <summary>
+        /// Gets the notice a dry run reports with the outcome, such as a move of the clone a backup run would make, or
+        /// <see langword="null"/>.
+        /// </summary>
+        public string? Notice { get; init; }
+    }
 }

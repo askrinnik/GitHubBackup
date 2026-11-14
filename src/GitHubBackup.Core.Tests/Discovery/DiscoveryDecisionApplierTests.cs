@@ -20,6 +20,8 @@ public sealed class DiscoveryDecisionApplierTests
     private const int _reactivatedEventId = 4;
     private const int _archiveFolderTargetExistsEventId = 7;
 
+    private const string _token = "secret-token";
+
     private readonly MockFileSystem _fileSystem = new();
     private readonly IBackupConfigStore _store = Substitute.For<IBackupConfigStore>();
     private readonly ICloneRelocator _relocator = Substitute.For<ICloneRelocator>();
@@ -27,7 +29,8 @@ public sealed class DiscoveryDecisionApplierTests
     private readonly FakeLogger<DiscoveryDecisionApplier> _logger = new();
     private readonly DiscoveryDecisionApplier _applier;
 
-    public DiscoveryDecisionApplierTests() =>
+    public DiscoveryDecisionApplierTests()
+    {
         _applier = new(
             _store,
             new RepositoryPathResolver(@"C:\app\sources"),
@@ -35,6 +38,8 @@ public sealed class DiscoveryDecisionApplierTests
             _relocator,
             _fileSystem,
             _logger);
+        _relocator.RelocateAsync(default!, default).ReturnsForAnyArgs(CloneRelocation.NotPresent);
+    }
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
 
@@ -180,7 +185,7 @@ public sealed class DiscoveryDecisionApplierTests
         config.Accounts[0].Repositories[0].Status.ShouldBe(RepositoryStatus.Unavailable);
         result.MarkedUnavailable.ShouldBe(["octo/app"]);
         _fileSystem.AllFiles.Count().ShouldBe(3);
-        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, Token);
         await _store.Received(1).SaveAsync(config, Token);
         var record = SingleRecord(_markedUnavailableEventId);
         record.Level.ShouldBe(LogLevel.Warning);
@@ -379,27 +384,103 @@ public sealed class DiscoveryDecisionApplierTests
     {
         var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1 });
         _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.RenameArchiveFolder);
-        _relocator.RelocateAsync(_gitPath, @"C:\app\sources\octo\app", Arg.Any<string>(), Arg.Any<string>(), Token)
-            .Returns(CloneRelocationResult.Moved);
-        _relocator.RelocateAsync(_gitPath, @"C:\app\sources\octo\app.wiki", Arg.Any<string>(), Arg.Any<string>(), Token)
-            .Returns(CloneRelocationResult.NotPresent);
+        var repositoryRequest = new CloneRelocationRequest
+        {
+            GitPath = _gitPath,
+            OldFolder = @"C:\app\sources\octo\app",
+            NewFolder = @"C:\app\sources\octo\app2",
+            RemoteUrl = "https://github.com/octo/app2.git",
+            PreviousRemoteUrl = "https://github.com/octo/app.git",
+            Token = _token,
+            DeleteOnFailure = true,
+        };
+        var wikiRequest = new CloneRelocationRequest
+        {
+            GitPath = _gitPath,
+            OldFolder = @"C:\app\sources\octo\app.wiki",
+            NewFolder = @"C:\app\sources\octo\app2.wiki",
+            RemoteUrl = "https://github.com/octo/app2.wiki.git",
+            PreviousRemoteUrl = "https://github.com/octo/app.wiki.git",
+            Token = _token,
+            DeleteOnFailure = true,
+        };
+        _relocator.RelocateAsync(repositoryRequest, Token).Returns(CloneRelocation.Moved);
+        _relocator.RelocateAsync(wikiRequest, Token).Returns(CloneRelocation.NotPresent);
 
         var result = await ApplyAsync(config, Renamed(Tracked("octo", "app", 1, "octo"), Repo(1, "octo", "app2")));
 
         Received.InOrder(() =>
         {
             _store.SaveAsync(config, Token);
-            _relocator.RelocateAsync(
-                _gitPath, @"C:\app\sources\octo\app", @"C:\app\sources\octo\app2", "https://github.com/octo/app2.git", Token);
-            _relocator.RelocateAsync(
-                _gitPath,
-                @"C:\app\sources\octo\app.wiki",
-                @"C:\app\sources\octo\app2.wiki",
-                "https://github.com/octo/app2.wiki.git",
-                Token);
+            _relocator.RelocateAsync(repositoryRequest, Token);
+            _relocator.RelocateAsync(wikiRequest, Token);
         });
         result.Renamed.ShouldBe(
             [new("octo/app", "octo/app2", RenameDecision.RenameArchiveFolder, RenameDecision.RenameArchiveFolder, CloneRelocationResult.Moved, CloneRelocationResult.NotPresent)]);
+    }
+
+    [Fact]
+    public async Task ApplyAsync_RenameOfEntryWithClonePath_KeepsFolderAndNeverDeletes()
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1, Branch = "dev", ClonePath = @"D:\Work\App" });
+        _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.RenameArchiveFolder);
+
+        await ApplyAsync(config, Renamed(Tracked("octo", "app", 1, "octo"), Repo(1, "octo", "app2")));
+
+        await _relocator.Received(1).RelocateAsync(
+            new CloneRelocationRequest
+            {
+                GitPath = _gitPath,
+                OldFolder = @"D:\Work\App",
+                NewFolder = @"D:\Work\App",
+                RemoteUrl = "https://github.com/octo/app2.git",
+                PreviousRemoteUrl = "https://github.com/octo/app.git",
+                Branch = "dev",
+                Token = _token,
+                DeleteOnFailure = false,
+            },
+            Token);
+        await _relocator.Received(1).RelocateAsync(
+            Arg.Is<CloneRelocationRequest>(request =>
+                request.OldFolder == @"D:\Work\App.wiki" && request.NewFolder == @"D:\Work\App.wiki" && !request.DeleteOnFailure),
+            Token);
+        config.Accounts[0].Repositories.ShouldHaveSingleItem().ClonePath.ShouldBe(@"D:\Work\App");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ApplyAsync_OwnerChangedForEntryWithClonePath_KeepsClonePath(bool targetTracked)
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1, ClonePath = @"D:\Work\App" });
+        if (targetTracked)
+        {
+            config.Accounts.Add(new() { Url = "https://github.com/acme" });
+        }
+
+        _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.RenameArchiveFolder);
+
+        await ApplyAsync(config, Renamed(Tracked("octo", "app", 1, "octo"), Repo(1, "acme", "app")));
+
+        var clonePath = targetTracked
+            ? config.Accounts[1].Repositories.ShouldHaveSingleItem().ClonePath
+            : config.Repositories.ShouldHaveSingleItem().ClonePath;
+        clonePath.ShouldBe(@"D:\Work\App");
+    }
+
+    [Fact]
+    public async Task ApplyAsync_CloneHasLocalChanges_ReportsLocalChanges()
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1 });
+        _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.RenameArchiveFolder);
+        _relocator.RelocateAsync(
+                Arg.Is<CloneRelocationRequest>(request => request.OldFolder == @"C:\app\sources\octo\app"), Token)
+            .Returns(new CloneRelocation(CloneRelocationResult.LocalChanges, "local changes"));
+
+        var result = await ApplyAsync(config, Renamed(Tracked("octo", "app", 1, "octo"), Repo(1, "octo", "app2")));
+
+        result.Renamed.ShouldHaveSingleItem().CloneRelocation.ShouldBe(CloneRelocationResult.LocalChanges);
+        config.Accounts[0].Repositories.ShouldHaveSingleItem().Name.ShouldBe("app2");
     }
 
     [Fact]
@@ -415,7 +496,7 @@ public sealed class DiscoveryDecisionApplierTests
 
         _fileSystem.File.Exists(@"C:\backup\octo\app\app.zip").ShouldBeTrue();
         _fileSystem.Directory.Exists(@"C:\backup\octo\app2").ShouldBeFalse();
-        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, Token);
     }
 
     [Fact]
@@ -448,7 +529,7 @@ public sealed class DiscoveryDecisionApplierTests
         Snapshot(config).ShouldBe(before);
         _fileSystem.File.Exists(@"C:\backup\octo\app\app.zip").ShouldBeTrue();
         await _store.DidNotReceiveWithAnyArgs().SaveAsync(default!, Token);
-        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, Token);
     }
 
     [Fact]
@@ -528,7 +609,7 @@ public sealed class DiscoveryDecisionApplierTests
         await _handler.DidNotReceiveWithAnyArgs().DecideNewAsync(default!, Token);
         await _handler.DidNotReceiveWithAnyArgs().DecideRenameAsync(default!, Token);
         await _store.DidNotReceiveWithAnyArgs().SaveAsync(default!, Token);
-        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, default!, default!, default!, Token);
+        await _relocator.DidNotReceiveWithAnyArgs().RelocateAsync(default!, Token);
     }
 
     /// <summary>
@@ -538,7 +619,7 @@ public sealed class DiscoveryDecisionApplierTests
     /// <param name="discovery">The discovery result.</param>
     /// <returns>The result of the applier.</returns>
     private Task<DiscoveryApplyResult> ApplyAsync(BackupConfig config, DiscoveryResult discovery) =>
-        _applier.ApplyAsync(config, discovery, _handler, _gitPath, Token);
+        _applier.ApplyAsync(config, discovery, _handler, _gitPath, _token, Token);
 
     /// <summary>
     /// Returns the only log record with the event id <paramref name="eventId"/> and fails if there is not exactly one.

@@ -37,6 +37,12 @@ public sealed record BackupWorkItem(
     public string? AccountLogin { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether the entry sets <c>clonePath</c>, so the clone is the user's working copy: its
+    /// ignored files are kept on update and left out of the archive, and the clone is never deleted.
+    /// </summary>
+    public bool HasClonePath { get; init; }
+
+    /// <summary>
     /// Lists the repositories of <paramref name="config"/>: the repositories of each account in file order, then the
     /// standalone repositories in file order.
     /// </summary>
@@ -62,11 +68,12 @@ public sealed record BackupWorkItem(
                     repository.Id,
                     repository.Branch,
                     pathResolver.GetArchiveFolder(config, account, repository),
-                    pathResolver.GetCloneFolder(config, login, repository.Name),
+                    pathResolver.GetCloneFolder(config, login, repository.Name, repository.ClonePath),
                     repository.Status == RepositoryStatus.Active,
-                    pathResolver.GetWikiCloneFolder(config, login, repository.Name))
+                    pathResolver.GetWikiCloneFolder(config, login, repository.Name, repository.ClonePath))
                 {
                     AccountLogin = login,
+                    HasClonePath = repository.ClonePath is not null,
                 });
             }
         }
@@ -85,9 +92,12 @@ public sealed record BackupWorkItem(
                 repository.Id,
                 repository.Branch,
                 pathResolver.GetArchiveFolder(config, repository),
-                pathResolver.GetCloneFolder(config, owner, name),
+                pathResolver.GetCloneFolder(config, owner, name, repository.ClonePath),
                 repository.Status == RepositoryStatus.Active,
-                pathResolver.GetWikiCloneFolder(config, owner, name)));
+                pathResolver.GetWikiCloneFolder(config, owner, name, repository.ClonePath))
+            {
+                HasClonePath = repository.ClonePath is not null,
+            });
         }
 
         return items;

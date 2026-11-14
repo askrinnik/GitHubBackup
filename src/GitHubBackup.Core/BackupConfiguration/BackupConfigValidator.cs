@@ -5,7 +5,8 @@ namespace GitHubBackup.Core.BackupConfiguration;
 
 /// <summary>
 /// Validates a <see cref="BackupConfig"/>: absolute paths, GitHub URLs, repository names and identifiers, unique
-/// accounts and repositories, distinct archive folders, and clones kept out of the archive tree.
+/// accounts and repositories, distinct archive folders, distinct clone folders, and clones kept out of the archive
+/// tree.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -38,6 +39,7 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
         var pass = new ValidationPass(config);
         pass.Run();
         pass.CheckSourcesRoot(config.SourcesRoot ?? defaultSourcesRoot);
+        pass.CheckClonePaths(config.SourcesRoot ?? defaultSourcesRoot);
         return new(pass.Errors, pass.Warnings);
     }
 
@@ -101,6 +103,27 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
     }
 
     /// <summary>
+    /// Returns whether one of two folders is the other or lies inside it.
+    /// </summary>
+    /// <param name="first">An absolute folder.</param>
+    /// <param name="second">Another absolute folder.</param>
+    /// <returns><see langword="true"/> when the folders are the same or nested.</returns>
+    private static bool Overlaps(string first, string second) =>
+        IsSameOrInside(first, second) || IsSameOrInside(second, first);
+
+    /// <summary>
+    /// Returns whether <paramref name="path"/> is the root of a drive or of a network share.
+    /// </summary>
+    /// <param name="path">An absolute path.</param>
+    /// <returns><see langword="true"/> for paths such as <c>D:\</c> or <c>\\server\share</c>.</returns>
+    private static bool IsRoot(string path)
+    {
+        var full = Normalize(path);
+        var root = Path.GetPathRoot(full)?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(full, root, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
     /// Collects the errors and warnings of one configuration.
     /// </summary>
     /// <param name="config">The configuration being validated.</param>
@@ -117,6 +140,9 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
 
         /// <summary>The resolved archive folder of every repository whose inputs are valid, with its location.</summary>
         private readonly List<(string Location, string Folder)> _folders = [];
+
+        /// <summary>The valid <c>clonePath</c> of every repository that sets one, with the location of the entry.</summary>
+        private readonly List<(string Location, string ClonePath)> _clonePaths = [];
 
         /// <summary>Whether <see cref="BackupConfig.BackupRoot"/> is a valid absolute path.</summary>
         private bool _backupRootValid;
@@ -188,6 +214,75 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
         }
 
         /// <summary>
+        /// Checks the clone folders that <c>clonePath</c> sets: not a root, outside the clone root, not shared with or
+        /// nested in the clone or wiki folder of another entry, and, as a warning, outside the archive tree.
+        /// </summary>
+        /// <remarks>
+        /// Each entry reserves its clone folder and its wiki folder, whether or not the wiki is enabled, because the
+        /// wiki may be turned on later. Folders under the clone root cannot collide with each other, because owners
+        /// and names are distinct folder names there, and a <c>clonePath</c> that overlaps the clone root is already an
+        /// error, so only entries with <c>clonePath</c> are compared. The check runs only after <see cref="Run"/>,
+        /// which collects the entries and the archive folders.
+        /// </remarks>
+        /// <param name="sourcesRoot">The effective clone root.</param>
+        public void CheckClonePaths(string sourcesRoot)
+        {
+            var sourcesRootValid = _sourcesRootValid && IsAbsolutePath(sourcesRoot);
+            var reserved = new List<(string Location, string Folder)>();
+            foreach (var (location, clonePath) in _clonePaths)
+            {
+                var field = $"{location}.clonePath";
+                if (IsRoot(clonePath))
+                {
+                    Errors.Add($"{field} must not be the root of a drive or a share.");
+                    continue;
+                }
+
+                if (sourcesRootValid && Overlaps(clonePath, sourcesRoot))
+                {
+                    Errors.Add($"{field} '{clonePath}' overlaps sourcesRoot '{sourcesRoot}'; a clone folder set by clonePath must lie outside sourcesRoot.");
+                    continue;
+                }
+
+                var cloneFolder = Normalize(clonePath);
+                string[] folders = [cloneFolder, cloneFolder + RepositoryPathResolver.WikiSuffix];
+                var conflict = reserved.FirstOrDefault(entry => folders.Any(folder => Overlaps(folder, entry.Folder)));
+                if (conflict.Location is not null)
+                {
+                    Errors.Add($"{field} '{clonePath}' overlaps the clone folder '{conflict.Folder}' of {conflict.Location}; the clone and wiki folders of two entries must be separate.");
+                }
+
+                reserved.AddRange(folders.Select(folder => (location, folder)));
+                CheckClonePathOutsideArchives(field, folders);
+            }
+        }
+
+        /// <summary>
+        /// Warns when the clone or wiki folder of an entry is in <see cref="BackupConfig.BackupRoot"/> or in an archive
+        /// folder, where it would be synchronised together with the archives.
+        /// </summary>
+        /// <param name="field">The location of the <c>clonePath</c> in the file.</param>
+        /// <param name="folders">The clone folder and the wiki folder of the entry.</param>
+        private void CheckClonePathOutsideArchives(string field, string[] folders)
+        {
+            foreach (var folder in folders)
+            {
+                if (_backupRootValid && IsSameOrInside(folder, config.BackupRoot))
+                {
+                    Warnings.Add($"{field} puts the clone folder '{folder}' inside backupRoot; the clone would be synchronised together with the archives.");
+                    return;
+                }
+
+                var archive = _folders.FirstOrDefault(entry => IsSameOrInside(folder, entry.Folder));
+                if (archive.Location is not null)
+                {
+                    Warnings.Add($"{field} puts the clone folder '{folder}' inside the archive folder of {archive.Location}; the clone would be synchronised together with the archives.");
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
         /// Checks one account and its repositories.
         /// </summary>
         /// <param name="account">The account, possibly <see langword="null"/> when the file holds <c>null</c>.</param>
@@ -229,6 +324,7 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
                 }
 
                 var pathValid = CheckRepositoryFields(repository.Id, repository.Branch, repository.Path, repositoryLocation);
+                CheckClonePath(repository.ClonePath, repositoryLocation);
                 if (login is not null && nameValid)
                 {
                     CheckDuplicateName($"{login}/{repository.Name}", $"{repositoryLocation}.name");
@@ -268,6 +364,7 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
             }
 
             var pathValid = CheckRepositoryFields(repository.Id, repository.Branch, repository.Path, location);
+            CheckClonePath(repository.ClonePath, location);
             if (owner is not null && name is not null)
             {
                 CheckDuplicateName($"{owner}/{name}", $"{location}.url");
@@ -312,6 +409,20 @@ public sealed class BackupConfigValidator : IBackupConfigValidator
             }
 
             return CheckPath(path, $"{location}.path");
+        }
+
+        /// <summary>
+        /// Reports a <c>clonePath</c> that is set but not absolute and records a valid one for
+        /// <see cref="CheckClonePaths"/>.
+        /// </summary>
+        /// <param name="clonePath">The configured clone folder, or <see langword="null"/>.</param>
+        /// <param name="location">The location of the entry in the file.</param>
+        private void CheckClonePath(string? clonePath, string location)
+        {
+            if (clonePath is not null && CheckPath(clonePath, $"{location}.clonePath"))
+            {
+                _clonePaths.Add((location, clonePath));
+            }
         }
 
         /// <summary>

@@ -22,4 +22,10 @@ public sealed record ArchiveRequest
 
     /// <summary>Gets the name of the archive file in <see cref="DestinationFolder"/>, without a folder.</summary>
     public required string FileName { get; init; }
+
+    /// <summary>
+    /// Gets the files and folders left out of the archive, relative to <see cref="SourceFolder"/> with <c>\</c> as the
+    /// separator; a folder is left out with its whole content. Empty archives the whole folder.
+    /// </summary>
+    public IReadOnlyList<string> ExcludedPaths { get; init; } = [];
 }

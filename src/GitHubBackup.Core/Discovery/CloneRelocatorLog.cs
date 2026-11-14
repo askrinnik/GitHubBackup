@@ -78,4 +78,38 @@ internal static partial class CloneRelocatorLog
     /// <param name="exception">The failure.</param>
     [LoggerMessage(EventId = 7, Level = LogLevel.Warning, Message = "Cannot delete the clone {Folder}")]
     public static partial void DeleteFailed(ILogger logger, string folder, Exception exception);
+
+    /// <summary>
+    /// Logs that the old folder holds no <c>.git</c> folder, so it is neither moved nor deleted.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="folder">The old folder.</param>
+    [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Information,
+        Message = "The folder {Folder} holds no git clone; it is neither moved nor deleted")]
+    public static partial void NotAClone(ILogger logger, string folder);
+
+    /// <summary>
+    /// Logs that the clone could not be checked for local work, so it is not moved.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="folder">The clone folder.</param>
+    /// <param name="exception">The failure.</param>
+    [LoggerMessage(
+        EventId = 9,
+        Level = LogLevel.Warning,
+        Message = "Cannot check the clone {Folder} for local changes; it is not moved")]
+    public static partial void CheckFailed(ILogger logger, string folder, Exception exception);
+
+    /// <summary>
+    /// Logs that the clone in the old folder belongs to another repository, so it is neither moved nor changed.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="folder">The old folder.</param>
+    [LoggerMessage(
+        EventId = 10,
+        Level = LogLevel.Warning,
+        Message = "The origin of the clone {Folder} points at another repository; it is neither moved nor changed")]
+    public static partial void ForeignOrigin(ILogger logger, string folder);
 }

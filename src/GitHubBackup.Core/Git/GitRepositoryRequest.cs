@@ -29,6 +29,12 @@ public sealed record GitRepositoryRequest
     public string? Token { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether an update keeps the files the clone's ignore rules match, because the clone is
+    /// the user's working copy and those files are build output, settings or other local state of the user.
+    /// </summary>
+    public bool KeepIgnoredFiles { get; init; }
+
+    /// <summary>
     /// Writes every property except <see cref="Token"/> into the text of <see cref="object.ToString"/>.
     /// </summary>
     /// <param name="builder">The builder of the text.</param>
@@ -37,7 +43,8 @@ public sealed record GitRepositoryRequest
     {
         builder.Append(nameof(GitPath)).Append(" = ").Append(GitPath)
             .Append(", ").Append(nameof(ClonePath)).Append(" = ").Append(ClonePath)
-            .Append(", ").Append(nameof(Branch)).Append(" = ").Append(Branch);
+            .Append(", ").Append(nameof(Branch)).Append(" = ").Append(Branch)
+            .Append(", ").Append(nameof(KeepIgnoredFiles)).Append(" = ").Append(KeepIgnoredFiles);
         return true;
     }
 }

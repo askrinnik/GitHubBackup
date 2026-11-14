@@ -64,6 +64,45 @@ public sealed class SevenZipArchiverTests
     }
 
     [Fact]
+    public async Task CreateAsync_ExcludedPaths_PassesListFileUnderSourceNameAndDeletesIt()
+    {
+        string? listContent = null;
+        _runner.RunAsync(Arg.Any<ProcessRequest>(), Arg.Any<CancellationToken>()).Returns(call =>
+        {
+            var request = call.Arg<ProcessRequest>();
+            if (request.Arguments[0] == "a")
+            {
+                listContent = _fileSystem.File.ReadAllText(request.Arguments[6][3..]);
+            }
+
+            return Task.FromResult(Run(request, 0));
+        });
+
+        await CreateArchiver().CreateAsync(Request() with { ExcludedPaths = ["bin", @"src\obj"] }, CancellationToken);
+
+        var create = (ProcessRequest)_runner.ReceivedCalls().First().GetArguments()[0]!;
+        var temporaryPath = create.Arguments[^2];
+        var listPath = create.Arguments[6][3..];
+        create.Arguments.ShouldBe(
+            ["a", "-tzip", "-mcu=on", "-bsp0", "-sccUTF-8", "-y", "-x@" + listPath, "-scsUTF-8", "--", temporaryPath, "repo"]);
+        listPath.ShouldStartWith(@"C:\backup\.tmp\owner_repo_20261111-132030_0123456789.");
+        listPath.ShouldEndWith(".exclude.txt");
+        listContent.ShouldBe("repo\\bin" + Environment.NewLine + @"repo\src\obj" + Environment.NewLine);
+        _fileSystem.File.Exists(listPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task CreateAsync_ExcludedPathsAndCreateFails_DeletesListFile()
+    {
+        StubExit(command: "a", exitCode: 2, "ERROR: failed");
+
+        await Should.ThrowAsync<ArchiveCommandException>(
+            () => CreateArchiver().CreateAsync(Request() with { ExcludedPaths = ["bin"] }, CancellationToken));
+
+        _fileSystem.AllFiles.ShouldNotContain(file => file.EndsWith(".exclude.txt", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task CreateAsync_SourceWithTrailingSeparator_ArchivesFolderName()
     {
         await CreateArchiver().CreateAsync(Request() with { SourceFolder = _source + @"\" }, CancellationToken);

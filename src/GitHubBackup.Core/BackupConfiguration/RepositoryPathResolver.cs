@@ -41,17 +41,21 @@ public sealed class RepositoryPathResolver(string defaultSourcesRoot) : IReposit
     public string GetSourcesRoot(BackupConfig config) => config.SourcesRoot ?? defaultSourcesRoot;
 
     /// <inheritdoc />
-    public string GetCloneFolder(BackupConfig config, string owner, string repository)
+    public string GetCloneFolder(BackupConfig config, string owner, string repository, string? clonePath)
     {
         EnsureValidNames(owner, repository);
-        return ContainedFolder.Combine(GetSourcesRoot(config), owner, repository);
+        return clonePath is not null
+            ? Path.TrimEndingDirectorySeparator(clonePath)
+            : ContainedFolder.Combine(GetSourcesRoot(config), owner, repository);
     }
 
     /// <inheritdoc />
-    public string GetWikiCloneFolder(BackupConfig config, string owner, string repository)
+    public string GetWikiCloneFolder(BackupConfig config, string owner, string repository, string? clonePath)
     {
         EnsureValidNames(owner, repository);
-        return ContainedFolder.Combine(GetSourcesRoot(config), owner, repository + WikiSuffix);
+        return clonePath is not null
+            ? Path.TrimEndingDirectorySeparator(clonePath) + WikiSuffix
+            : ContainedFolder.Combine(GetSourcesRoot(config), owner, repository + WikiSuffix);
     }
 
     /// <summary>

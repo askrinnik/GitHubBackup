@@ -34,13 +34,15 @@ Names of owners, repositories, branches and tags come from the GitHub API, from 
 
 - **F1 IMPORTANT.** Writes to `backup-config.json` and `.backup-state.json` are atomic and keep the previous version (FR-2.8, NFR-2); a crash never leaves a truncated file under the final name.
 - **F2 IMPORTANT.** Temporary files are created in folders the application owns with unique names, and removed on failure and cancellation.
-- **F3 IMPORTANT.** The application never deletes clones, archives or state files of a repository that disappeared or became unavailable (FR-2.4); deletion of a clone happens only in the documented rename fallback (FR-2.5).
+- **F3 IMPORTANT.** The application never deletes clones, archives or state files of a repository that disappeared or became unavailable (FR-2.4); deletion of a clone happens only in the documented rename fallback (FR-2.5), never for a clone set by `clonePath` (FR-3.10).
 - **F4 SUGGESTION.** If code ever reads or extracts an archive, every entry path is checked to stay inside the target folder (zip slip).
+- **F5 IMPORTANT.** A user's working copy may hold real symbolic links, also after it moved into `sourcesRoot` or was adopted there; no clone is archived when a tracked path is a reparse point on disk, so 7-Zip never follows a link out of the clone (FR-3.10, FR-7.2).
 
 ## P — Processes and environment
 
 - **P1 IMPORTANT.** Child processes get an explicit environment: only the variables they need are added, prompts are disabled, nothing from the parent is echoed into logs unmasked.
 - **P2 IMPORTANT.** Tool paths are absolute and verified at startup; do not search the current directory for `git.exe` or `7z.exe`.
+- **P3 CRITICAL.** The token goes only to git commands that talk to the server; local steps that start repository- or user-configured programs (checkout, reset, clean, filters) never see it, and hooks and `core.fsmonitor` are disabled for every git process (FR-11.3). Local steps run with `GIT_LFS_SKIP_SMUDGE=1`, and the tokened `git lfs pull` fills in the LFS content. Accepted risk: `submodule update --init --recursive --force` keeps the token, because git offers no fetch-only form of it; the checkout it performs inside submodules could start a filter configured in a submodule's own `.git/config`, which only the user can set.
 
 ## D — Dependencies
 

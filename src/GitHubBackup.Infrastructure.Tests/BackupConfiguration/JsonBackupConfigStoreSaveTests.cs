@@ -134,6 +134,58 @@ public sealed class JsonBackupConfigStoreSaveTests
     }
 
     [Fact]
+    public async Task SaveAsync_ClonePathSetOnOneEntry_WritesItOnlyThere()
+    {
+        var fileSystem = CreateFileSystem();
+        var config = new BackupConfig { BackupRoot = @"D:\Backups" };
+        config.Accounts.Add(new()
+        {
+            Url = "https://github.com/askrinnik",
+            Repositories = [new() { Name = "work-app", Id = 4, ClonePath = @"E:\Work\WorkApp" }],
+        });
+        config.Repositories.Add(new() { Url = "https://github.com/o/r", Id = 5 });
+        var expected = """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "sourcesRoot": null,
+              "exclude": [],
+              "discoverAccessibleRepositories": false,
+              "accounts": [
+                {
+                  "url": "https://github.com/askrinnik",
+                  "path": null,
+                  "exclude": [],
+                  "repositories": [
+                    {
+                      "name": "work-app",
+                      "id": 4,
+                      "branch": null,
+                      "path": null,
+                      "clonePath": "E:\\Work\\WorkApp",
+                      "status": "Active"
+                    }
+                  ]
+                }
+              ],
+              "repositories": [
+                {
+                  "url": "https://github.com/o/r",
+                  "id": 5,
+                  "branch": null,
+                  "path": null,
+                  "status": "Active"
+                }
+              ]
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n";
+
+        await CreateStore(fileSystem).SaveAsync(config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(expected);
+    }
+
+    [Fact]
     public async Task SaveAsync_AnyConfig_WritesUtf8WithoutBomAndWindowsLineBreaks()
     {
         var fileSystem = CreateFileSystem();
