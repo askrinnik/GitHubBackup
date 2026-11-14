@@ -24,11 +24,13 @@
                     CommandParameter="{x:Static vm:BackupScope.Repository}"
                     Padding="8,2" Margin="0,0,8,0"
                     AutomationProperties.AutomationId="BackupRepositoryButton" />
-            <ToggleButton Content="Dry run"
-                          IsChecked="{Binding IsDryRun, Mode=TwoWay}"
-                          IsEnabled="{Binding IsIdle, Mode=OneWay}"
-                          Padding="8,2" Margin="0,0,8,0"
-                          AutomationProperties.AutomationId="DryRunToggle" />
+            <CheckBox Content="Dry run"
+                      IsChecked="{Binding IsDryRun, Mode=TwoWay}"
+                      IsEnabled="{Binding IsIdle, Mode=OneWay}"
+                      VerticalAlignment="Center"
+                      Margin="0,0,8,0"
+                      ToolTip="Back up nothing: the next run only shows what it would do."
+                      AutomationProperties.AutomationId="DryRunToggle" />
             <Button Content="Cancel"
                     Command="{Binding StartBackupCancelCommand, Mode=OneWay}"
                     Padding="8,2" Margin="0,0,8,0"
