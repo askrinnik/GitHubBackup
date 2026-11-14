@@ -74,6 +74,13 @@ dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --fil
 
 Код 8 означает, что в проекте не запущен ни один тест. При фильтре `--filter-trait` так завершаются все проекты, кроме выбранного, поэтому здесь код 8 игнорируется. В обычном прогоне и в CI он не игнорируется: проект, в котором не запустился ни один тест, роняет прогон.
 
+UI-тесты написаны на FlaUI. Каждый тест копирует папку сборки `GitHubBackup.App` во временную папку и запускает приложение оттуда. Токен берётся из `GitHub:Token` тестового `appsettings.json`, GitHub API подменяет WireMock на loopback, поэтому тесты не читают Windows Credential Manager и не ходят в сеть. Для прогона нужны:
+
+- интерактивный рабочий стол (тесты открывают окна; не блокируйте экран и не сворачивайте сеанс);
+- git в `PATH` и 7-Zip в `C:\Program Files\7-Zip\7z.exe` (их использует сценарий диалога обнаружения).
+
+Тесты идут по одному. Если тест падает, он сохраняет снимки окон приложения в папку из переменной `UI_TEST_SCREENSHOTS`, а без неё — в `Screenshots` рядом со сборкой тестов.
+
 #### Миграции базы истории
 
 История запусков хранится в SQLite-базе `data\history.db` рядом с exe. Хост при старте сам создаёт базу и применяет недостающие миграции EF Core. Миграции лежат в `src/GitHubBackup.Infrastructure/History/Migrations`. После изменения модели истории добавьте миграцию инструментом `dotnet-ef` из локального манифеста `.config/dotnet-tools.json`:
@@ -342,7 +349,7 @@ backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 | Workflow | Запуск | Что делает |
 |---|---|---|
 | `.github/workflows/ci.yml` | pull request и push в `main` | `windows-latest`: restore, build, проверка форматирования, проверочные случаи хуков Claude Code (`.claude/hooks/tests/*.Cases.ps1`), тесты без категорий `UI` и `Smoke`; результаты (`*.trx`) публикуются артефактом `test-results` |
-| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, тесты выбранной категории (`UI` или `Smoke`); артефакт `test-results-<категория>` |
+| `.github/workflows/ui-smoke-tests.yml` | вручную (`workflow_dispatch`) | restore, build, тесты выбранной категории (`UI` или `Smoke`); артефакт `test-results-<категория>` с результатами (`*.trx`) и снимками окон приложения из упавших UI-тестов (`Screenshots/*.png`) |
 
 Предупреждения компилятора и анализаторов считаются ошибками. Версии NuGet-пакетов задаются только в `src/Directory.Packages.props`, общие настройки сборки — в `src/Directory.Build.props`.
 

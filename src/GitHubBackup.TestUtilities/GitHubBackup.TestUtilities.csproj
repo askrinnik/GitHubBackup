@@ -8,4 +8,10 @@
     <ProjectReference Include="..\GitHubBackup.Infrastructure\GitHubBackup.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="WireMock.Net" />
+    <!-- Direct reference so the patched version from Directory.Packages.props replaces the one WireMock.Net resolves. -->
+    <PackageReference Include="Microsoft.AspNetCore.WebUtilities" />
+  </ItemGroup>
+
 </Project>

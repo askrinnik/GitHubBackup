@@ -3,6 +3,7 @@ using GitHubBackup.Core;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Infrastructure.Logging;
+using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
 
 namespace GitHubBackup.Cli.Tests;

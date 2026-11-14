@@ -2,13 +2,13 @@ using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
 
-namespace GitHubBackup.Cli.Tests;
+namespace GitHubBackup.TestUtilities;
 
 /// <summary>
 /// Serves the part of the GitHub REST API that a backup run reads, through WireMock.Net on the loopback interface.
 /// Every request that no scenario method has set up is answered with 404, as GitHub answers an unknown resource.
 /// </summary>
-internal sealed class GitHubApiStub : IDisposable
+public sealed class GitHubApiStub : IDisposable
 {
     /// <summary>The priority of the responses the scenario methods set up; a lower number wins in WireMock.Net.</summary>
     private const int _scenarioPriority = 1;
