@@ -22,7 +22,7 @@ namespace GitHubBackup.Cli.Tests;
 public sealed class CliApplicationTests : IDisposable
 {
     /// <summary>
-    /// A valid settings file with every section of the shipped <c>appsettings.json</c>.
+    /// A valid settings file with every section of <c>appsettings.json</c>.
     /// </summary>
     /// <remarks>
     /// It sets <c>GitHub:Token</c> so that the token chain of the real host stops at its first source and never reads
@@ -244,14 +244,27 @@ public sealed class CliApplicationTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_AppSettingsMissing_ReturnsCriticalNamingFile()
+    public void BuildHost_AppSettingsMissing_UsesDefaults()
     {
-        var exitCode = await RunAsync(new InMemoryFileProvider(new Dictionary<string, string>()));
+        var settings = CreateSettings(_contentRoot.FolderPath, new InMemoryFileProvider(new Dictionary<string, string>()), []);
+
+        using var host = CliApplication.BuildHost(settings, TestCliConsole.Create());
+
+        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(10);
+        host.Services.GetRequiredService<IOptions<ToolsOptions>>().Value.SevenZipPath.ShouldBe(ToolsOptions.DefaultSevenZipPath);
+        host.Services.GetRequiredService<IOptions<SerilogOptions>>().Value.Override[SerilogOptions.HostingLifetimeSource]
+            .ShouldBe("Warning");
+    }
+
+    [Fact]
+    public async Task RunAsync_AppSettingsNotObject_ReturnsCriticalWithOneLine()
+    {
+        var exitCode = await RunAsync("[ 1, 2 ]");
 
         exitCode.ShouldBe(ExitCode.Critical);
         var line = ErrorLines().ShouldHaveSingleItem();
         line.ShouldStartWith(CliApplication.ConfigurationErrorPrefix);
-        line.ShouldContain("appsettings.json");
+        line.ShouldContain("Top-level JSON element must be an object");
     }
 
     [Fact]

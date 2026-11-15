@@ -87,7 +87,8 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<IRunLock, NamedMutexRunLock>();
             services.TryAddSingleton<AtomicFileWriter>();
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
-            services.TryAddSingleton<UserSettingsFile>();
+            services.TryAddSingleton<AppSettingsFile>();
+            services.TryAddSingleton<UiSettingsFile>();
             services.TryAddSingleton<IToolPathsStore, JsonToolPathsStore>();
             services.TryAddSingleton<ITelemetrySettingsStore, JsonTelemetrySettingsStore>();
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();

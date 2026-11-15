@@ -16,8 +16,19 @@ public sealed class SerilogOptions
     /// <summary>Gets or sets the minimum level of every source without an override.</summary>
     public string? Default { get; set; } = "Information";
 
+    /// <summary>The source context of the start and stop messages of the Generic Host.</summary>
+    public const string HostingLifetimeSource = "Microsoft.Hosting.Lifetime";
+
     /// <summary>
     /// Gets the minimum levels by source-context prefix, for example <c>Microsoft</c> → <c>Warning</c>.
     /// </summary>
-    public Dictionary<string, string?> Override { get; } = new(StringComparer.OrdinalIgnoreCase);
+    /// <remarks>
+    /// <see cref="HostingLifetimeSource"/> starts at <c>Warning</c>: the host's start and stop messages say nothing
+    /// about a backup, and its hint to press Ctrl+C misleads in silent mode and in the WPF application. A configured
+    /// value for that source replaces the default; an override of another source keeps it.
+    /// </remarks>
+    public Dictionary<string, string?> Override { get; } = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [HostingLifetimeSource] = "Warning",
+    };
 }

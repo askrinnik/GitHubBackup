@@ -13,7 +13,7 @@
   <!--
     Published as one framework-dependent executable that needs only the .NET 10 runtime. scripts/publish.ps1 passes
     the runtime identifier, so the build output path stays free of a RID segment. The native SQLite library goes into
-    the bundle and is extracted on start, so the application folder holds only the executables and appsettings.json.
+    the bundle and is extracted on start, so the application folder holds only the executables.
   -->
   <PropertyGroup>
     <PublishSingleFile>true</PublishSingleFile>
@@ -30,11 +30,6 @@
   <ItemGroup>
     <PackageReference Include="Spectre.Console" />
     <PackageReference Include="System.CommandLine" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <!-- The settings stay a file next to the executable, where the user edits them. -->
-    <None Update="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
   </ItemGroup>
 
   <ItemGroup>

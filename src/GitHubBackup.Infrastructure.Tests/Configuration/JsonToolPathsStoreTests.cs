@@ -15,14 +15,14 @@ namespace GitHubBackup.Infrastructure.Tests.Configuration;
 public sealed class JsonToolPathsStoreTests : IDisposable
 {
     private const string _contentRootPath = @"C:\app";
-    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.UserSettingsFileName;
+    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.AppSettingsFileName;
 
     private readonly MockFileSystem _fileSystem = new();
 
-    private readonly UserSettingsFile _file;
+    private readonly AppSettingsFile _file;
 
     /// <summary>
-    /// Creates the content root and the user settings file of the store.
+    /// Creates the content root and the settings file of the store.
     /// </summary>
     public JsonToolPathsStoreTests()
     {
@@ -105,7 +105,7 @@ public sealed class JsonToolPathsStoreTests : IDisposable
 
     [Theory]
     [InlineData("previous")]
-    [InlineData("{ \"Ui\": { \"Theme\": \"Dark\" }")]
+    [InlineData("{ \"Tools\": { \"GitPath\": null }")]
     [InlineData("[]")]
     public async Task SaveAsync_FileNotJsonObject_ThrowsAndLeavesFileIntact(string content)
     {
@@ -122,7 +122,7 @@ public sealed class JsonToolPathsStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_FileLocked_ThrowsAndLeavesFileIntact()
     {
-        const string content = """{ "Ui": { "Theme": "Dark" } }""";
+        const string content = """{ "Serilog": { "MinimumLevel": { "Default": "Debug" } } }""";
         var locked = new MockFileData(content) { AllowedFileShare = FileShare.None };
         _fileSystem.AddFile(_filePath, locked);
 
@@ -134,13 +134,13 @@ public sealed class JsonToolPathsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveAsync_UiSectionInFile_KeepsKnownUiKeysOnlyAndDropsOtherSections()
+    public async Task SaveAsync_OtherKeysAndSectionsInFile_KeepsThemAndReplacesKeysCaseInsensitively()
     {
         _fileSystem.AddFile(_filePath, new MockFileData("""
             {
-              "GitHub": { "ApiBaseUrl": "https://example.com/api" },
-              "ui": { "Theme": "Dark", "Extra": 1, "MainWindow": { "LogPanelHeight": 300, "Opacity": 0.5 } },
-              "Tools": { "GitPath": "C:\\Old\\git.exe" }
+              "GitHub": { "ApiBaseUrl": "https://example.com/api", "Token": "manual" },
+              "tools": { "gitpath": "C:\\Old\\git.exe", "Extra": 1 },
+              "OpenTelemetry": { "Enabled": true }
             }
             """));
 
@@ -148,15 +148,17 @@ public sealed class JsonToolPathsStoreTests : IDisposable
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
+              "GitHub": {
+                "ApiBaseUrl": "https://example.com/api",
+                "Token": "manual"
+              },
               "Tools": {
                 "GitPath": "D:\\Git\\git.exe",
+                "Extra": 1,
                 "SevenZipPath": null
               },
-              "Ui": {
-                "Theme": "Dark",
-                "MainWindow": {
-                  "LogPanelHeight": 300
-                }
+              "OpenTelemetry": {
+                "Enabled": true
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");

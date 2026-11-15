@@ -5,17 +5,16 @@
 
 .DESCRIPTION
     Publishes GitHubBackup.App and GitHubBackup.Cli for win-x64 as framework-dependent single-file executables into
-    one folder: GitHubBackup.exe, GitHubBackup.Cli.exe and appsettings.json. The folder needs only the .NET 10
-    Desktop Runtime on the target machine.
+    one folder: GitHubBackup.exe and GitHubBackup.Cli.exe. The folder needs only the .NET 10 Desktop Runtime on the
+    target machine. Settings files are not published: every setting has a default in code, and appsettings.json and
+    ui-settings.json are created next to the executables by the user or the application.
 
     The build runs with its own artifacts path in a temporary folder, so it neither uses nor changes the bin and obj
     folders of a developer build.
 
     An existing output folder that is not empty is left untouched unless -Clean is passed: an installed application
-    folder also holds backup-config.json, the run history and the clones. -Clean deletes only the files a publish run
-    writes and refuses a folder that holds anything else.
-
-    The script fails when the published appsettings.json sets GitHub:Token, so a token never reaches the artifact.
+    folder also holds the settings files, backup-config.json, the run history and the clones. -Clean deletes only
+    the files a publish run writes and refuses a folder that holds anything else.
 
 .PARAMETER OutputPath
     The application folder to publish into. Defaults to artifacts\publish under the repository root.
@@ -60,8 +59,8 @@ if (Test-Path -LiteralPath $OutputPath -PathType Leaf) {
 }
 
 # -Clean deletes only what a publish run writes, so a mistyped path never removes a repository, a drive or an
-# installed application folder with its configuration, history and clones.
-$publishOutputNames = @('GitHubBackup.exe', 'GitHubBackup.Cli.exe', 'GitHubBackup.App.exe', 'appsettings.json')
+# installed application folder with its settings, configuration, history and clones.
+$publishOutputNames = @('GitHubBackup.exe', 'GitHubBackup.Cli.exe', 'GitHubBackup.App.exe')
 
 if (Test-Path -LiteralPath $OutputPath -PathType Container) {
     $existing = @(Get-ChildItem -LiteralPath $OutputPath -Force)
@@ -107,12 +106,5 @@ finally {
 # The SDK names a bundle after its assembly; the WPF executable is the application itself, so it carries the
 # application name, while the assembly keeps its project name.
 Move-Item -LiteralPath (Join-Path $OutputPath 'GitHubBackup.App.exe') -Destination (Join-Path $OutputPath 'GitHubBackup.exe')
-
-# The published folder is shared as a build artifact; a token in the source settings file must never travel with it.
-$settings = Get-Content -LiteralPath (Join-Path $OutputPath 'appsettings.json') -Raw | ConvertFrom-Json
-if ($settings.PSObject.Properties['GitHub'] -and $settings.GitHub.PSObject.Properties['Token'] -and $settings.GitHub.Token) {
-    Remove-Item -LiteralPath (Join-Path $OutputPath 'appsettings.json') -Force
-    Stop-Publish "appsettings.json sets GitHub:Token; keep the token in user secrets or Credential Manager and publish again."
-}
 
 Write-Host "Published to $OutputPath"

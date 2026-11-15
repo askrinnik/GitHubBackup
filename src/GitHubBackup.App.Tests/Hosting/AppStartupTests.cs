@@ -67,10 +67,27 @@ public sealed class AppStartupTests : IDisposable
     }
 
     [Fact]
-    public async Task StartAsync_MissingAppSettings_ShowsConfigurationErrorAndReturnsNull()
+    public async Task StartAsync_MissingAppSettings_StartsWithDefaultsAndShowsNoDialog()
     {
         _contentRoot.Dispose();
         _contentRoot = new();
+
+        // The token stops the token chain at the configuration, so the Credential Manager of the machine is never read.
+        using var host = await StartAsync("--GitHub:Token=ghp_AppTestTokenValue0123456789abcdefABC");
+
+        host.ShouldNotBeNull();
+        _dialogs.ReceivedCalls().ShouldBeEmpty();
+        File.Exists(Path.Combine(_contentRoot.FolderPath, GitHubBackupHostBuilder.AppSettingsFileName)).ShouldBeFalse();
+        await host.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Theory]
+    [InlineData("{ not json")]
+    [InlineData("[ 1 ]")]
+    public async Task StartAsync_AppSettingsNotJsonObject_ShowsConfigurationErrorNamingFileAndReturnsNull(string content)
+    {
+        _contentRoot.Dispose();
+        _contentRoot = new(content);
 
         var host = await StartAsync();
 

@@ -12,10 +12,10 @@ namespace GitHubBackup.App.UITests;
 /// scenario runs git, for remotes in a local folder; deletes the folder on dispose.
 /// </summary>
 /// <remarks>
-/// The folder is the content root of the executable, so <c>appsettings.json</c>, <c>user-settings.json</c>,
+/// The folder is the content root of the executable, so <c>appsettings.json</c>, <c>ui-settings.json</c>,
 /// <c>backup-config.json</c>, the log, the run history and the default clones all stay inside it. The token comes from
-/// <c>GitHub:Token</c> of the copied settings, so the application reads neither Windows Credential Manager nor the
-/// GitHub CLI.
+/// <c>GitHub:Token</c> of the written settings or of a prefixed environment variable, so the application reads neither
+/// Windows Credential Manager nor the GitHub CLI.
 /// </remarks>
 internal sealed class AppInstallation : IDisposable
 {
@@ -46,7 +46,12 @@ internal sealed class AppInstallation : IDisposable
     /// The folder of the bare repositories that <c>https://github.com/</c> is redirected to, or
     /// <see langword="null"/> when the scenario runs no git command.
     /// </param>
-    public AppInstallation(string apiBaseUrl, string? remotesRoot = null)
+    /// <param name="writeAppSettings">
+    /// <see langword="true"/> to write <c>appsettings.json</c>; <see langword="false"/> to leave the file out and pass
+    /// the token and the API address as prefixed environment variables instead, so that every other setting keeps
+    /// its default.
+    /// </param>
+    public AppInstallation(string apiBaseUrl, string? remotesRoot = null, bool writeAppSettings = true)
     {
         FolderPath = TemporaryFolder.Create();
         var publishedFolder = System.Environment.GetEnvironmentVariable(PublishedAppPathVariable);
@@ -66,13 +71,22 @@ internal sealed class AppInstallation : IDisposable
         }
 
         BuildOutput.CopyTo(source, FolderPath, _executableName);
-        WriteAppSettings(ValidAppSettings(apiBaseUrl));
+        if (writeAppSettings)
+        {
+            WriteAppSettings(ValidAppSettings(apiBaseUrl));
+        }
 
         Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase)
         {
             // Production skips the user secrets of the developer, which could supply another token or API address.
             [GitHubBackupHostSettings.EnvironmentVariableName] = Environments.Production,
         };
+        if (!writeAppSettings)
+        {
+            environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__Token"] = Token;
+            environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__ApiBaseUrl"] = apiBaseUrl;
+        }
+
         if (remotesRoot is not null)
         {
             foreach (var (name, value) in new GitRemoteRedirect(FolderPath, remotesRoot).EnvironmentVariables())
@@ -96,8 +110,14 @@ internal sealed class AppInstallation : IDisposable
     /// <summary>Gets the absolute path of <c>backup-config.json</c>, which the application reads by default.</summary>
     public string BackupConfigPath => Path.Combine(FolderPath, "backup-config.json");
 
-    /// <summary>Gets the absolute path of <c>user-settings.json</c> in the content root.</summary>
-    public string UserSettingsPath => Path.Combine(FolderPath, GitHubBackupHostBuilder.UserSettingsFileName);
+    /// <summary>Gets the absolute path of <c>appsettings.json</c> in the content root.</summary>
+    public string AppSettingsPath => Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName);
+
+    /// <summary>Gets the absolute path of <c>ui-settings.json</c> in the content root.</summary>
+    public string UiSettingsPath => Path.Combine(FolderPath, GitHubBackupHostBuilder.UiSettingsFileName);
+
+    /// <summary>Gets the absolute path of <c>user-settings.json</c>, a file the application neither reads nor writes.</summary>
+    public string LegacyUserSettingsPath => Path.Combine(FolderPath, "user-settings.json");
 
     /// <summary>Gets the absolute path of the archive root that scenarios configure.</summary>
     public string ArchivesPath => Path.Combine(FolderPath, "archives");
@@ -112,23 +132,22 @@ internal sealed class AppInstallation : IDisposable
     /// Replaces <c>appsettings.json</c> of the installation.
     /// </summary>
     /// <param name="json">The content of the file.</param>
-    public void WriteAppSettings(string json) =>
-        File.WriteAllText(Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName), json);
+    public void WriteAppSettings(string json) => File.WriteAllText(AppSettingsPath, json);
 
     /// <summary>
-    /// Writes <c>user-settings.json</c> of the installation.
+    /// Writes <c>ui-settings.json</c> of the installation.
     /// </summary>
     /// <param name="json">The content of the file.</param>
-    public void WriteUserSettings(string json) => File.WriteAllText(UserSettingsPath, json);
+    public void WriteUiSettings(string json) => File.WriteAllText(UiSettingsPath, json);
 
     /// <summary>
-    /// Reads the <c>Ui:MainWindow</c> object of <c>user-settings.json</c>.
+    /// Reads the <c>MainWindow</c> object of <c>ui-settings.json</c>.
     /// </summary>
     /// <returns>A copy of the object.</returns>
     public JsonElement ReadMainWindowSettings()
     {
-        using var document = JsonDocument.Parse(File.ReadAllText(UserSettingsPath));
-        return document.RootElement.GetProperty("Ui").GetProperty("MainWindow").Clone();
+        using var document = JsonDocument.Parse(File.ReadAllText(UiSettingsPath));
+        return document.RootElement.GetProperty("MainWindow").Clone();
     }
 
     /// <summary>

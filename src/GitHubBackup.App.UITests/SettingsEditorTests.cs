@@ -12,6 +12,9 @@ public sealed class SettingsEditorTests : IDisposable
 {
     private const string _git = @"C:\Tools\Git\cmd\git.exe";
 
+    /// <summary>The 7-Zip path that the settings of the installation configure.</summary>
+    private const string _sevenZip = @"C:\Program Files\7-Zip\7z.exe";
+
     private readonly GitHubApiStub _api = new();
     private readonly AppInstallation _installation;
     private readonly string _originalConfig;
@@ -167,8 +170,9 @@ public sealed class SettingsEditorTests : IDisposable
     }
 
     [Fact]
-    public void Save_AbsoluteGitPath_WritesUserSettingsAndReturnsToTree()
+    public void Save_AbsoluteGitPath_WritesAppSettingsKeepingOtherSectionsAndReturnsToTree()
     {
+        var before = File.ReadAllText(_installation.AppSettingsPath);
         OpenSettings();
         _session.SetText("GitPathBox", _git);
 
@@ -176,15 +180,18 @@ public sealed class SettingsEditorTests : IDisposable
 
         _session.WaitFor("RepositoryTree");
         _session.WaitUntilGone("SaveSettingsButton");
-        ReadText(_installation.UserSettingsPath).ShouldBe(
-            $$"""
-            {
-              "Tools": {
-                "GitPath": {{Json(_git)}},
-                "SevenZipPath": "C:\\Program Files\\7-Zip\\7z.exe"
-              }
-            }
-            """.ReplaceLineEndings());
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.AppSettingsPath));
+        var root = document.RootElement;
+        root.GetProperty("Tools").GetProperty("GitPath").GetString().ShouldBe(_git);
+        root.GetProperty("Tools").GetProperty("SevenZipPath").GetString().ShouldBe(_sevenZip);
+        root.GetProperty("GitHub").GetProperty("Token").GetString().ShouldBe(AppInstallation.Token);
+        root.GetProperty("Backup").GetProperty("ShortHashLength").GetInt32().ShouldBe(10);
+        root.GetProperty("Serilog").GetProperty("MinimumLevel").GetProperty("Default").GetString().ShouldBe("Information");
+        root.EnumerateObject().Select(property => property.Name)
+            .ShouldBe(["GitHub", "Tools", "Backup", "History", "OpenTelemetry", "Serilog"]);
+        File.ReadAllText(_installation.AppSettingsPath + ".bak").ShouldBe(before);
+        File.Exists(_installation.UiSettingsPath).ShouldBeFalse();
+        File.Exists(_installation.LegacyUserSettingsPath).ShouldBeFalse();
     }
 
     [Fact]
@@ -222,7 +229,7 @@ public sealed class SettingsEditorTests : IDisposable
 
         _session.WaitFor("RepositoryTree");
         _session.WaitUntilGone("SaveSettingsButton");
-        using var document = JsonDocument.Parse(File.ReadAllText(_installation.UserSettingsPath));
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.AppSettingsPath));
         var section = document.RootElement.GetProperty("OpenTelemetry");
         section.GetProperty("Enabled").GetBoolean().ShouldBeTrue();
         section.GetProperty("OtlpEndpoint").GetString().ShouldBe("http://localhost:4318");

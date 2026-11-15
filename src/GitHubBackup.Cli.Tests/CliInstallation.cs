@@ -16,7 +16,7 @@ namespace GitHubBackup.Cli.Tests;
 /// <remarks>
 /// The folder is the content root of the executable, so the log, the run history and the default clone root of a
 /// run all stay inside it. The copy leaves out what a developer's own runs left in the build output: the log and
-/// history folders, the clones and <c>backup-config.json</c>.
+/// history folders, the clones, <c>backup-config.json</c> and the settings files.
 /// </remarks>
 internal sealed class CliInstallation : IDisposable
 {
@@ -38,7 +38,12 @@ internal sealed class CliInstallation : IDisposable
     /// The folder to copy, such as a published application folder, or <see langword="null"/> for the build output of
     /// the console project.
     /// </param>
-    public CliInstallation(string apiBaseUrl, string remotesRoot, string? sourceFolder = null)
+    /// <param name="writeAppSettings">
+    /// <see langword="true"/> to write the settings into <c>appsettings.json</c>; <see langword="false"/> to leave the
+    /// file out and pass the token and the API address as prefixed environment variables instead, so that the
+    /// executable runs with the defaults of every other setting and never reads a token of the machine.
+    /// </param>
+    public CliInstallation(string apiBaseUrl, string remotesRoot, string? sourceFolder = null, bool writeAppSettings = true)
     {
         FolderPath = TemporaryFolder.Create();
         var source = sourceFolder ?? typeof(CliInstallation).Assembly
@@ -46,9 +51,12 @@ internal sealed class CliInstallation : IDisposable
             .Single(attribute => attribute.Key == "GitHubBackupCliOutputPath")
             .Value!;
         BuildOutput.CopyTo(source, FolderPath, _executableName);
-        File.WriteAllText(
-            Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName),
-            CliApplicationTests.ValidAppSettings.Replace("https://api.github.com", apiBaseUrl, StringComparison.Ordinal));
+        if (writeAppSettings)
+        {
+            File.WriteAllText(
+                AppSettingsPath,
+                CliApplicationTests.ValidAppSettings.Replace("https://api.github.com", apiBaseUrl, StringComparison.Ordinal));
+        }
 
         var redirect = new GitRemoteRedirect(FolderPath, remotesRoot);
         _environment = new(redirect.EnvironmentVariables(), StringComparer.OrdinalIgnoreCase)
@@ -56,10 +64,18 @@ internal sealed class CliInstallation : IDisposable
             // Production skips the user secrets of the developer, which could supply another token or API address.
             [GitHubBackupHostSettings.EnvironmentVariableName] = Environments.Production,
         };
+        if (!writeAppSettings)
+        {
+            _environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__Token"] = CliApplicationTests.HostTestToken;
+            _environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__ApiBaseUrl"] = apiBaseUrl;
+        }
     }
 
     /// <summary>Gets the absolute path of the installation folder.</summary>
     public string FolderPath { get; }
+
+    /// <summary>Gets the absolute path of <c>appsettings.json</c>.</summary>
+    public string AppSettingsPath => Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName);
 
     /// <summary>Gets the absolute path of <c>backup-config.json</c>, which the executable reads by default.</summary>
     public string BackupConfigPath => Path.Combine(FolderPath, "backup-config.json");

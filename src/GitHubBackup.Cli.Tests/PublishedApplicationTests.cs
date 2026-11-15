@@ -7,7 +7,7 @@ using GitHubBackup.TestUtilities.Git;
 namespace GitHubBackup.Cli.Tests;
 
 /// <summary>
-/// Checks the application folder that <c>scripts/publish.ps1</c> produces: its layout, its settings file, and that the
+/// Checks the application folder that <c>scripts/publish.ps1</c> produces: its layout, and that the
 /// published console executable runs a whole backup with the run history and the log next to it.
 /// </summary>
 [Trait("Category", "EndToEnd")]
@@ -19,26 +19,14 @@ public sealed class PublishedApplicationTests(PublishedApplication published) : 
     private static CancellationToken CancellationToken => TestContext.Current.CancellationToken;
 
     [Fact]
-    public void PublishedFolder_TopLevelEntries_AreTwoExecutablesAndAppSettings()
+    public void PublishedFolder_TopLevelEntries_AreTwoExecutables()
     {
         var entries = Directory.EnumerateFileSystemEntries(published.FolderPath)
             .Select(Path.GetFileName)
             .Order(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        entries.ShouldBe(["appsettings.json", "GitHubBackup.Cli.exe", "GitHubBackup.exe"]);
-    }
-
-    [Fact]
-    public async Task PublishedFolder_AppSettings_EqualsSourceAppSettings()
-    {
-        var source = Path.Combine(
-            PublishedApplication.RepositoryRoot, "src", "GitHubBackup.Cli", GitHubBackupHostBuilder.AppSettingsFileName);
-
-        var publishedBytes = await File.ReadAllBytesAsync(
-            Path.Combine(published.FolderPath, GitHubBackupHostBuilder.AppSettingsFileName), CancellationToken);
-
-        publishedBytes.ShouldBe(await File.ReadAllBytesAsync(source, CancellationToken));
+        entries.ShouldBe(["GitHubBackup.Cli.exe", "GitHubBackup.exe"]);
     }
 
     [Fact]
@@ -113,6 +101,30 @@ public sealed class PublishedApplicationTests(PublishedApplication published) : 
             result.ExitCode.ShouldNotBe(0, result.ToString());
             result.StandardError.ShouldContain("publish output");
             Directory.EnumerateFileSystemEntries(output).Order().ShouldBe(new[] { published, kept, clones }.Order());
+        }
+        finally
+        {
+            TemporaryFolder.Delete(output);
+        }
+    }
+
+    [Fact]
+    public async Task PublishScript_CleanOnFolderWithAppSettings_FailsAndKeepsFiles()
+    {
+        var output = TemporaryFolder.Create();
+        try
+        {
+            var published = Path.Combine(output, "GitHubBackup.exe");
+            var settings = Path.Combine(output, GitHubBackupHostBuilder.AppSettingsFileName);
+            await File.WriteAllTextAsync(published, "old", CancellationToken);
+            await File.WriteAllTextAsync(settings, "{}", CancellationToken);
+
+            var result = await PublishedApplication.RunScriptAsync(["-OutputPath", output, "-Clean"], CancellationToken);
+
+            result.ExitCode.ShouldNotBe(0, result.ToString());
+            result.StandardError.ShouldContain("publish output");
+            Directory.EnumerateFileSystemEntries(output).Order().ShouldBe(new[] { published, settings }.Order());
+            (await File.ReadAllTextAsync(settings, CancellationToken)).ShouldBe("{}");
         }
         finally
         {

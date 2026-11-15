@@ -38,8 +38,8 @@ The end-to-end tests in `GitHubBackup.Cli.Tests` also carry the category `EndToE
 
 The publishing tests (`PublishedApplicationTests`, also `EndToEnd`) check:
 
-- the layout of the published folder;
-- that its `appsettings.json` equals the source one;
+- the layout of the published folder: only the two exe files;
+- that `-Clean` refuses a folder that holds `appsettings.json`;
 - a full `backup --silent` run of the published `GitHubBackup.Cli.exe`, with the history database and the log.
 
 They take the folder from the environment variable `PUBLISHED_APP_PATH`. Without it, they run `scripts/publish.ps1` into a temporary folder, which takes up to a minute.
@@ -60,7 +60,7 @@ dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --fil
 
 Exit code 8 means that no test ran in a project. With `--filter-trait`, every project except the selected one ends this way, so this command ignores code 8. The normal run and CI do not ignore it: a project in which no test ran fails the run.
 
-The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` to a temporary folder and starts the application from there. If the variable `PUBLISHED_APP_PATH` is set, the test copies the published folder and starts `GitHubBackup.exe`; the UI test workflow does this. The token comes from `GitHub:Token` in the test `appsettings.json`, and WireMock on loopback replaces the GitHub API. The tests therefore do not read Windows Credential Manager and do not use the network. A run needs:
+The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` to a temporary folder and starts the application from there. If the variable `PUBLISHED_APP_PATH` is set, the test copies the published folder and starts `GitHubBackup.exe`; the UI test workflow does this. The token comes from `GitHub:Token` in the `appsettings.json` the test writes, or from the variable `GitHubBackup__GitHub__Token` when a test starts without the file, and WireMock on loopback replaces the GitHub API. The tests therefore do not read Windows Credential Manager and do not use the network. A run needs:
 
 - an interactive desktop (the tests open windows; do not lock the screen and do not minimize the session);
 - git in `PATH` and 7-Zip in `C:\Program Files\7-Zip\7z.exe` (the discovery dialog scenario uses them).
@@ -91,9 +91,8 @@ pwsh -File scripts/publish.ps1
 |---|---|
 | `GitHubBackup.exe` | WPF application |
 | `GitHubBackup.Cli.exe` | console application |
-| `appsettings.json` | settings shared by both exe files |
 
-Both exe files are framework-dependent single-file builds: the machine needs only the .NET Desktop Runtime 10. The native SQLite library sits inside the exe and unpacks at startup. The application creates the folders `data\`, `logs\` and `sources\` next to the exe itself. `backup-config.json` is created only by the settings editor of `GitHubBackup.exe` (see [First run](../README.md#first-run) in the README).
+Both exe files are framework-dependent single-file builds: the machine needs only the .NET Desktop Runtime 10. The native SQLite library sits inside the exe and unpacks at startup. No settings file is published: every setting has a default in code, and `appsettings.json` is optional (see [appsettings.json](../README.md#appsettingsjson) in the README). The user or the settings editor creates `appsettings.json`, the desktop app creates `ui-settings.json`, and the application creates the folders `data\`, `logs\` and `sources\` next to the exe itself. Updating an installed copy means replacing the two exe files only. `backup-config.json` is created only by the settings editor of `GitHubBackup.exe` (see [First run](../README.md#first-run) in the README).
 
 | Parameter | Default | Purpose |
 |---|---|---|
@@ -104,8 +103,7 @@ Both exe files are framework-dependent single-file builds: the machine needs onl
 Rules of the script:
 
 - If the output folder exists, is not empty and `-Clean` is not passed, the script changes nothing and exits with code 1. This way it never overwrites a working folder with configuration, history and clones.
-- `-Clean` removes only the files that publishing writes. If the folder holds other files or subfolders, the script also exits with code 1 and removes nothing.
-- If the published `appsettings.json` sets `GitHub:Token`, the script deletes that file and exits with code 1: the token must not reach the artifact.
+- `-Clean` removes only the files that publishing writes: the exe files. If the folder holds other files or subfolders, including `appsettings.json` or `ui-settings.json`, the script also exits with code 1 and removes nothing.
 - If `dotnet publish` fails, the exit code is also 1.
 - The script builds the projects in a temporary folder and does not touch `bin` and `obj` of the normal build.
 

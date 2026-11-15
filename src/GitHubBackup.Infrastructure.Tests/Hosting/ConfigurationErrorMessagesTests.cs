@@ -47,17 +47,6 @@ public sealed class ConfigurationErrorMessagesTests
     }
 
     [Fact]
-    public void TryGet_ConfigurationFileNotFound_ReturnsMessage()
-    {
-        var exception = new ConfigurationFileException(new FileNotFoundException("The configuration file 'appsettings.json' was not found."));
-
-        var found = ConfigurationErrorMessages.TryGet(exception, out var messages);
-
-        found.ShouldBeTrue();
-        messages.ShouldHaveSingleItem().ShouldBe("The configuration file 'appsettings.json' was not found.");
-    }
-
-    [Fact]
     public void TryGet_ConfigurationFileInvalid_JoinsMessages()
     {
         var exception = new ConfigurationFileException(

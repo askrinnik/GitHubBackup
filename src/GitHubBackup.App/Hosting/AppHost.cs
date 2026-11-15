@@ -13,7 +13,7 @@ internal static class AppHost
     /// </summary>
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host, not yet started.</returns>
-    /// <exception cref="ConfigurationFileException">The settings file is missing or is not valid JSON.</exception>
+    /// <exception cref="ConfigurationFileException">The settings file exists but is not a valid JSON object.</exception>
     /// <exception cref="Microsoft.Extensions.Options.OptionsValidationException">A logging setting is invalid.</exception>
     public static IHost BuildHost(GitHubBackupHostSettings settings)
     {

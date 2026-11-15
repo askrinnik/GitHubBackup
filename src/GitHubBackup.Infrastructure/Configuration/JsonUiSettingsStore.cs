@@ -5,27 +5,25 @@ using GitHubBackup.Infrastructure.Hosting;
 namespace GitHubBackup.Infrastructure.Configuration;
 
 /// <summary>
-/// Reads and writes the <c>Ui</c> section of <see cref="GitHubBackupHostBuilder.UserSettingsFileName"/>.
+/// Reads and writes the user interface preferences in <see cref="GitHubBackupHostBuilder.UiSettingsFileName"/>.
 /// </summary>
 /// <remarks>
-/// The section is read from the file itself, not from the host configuration, which leaves it out: the console
-/// application never sees it, and an invalid value falls back to its default instead of failing the start. Every
-/// value is read on its own, so a value of the wrong type spoils only itself.
+/// Every value is read on its own, so a value of the wrong type or out of range spoils only itself and falls back to
+/// its default.
 /// </remarks>
-/// <param name="file">The user settings file.</param>
-internal sealed class JsonUiSettingsStore(UserSettingsFile file) : IUiSettingsStore
+/// <param name="file">The user interface settings file.</param>
+internal sealed class JsonUiSettingsStore(UiSettingsFile file) : IUiSettingsStore
 {
     /// <inheritdoc />
     public async Task<UiSettings> LoadAsync(CancellationToken cancellationToken)
     {
-        var section = await file.ReadSectionAsync(UserSettingsFile.UiSectionName, cancellationToken);
-        if (section is not { ValueKind: JsonValueKind.Object } ui)
+        if (await file.ReadAsync(cancellationToken) is not { } root)
         {
             return UiSettings.Default;
         }
 
-        var theme = ReadTheme(ui);
-        if (TryGetProperty(ui, UserSettingsFile.UiMainWindowKey) is not { ValueKind: JsonValueKind.Object } window)
+        var theme = ReadTheme(root);
+        if (JsonSettingsText.TryGetProperty(root, UiSettingsFile.MainWindowKey) is not { ValueKind: JsonValueKind.Object } window)
         {
             return UiSettings.Default with { Theme = theme };
         }
@@ -35,7 +33,11 @@ internal sealed class JsonUiSettingsStore(UserSettingsFile file) : IUiSettingsSt
             && TryGetNumber(window, nameof(WindowPlacement.Width)) is { } width
             && TryGetNumber(window, nameof(WindowPlacement.Height)) is { } height
                 ? new WindowPlacement(
-                    left, top, width, height, TryGetProperty(window, nameof(WindowPlacement.IsMaximized))?.ValueKind == JsonValueKind.True)
+                    left,
+                    top,
+                    width,
+                    height,
+                    JsonSettingsText.TryGetProperty(window, nameof(WindowPlacement.IsMaximized))?.ValueKind == JsonValueKind.True)
                 : null;
 
         return new UiSettings(
@@ -50,13 +52,12 @@ internal sealed class JsonUiSettingsStore(UserSettingsFile file) : IUiSettingsSt
     public Task SaveAsync(UiSettings settings, CancellationToken cancellationToken)
     {
         var sanitized = settings.Sanitize();
-        return file.WriteSectionAsync(
-            UserSettingsFile.UiSectionName,
+        return file.WriteAsync(
             json =>
             {
                 json.WriteStartObject();
-                json.WriteString(UserSettingsFile.UiThemeKey, sanitized.Theme.ToString());
-                json.WriteStartObject(UserSettingsFile.UiMainWindowKey);
+                json.WriteString(UiSettingsFile.ThemeKey, sanitized.Theme.ToString());
+                json.WriteStartObject(UiSettingsFile.MainWindowKey);
                 if (sanitized.MainWindow is { } placement)
                 {
                     json.WriteNumber(nameof(WindowPlacement.Left), placement.Left);
@@ -78,11 +79,11 @@ internal sealed class JsonUiSettingsStore(UserSettingsFile file) : IUiSettingsSt
     /// Reads the theme: one of the names of <see cref="UiTheme"/> without regard to case, otherwise
     /// <see cref="UiTheme.System"/>.
     /// </summary>
-    /// <param name="ui">The <c>Ui</c> object.</param>
+    /// <param name="root">The root object of the file.</param>
     /// <returns>The theme.</returns>
-    private static UiTheme ReadTheme(JsonElement ui)
+    private static UiTheme ReadTheme(JsonElement root)
     {
-        if (TryGetProperty(ui, UserSettingsFile.UiThemeKey) is not { ValueKind: JsonValueKind.String } value)
+        if (JsonSettingsText.TryGetProperty(root, UiSettingsFile.ThemeKey) is not { ValueKind: JsonValueKind.String } value)
         {
             return UiTheme.System;
         }
@@ -101,20 +102,7 @@ internal sealed class JsonUiSettingsStore(UserSettingsFile file) : IUiSettingsSt
     /// <param name="name">The property name, compared without regard to case.</param>
     /// <returns>The number, or <see langword="null"/>.</returns>
     private static double? TryGetNumber(JsonElement element, string name) =>
-        TryGetProperty(element, name) is { ValueKind: JsonValueKind.Number } value && value.TryGetDouble(out var number)
+        JsonSettingsText.TryGetProperty(element, name) is { ValueKind: JsonValueKind.Number } value && value.TryGetDouble(out var number)
             ? number
             : null;
-
-    /// <summary>
-    /// Returns a property compared without regard to case, as the configuration compares keys; of two properties
-    /// with the same name the later one wins.
-    /// </summary>
-    /// <param name="element">The object.</param>
-    /// <param name="name">The property name.</param>
-    /// <returns>The value of the property, or <see langword="null"/> when there is none.</returns>
-    private static JsonElement? TryGetProperty(JsonElement element, string name) =>
-        element.EnumerateObject()
-            .Where(property => string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
-            .Select(property => (JsonElement?)property.Value)
-            .LastOrDefault();
 }

@@ -33,8 +33,7 @@ public sealed record GitHubBackupHostSettings
     public required string EnvironmentName { get; init; }
 
     /// <summary>
-    /// Gets the file provider that supplies <c>appsettings.json</c> and <c>user-settings.json</c>; <see langword="null"/>
-    /// reads them from
+    /// Gets the file provider that supplies <c>appsettings.json</c>; <see langword="null"/> reads it from
     /// <see cref="ContentRootPath"/>.
     /// </summary>
     public IFileProvider? ConfigurationFileProvider { get; init; }

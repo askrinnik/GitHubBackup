@@ -9,21 +9,23 @@ using NSubstitute;
 namespace GitHubBackup.Infrastructure.Tests.Configuration;
 
 /// <summary>
-/// Tests <see cref="JsonUiSettingsStore"/> over <see cref="UserSettingsFile"/>.
+/// Tests <see cref="JsonUiSettingsStore"/> over <see cref="UiSettingsFile"/>.
 /// </summary>
 public sealed class JsonUiSettingsStoreTests : IDisposable
 {
     private const string _contentRootPath = @"C:\app";
-    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.UserSettingsFileName;
+    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.UiSettingsFileName;
+    private const string _appSettingsPath = @"C:\app\" + GitHubBackupHostBuilder.AppSettingsFileName;
+    private const string _legacyUserSettingsPath = @"C:\app\user-settings.json";
 
     private readonly MockFileSystem _fileSystem = new();
 
-    private readonly UserSettingsFile _file;
+    private readonly UiSettingsFile _file;
 
     private readonly JsonUiSettingsStore _store;
 
     /// <summary>
-    /// Creates the content root, the user settings file and the subject.
+    /// Creates the content root, the user interface settings file and the subject.
     /// </summary>
     public JsonUiSettingsStoreTests()
     {
@@ -38,6 +40,9 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     public void Dispose() => _file.Dispose();
 
     [Fact]
+    public void FilePath_ContentRoot_IsUiSettingsFileInContentRoot() => _file.FilePath.ShouldBe(_filePath);
+
+    [Fact]
     public async Task LoadAsync_NoFile_ReturnsDefault() =>
         (await _store.LoadAsync(TestContext.Current.CancellationToken)).ShouldBe(UiSettings.Default);
 
@@ -46,10 +51,10 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [InlineData("   ")]
     [InlineData("{ not json")]
     [InlineData("[]")]
+    [InlineData("\"Dark\"")]
     [InlineData("""{ "Tools": { "GitPath": null } }""")]
-    [InlineData("""{ "Ui": "Dark" }""")]
-    [InlineData("""{ "Ui": null }""")]
-    public async Task LoadAsync_FileWithoutUsableUiSection_ReturnsDefault(string json)
+    [InlineData("""{ "MainWindow": null }""")]
+    public async Task LoadAsync_FileWithoutUsableValues_ReturnsDefault(string json)
     {
         _fileSystem.AddFile(_filePath, new MockFileData(json));
 
@@ -57,21 +62,29 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadAsync_CompleteSection_ReturnsValues()
+    public async Task LoadAsync_CompleteFile_ReturnsValues()
     {
         _fileSystem.AddFile(_filePath, new MockFileData("""
             {
-              "Ui": {
-                "Theme": "Dark",
-                "MainWindow": { "Left": -10.5, "Top": 20, "Width": 1200, "Height": 800, "IsMaximized": true,
-                                "LogPanelHeight": 250, "SummaryPanelHeight": 300 }
-              }
+              "Theme": "Dark",
+              "MainWindow": { "Left": -10.5, "Top": 20, "Width": 1200, "Height": 800, "IsMaximized": true,
+                              "LogPanelHeight": 250, "SummaryPanelHeight": 300 }
             }
             """));
 
         var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
 
         settings.ShouldBe(new UiSettings(UiTheme.Dark, new(-10.5, 20, 1200, 800, true), 250, 300));
+    }
+
+    [Fact]
+    public async Task LoadAsync_UiValuesInOtherFiles_ReturnsDefault()
+    {
+        const string ui = """{ "Ui": { "Theme": "Dark" }, "Theme": "Dark" }""";
+        _fileSystem.AddFile(_appSettingsPath, new MockFileData(ui));
+        _fileSystem.AddFile(_legacyUserSettingsPath, new MockFileData(ui));
+
+        (await _store.LoadAsync(TestContext.Current.CancellationToken)).ShouldBe(UiSettings.Default);
     }
 
     [Theory]
@@ -84,9 +97,20 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [InlineData("null", UiTheme.System)]
     public async Task LoadAsync_Theme_ReadsNameWithoutCaseOrReturnsSystem(string value, UiTheme expected)
     {
-        _fileSystem.AddFile(_filePath, new MockFileData($$"""{ "ui": { "theme": {{value}} } }"""));
+        _fileSystem.AddFile(_filePath, new MockFileData($$"""{ "theme": {{value}} }"""));
 
         (await _store.LoadAsync(TestContext.Current.CancellationToken)).Theme.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task LoadAsync_KeysInOtherCase_ReadsThem()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData(
+            """{ "THEME": "Light", "mainwindow": { "left": 1, "TOP": 2, "width": 800, "height": 600, "logpanelheight": 100 } }"""));
+
+        var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
+
+        settings.ShouldBe(new UiSettings(UiTheme.Light, new(1, 2, 800, 600, false), 100, UiSettings.DefaultSummaryPanelHeight));
     }
 
     [Theory]
@@ -96,7 +120,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [InlineData("""{ "Left": 10, "Top": 20, "Width": 1200, "Height": 20000 }""")]
     public async Task LoadAsync_InvalidPlacement_ReturnsDefaultPlacementAndKeepsTheme(string window)
     {
-        _fileSystem.AddFile(_filePath, new MockFileData($$"""{ "Ui": { "Theme": "Light", "MainWindow": {{window}} } }"""));
+        _fileSystem.AddFile(_filePath, new MockFileData($$"""{ "Theme": "Light", "MainWindow": {{window}} }"""));
 
         var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
 
@@ -110,7 +134,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     public async Task LoadAsync_IsMaximizedNotBoolean_ReturnsFalse(string value)
     {
         _fileSystem.AddFile(_filePath, new MockFileData(
-            $$"""{ "Ui": { "MainWindow": { "Left": 1, "Top": 2, "Width": 800, "Height": 600, "IsMaximized": {{value}} } } }"""));
+            $$"""{ "MainWindow": { "Left": 1, "Top": 2, "Width": 800, "Height": 600, "IsMaximized": {{value}} } }"""));
 
         var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
 
@@ -121,7 +145,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     public async Task LoadAsync_InvalidPanelHeights_ReturnsDefaultForEachInvalidHeight()
     {
         _fileSystem.AddFile(_filePath, new MockFileData(
-            """{ "Ui": { "MainWindow": { "LogPanelHeight": "high", "SummaryPanelHeight": 5000 } } }"""));
+            """{ "MainWindow": { "LogPanelHeight": "high", "SummaryPanelHeight": 5000 } }"""));
 
         var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
 
@@ -130,33 +154,31 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task LoadAsync_ByteOrderMarkAndComments_ReadsSection()
+    public async Task LoadAsync_ByteOrderMarkAndComments_ReadsFile()
     {
         _fileSystem.AddFile(_filePath, new MockFileData(
-            [0xEF, 0xBB, 0xBF, .. """{ /* edited */ "Ui": { "Theme": "Dark", }, }"""u8.ToArray()]));
+            [0xEF, 0xBB, 0xBF, .. """{ /* edited */ "Theme": "Dark", }"""u8.ToArray()]));
 
         (await _store.LoadAsync(TestContext.Current.CancellationToken)).Theme.ShouldBe(UiTheme.Dark);
     }
 
     [Fact]
-    public async Task SaveAsync_NoFile_WritesUiSectionOnly()
+    public async Task SaveAsync_NoFile_WritesRootObject()
     {
         await _store.SaveAsync(
             new(UiTheme.Dark, new(100, 50.5, 1000, 700, true), 160, 220), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
-              "Ui": {
-                "Theme": "Dark",
-                "MainWindow": {
-                  "Left": 100,
-                  "Top": 50.5,
-                  "Width": 1000,
-                  "Height": 700,
-                  "IsMaximized": true,
-                  "LogPanelHeight": 160,
-                  "SummaryPanelHeight": 220
-                }
+              "Theme": "Dark",
+              "MainWindow": {
+                "Left": 100,
+                "Top": 50.5,
+                "Width": 1000,
+                "Height": 700,
+                "IsMaximized": true,
+                "LogPanelHeight": 160,
+                "SummaryPanelHeight": 220
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
@@ -169,74 +191,34 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
-              "Ui": {
-                "Theme": "System",
-                "MainWindow": {
-                  "LogPanelHeight": 160,
-                  "SummaryPanelHeight": 220
-                }
+              "Theme": "System",
+              "MainWindow": {
+                "LogPanelHeight": 160,
+                "SummaryPanelHeight": 220
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
     }
 
     [Fact]
-    public async Task SaveAsync_ToolsSectionInFile_KeepsToolsAsWritten()
+    public async Task SaveAsync_OtherSettingsFiles_LeavesThemUntouched()
     {
-        _fileSystem.AddFile(_filePath, new MockFileData("""
-            {
-              "Tools": { "SevenZipPath": "D:\\7z\\7z.exe" },
-              "Ui": { "Theme": "Dark" }
-            }
-            """));
+        const string appSettings = """{ "Tools": { "GitPath": "C:\\Git\\git.exe" } }""";
+        const string legacy = """{ "Ui": { "Theme": "Light" } }""";
+        _fileSystem.AddFile(_appSettingsPath, new MockFileData(appSettings));
+        _fileSystem.AddFile(_legacyUserSettingsPath, new MockFileData(legacy));
 
-        await _store.SaveAsync(UiSettings.Default with { Theme = UiTheme.Light }, TestContext.Current.CancellationToken);
+        await _store.SaveAsync(UiSettings.Default with { Theme = UiTheme.Dark }, TestContext.Current.CancellationToken);
 
-        _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
-            {
-              "Tools": {
-                "SevenZipPath": "D:\\7z\\7z.exe"
-              },
-              "Ui": {
-                "Theme": "Light",
-                "MainWindow": {
-                  "LogPanelHeight": 160,
-                  "SummaryPanelHeight": 220
-                }
-              }
-            }
-            """.ReplaceLineEndings("\r\n") + "\r\n");
-    }
-
-    [Fact]
-    public async Task SaveAsync_ToolsSectionWithUnknownKey_KeepsOnlyKnownToolKeys()
-    {
-        _fileSystem.AddFile(_filePath, new MockFileData("""
-            { "tools": { "GitPath": null, "ApiBaseUrl": "https://example.com/api", "SevenZipPath": { "nested": 1 } } }
-            """));
-
-        await _store.SaveAsync(UiSettings.Default, TestContext.Current.CancellationToken);
-
-        _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
-            {
-              "Tools": {
-                "GitPath": null
-              },
-              "Ui": {
-                "Theme": "System",
-                "MainWindow": {
-                  "LogPanelHeight": 160,
-                  "SummaryPanelHeight": 220
-                }
-              }
-            }
-            """.ReplaceLineEndings("\r\n") + "\r\n");
+        _fileSystem.File.ReadAllText(_appSettingsPath).ShouldBe(appSettings);
+        _fileSystem.File.ReadAllText(_legacyUserSettingsPath).ShouldBe(legacy);
+        _fileSystem.File.Exists(_appSettingsPath + AtomicFileWriter.BackupExtension).ShouldBeFalse();
     }
 
     [Fact]
     public async Task SaveAsync_FileExists_KeepsPreviousAsBackup()
     {
-        const string previous = """{ "Ui": { "Theme": "Dark" } }""";
+        const string previous = """{ "Theme": "Dark" }""";
         _fileSystem.AddFile(_filePath, new MockFileData(previous));
 
         await _store.SaveAsync(UiSettings.Default, TestContext.Current.CancellationToken);
@@ -248,7 +230,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [Theory]
     [InlineData("")]
     [InlineData(" \r\n ")]
-    public async Task SaveAsync_EmptyFile_WritesUiSection(string content)
+    public async Task SaveAsync_EmptyFile_WritesFile(string content)
     {
         _fileSystem.AddFile(_filePath, new MockFileData(content));
 
@@ -258,7 +240,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     }
 
     [Theory]
-    [InlineData("{ \"Tools\": { \"GitPath\": \"C:\\\\Git\\\\git.exe\" }")]
+    [InlineData("{ \"Theme\": \"Dark\"")]
     [InlineData("[ 1, 2 ]")]
     [InlineData("\"text\"")]
     public async Task SaveAsync_FileNotJsonObject_ThrowsAndLeavesFileIntact(string content)
@@ -276,7 +258,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_FileLocked_ThrowsAndLeavesFileIntact()
     {
-        const string content = """{ "Tools": { "GitPath": "C:\\Git\\git.exe" } }""";
+        const string content = """{ "Theme": "Dark" }""";
         var locked = new MockFileData(content) { AllowedFileShare = FileShare.None };
         _fileSystem.AddFile(_filePath, locked);
 
@@ -289,7 +271,7 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     [Fact]
     public async Task LoadAsync_FileLocked_ReturnsDefault()
     {
-        _fileSystem.AddFile(_filePath, new MockFileData("""{ "Ui": { "Theme": "Dark" } }""") { AllowedFileShare = FileShare.None });
+        _fileSystem.AddFile(_filePath, new MockFileData("""{ "Theme": "Dark" }""") { AllowedFileShare = FileShare.None });
 
         (await _store.LoadAsync(TestContext.Current.CancellationToken)).ShouldBe(UiSettings.Default);
     }

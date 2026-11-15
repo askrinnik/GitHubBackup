@@ -6,16 +6,15 @@ namespace GitHubBackup.Infrastructure.Configuration;
 
 /// <summary>
 /// Reads the telemetry settings from <see cref="OpenTelemetryOptions"/> and writes them to the <c>OpenTelemetry</c>
-/// section of <see cref="GitHubBackupHostBuilder.UserSettingsFileName"/>, which the host reads at start-up right after
-/// <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
+/// section of <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
 /// </summary>
 /// <remarks>
-/// The <c>OpenTelemetry</c> section is replaced as a whole and the other sections of the file stay as they are; an
-/// endpoint that is not set is written as <c>null</c>, which the configuration reads as not set.
+/// Only <c>Enabled</c> and <c>OtlpEndpoint</c> are written; an endpoint that is not set is written as <c>null</c>,
+/// which the configuration reads as not set.
 /// </remarks>
 /// <param name="options">The telemetry options of the running application.</param>
-/// <param name="file">The user settings file.</param>
-internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> options, UserSettingsFile file)
+/// <param name="file">The settings file of the application.</param>
+internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> options, AppSettingsFile file)
     : ITelemetrySettingsStore
 {
     /// <summary>
@@ -43,23 +42,12 @@ internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> 
         }
 
         var normalized = Normalize(settings);
-        await file.WriteSectionAsync(
+        await file.WriteSectionValuesAsync(
             OpenTelemetryOptions.SectionName,
-            json =>
-            {
-                json.WriteStartObject();
-                json.WriteBoolean(nameof(OpenTelemetryOptions.Enabled), normalized.Enabled);
-                if (normalized.OtlpEndpoint is null)
-                {
-                    json.WriteNull(nameof(OpenTelemetryOptions.OtlpEndpoint));
-                }
-                else
-                {
-                    json.WriteString(nameof(OpenTelemetryOptions.OtlpEndpoint), normalized.OtlpEndpoint);
-                }
-
-                json.WriteEndObject();
-            },
+            [
+                AppSettingValue.FromFlag(nameof(OpenTelemetryOptions.Enabled), normalized.Enabled),
+                AppSettingValue.FromText(nameof(OpenTelemetryOptions.OtlpEndpoint), normalized.OtlpEndpoint),
+            ],
             cancellationToken);
         _saved = normalized;
     }

@@ -14,7 +14,10 @@ public sealed class TemporaryContentRoot : IDisposable
     /// <summary>
     /// Creates the folder, with <paramref name="appSettings"/> as its <c>appsettings.json</c> when given.
     /// </summary>
-    /// <param name="appSettings">The JSON text of the settings file, or <see langword="null"/> for an empty folder.</param>
+    /// <param name="appSettings">
+    /// The JSON text of the settings file, or <see langword="null"/> for an empty folder, where the host runs with the
+    /// defaults of the options classes.
+    /// </param>
     public TemporaryContentRoot(string? appSettings = null)
     {
         FolderPath = TemporaryFolder.Create();
