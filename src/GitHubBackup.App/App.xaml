@@ -3,10 +3,13 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
              xmlns:views="clr-namespace:GitHubBackup.App.Views"
+             xmlns:converters="clr-namespace:GitHubBackup.App.Converters"
              ShutdownMode="OnExplicitShutdown">
     <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes. -->
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+        <converters:PixelGridLengthConverter x:Key="PixelGridLengthConverter" />
+        <converters:OptionalRowHeightConverter x:Key="OptionalRowHeightConverter" />
         <!-- A text block without text takes no space, so optional lines of a panel leave no gap. -->
         <Style x:Key="OptionalLineStyle" TargetType="TextBlock">
             <Setter Property="TextWrapping" Value="Wrap" />

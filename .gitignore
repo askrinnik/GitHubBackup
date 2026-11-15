@@ -434,6 +434,8 @@ test-results/
 
 # Icon must end with two \r
 Icon
+# The application icon folder is not such a file.
+!/assets/icon/
 
 
 # Thumbnails

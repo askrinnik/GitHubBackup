@@ -53,7 +53,7 @@ The folder holds two programs that use the same files:
 ├── GitHubBackup.exe          desktop app
 ├── GitHubBackup.Cli.exe      console app
 ├── appsettings.json          application settings (read only)
-├── user-settings.json        tool paths saved by the settings editor (optional)
+├── user-settings.json        tool paths, theme and window placement saved by the desktop app (optional)
 ├── backup-config.json        what to back up and where (you create it, see "First run")
 ├── backup-config.json.bak    previous version, written on every save
 ├── logs\                     text and JSON logs, one file per day
@@ -117,7 +117,7 @@ Three files control the program. All of them sit next to the exe files.
 | File | Who writes it | Purpose |
 |---|---|---|
 | `appsettings.json` | you (optional edits) | application settings: GitHub API address, tool paths, logging, telemetry |
-| `user-settings.json` | the settings editor | the paths to git and 7-Zip |
+| `user-settings.json` | the desktop app | the paths to git and 7-Zip; the theme and the window placement of the desktop app |
 | `backup-config.json` | you and the program | what to back up and where |
 
 ### appsettings.json
@@ -181,18 +181,35 @@ The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Producti
 
 ### user-settings.json
 
-The settings editor writes this optional file when you select **Save tool paths**. You can also create it by hand:
+The desktop app writes this optional file: the settings editor when you select **Save tool paths** or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save tool paths** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
 
 ```json
 {
   "Tools": {
     "GitPath": "C:\\Program Files\\Git\\cmd\\git.exe",
     "SevenZipPath": null
+  },
+  "Ui": {
+    "Theme": "System",
+    "MainWindow": { "Left": 100, "Top": 100, "Width": 1000, "Height": 700, "IsMaximized": false,
+                    "LogPanelHeight": 160, "SummaryPanelHeight": 220 }
   }
 }
 ```
 
-The program reads only the two keys `Tools:GitPath` and `Tools:SevenZipPath` from this file and ignores any other key. The values follow the same rules as in `appsettings.json` (absolute paths). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. The values override `appsettings.json`; environment variables and the command line override this file. New paths apply after you restart the program.
+The program reads only the two keys `Tools:GitPath` and `Tools:SevenZipPath` and the section `Ui` from this file and ignores any other key. The tool paths follow the same rules as in `appsettings.json` (absolute paths). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. The tool paths override `appsettings.json`; environment variables and the command line override this file. New paths apply after you restart the program.
+
+Only the desktop app reads the section `Ui` (see [Theme and window placement](#theme-and-window-placement)); the console app ignores it. An invalid value there never stops the start: the desktop app uses the default of that value instead.
+
+| Key | Valid values | Default |
+|---|---|---|
+| `Theme` | `System`, `Light`, `Dark`, in any case | `System` |
+| `MainWindow:Left`, `MainWindow:Top` | any finite number | the default position |
+| `MainWindow:Width` | 400 to 10000 | the default position and size |
+| `MainWindow:Height` | 300 to 10000 | the default position and size |
+| `MainWindow:IsMaximized` | `true`, `false` | `false` |
+| `MainWindow:LogPanelHeight` | 60 to 2000 | 160 |
+| `MainWindow:SummaryPanelHeight` | 80 to 2000 | 220 |
 
 ### backup-config.json
 
@@ -556,20 +573,26 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 
 `GitHubBackup.exe` uses the same configuration and the same core as the console app.
 
-- **Main window.** A tree "accounts, repositories" with a group for single repositories. Each item shows its status and the date of the last archive. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
+- **Main window.** A tree "accounts, repositories" with a group for single repositories. Each item shows its status and the date of the last archive, in columns aligned across the whole tree. Below the tree are the live log and, after a run, the summary: drag the line above the log or above the summary to change its height, and the tree takes the rest of the window. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
 - **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table.
 - **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files.
-- **Summary.** The same information as the console summary when the run ends. A found repository `id` is saved without a question, also in a dry run.
+- **Summary.** The same information as the console summary when the run ends. A long result table or list of found repositories scrolls inside the summary. A found repository `id` is saved without a question, also in a dry run.
 - **History.** The list of runs with filters (period, status, mode) and run details, and the archive history of a selected repository with the actions **Open folder** and **Show in Explorer**.
+
+### Theme and window placement
+
+The desktop app uses the Fluent theme of Windows. The list **Theme** in the group **General** of the settings editor offers **System** (follows the light or dark mode of Windows; the default), **Light** and **Dark**. The choice applies at once to every window and is saved to `user-settings.json` right away; **Save** and **Cancel** of the editor do not affect it, and the list works even when `backup-config.json` cannot be read.
+
+When the main window closes, the app saves its position and size, whether it is maximized, and the heights of the live log and the summary. The next start opens the window the same way. A window closed while minimized opens in its normal size. If the saved position is on no connected monitor, the window opens at the default position, maximized on the primary monitor if it was maximized. If the file cannot be written, the app writes the error to the log and closes anyway.
 
 ### Settings editor
 
 The button **Settings** on the main screen opens the settings editor in place of the repository tree. While a backup run is active, the button is disabled: the run also writes `backup-config.json`.
 
-The editor changes `backup-config.json`:
+The editor shows four groups: **General**, **Accounts and repositories**, **Tools** and **GitHub token**. The groups **General** and **Accounts and repositories** change `backup-config.json`:
 
 - the archive root (`backupRoot`), the clone root (`sourcesRoot`; an empty field means the folder `sources` next to the exe) and the global exclusions (masks, comma separated);
-- the switch `discoverAccessibleRepositories`;
+- the switch `discoverAccessibleRepositories` (the group **General** also holds the theme, see [Theme and window placement](#theme-and-window-placement));
 - accounts: URL, archive folder, exclusions; and for the repositories of an account, the branch and the archive folder. You can remove a repository of an account but not add one: discovery adds new repositories;
 - single repositories: URL, branch and archive folder. A new entry gets `id` 0 and the status `Active`; the next run finds the `id` by name.
 
@@ -579,9 +602,9 @@ Before it writes, the editor runs the same validation as the load of the file. E
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-The button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)).
+In the group **Tools**, the button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)).
 
-The token section:
+The group **GitHub token**:
 
 - **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The running program keeps using the previous token, so the editor asks you to restart it. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
 - **Check token** checks the token in the field, or, if the field is empty, the token that the source chain found, and names its source. It shows the login, the scopes (a fine-grained token has none, and the editor says so), the remaining and total request limit and the reset time. Without a token, it shows only the limit for anonymous access. An invalid or expired token (401) and other API errors appear on a separate line. **Cancel check** stops the check. The request goes only to the configured `GitHub:ApiBaseUrl`.

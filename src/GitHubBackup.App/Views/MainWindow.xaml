@@ -6,7 +6,8 @@
         xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
         mc:Ignorable="d"
         d:DataContext="{d:DesignInstance Type=vm:MainWindowViewModel}"
-        Title="GitHub Backup" Height="450" Width="800"
+        Title="GitHub Backup" Height="700" Width="1000" MinHeight="300" MinWidth="400"
+        Icon="pack://application:,,,/GitHubBackup.App;component/Assets/GitHubBackup.ico"
         AutomationProperties.AutomationId="MainWindow">
     <ContentControl Content="{Binding CurrentViewModel, Mode=OneWay}"
                     AutomationProperties.AutomationId="MainContent" />

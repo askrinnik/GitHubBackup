@@ -1,12 +1,15 @@
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Navigation;
+using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Tools;
+using GitHubBackup.Core.Ui;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -40,6 +43,9 @@ public sealed class SettingsViewModelTests
     private readonly SecretMasker _masker = new();
     private readonly FakeLogger<SettingsViewModel> _logger = new();
     private readonly BackupConfigValidator _validator = new();
+    private readonly IUiSettingsStore _uiSettingsStore = Substitute.For<IUiSettingsStore>();
+    private readonly IThemeService _themeService = Substitute.For<IThemeService>();
+    private readonly UiPreferences _preferences;
     private readonly SettingsViewModel _viewModel;
 
     /// <summary>
@@ -56,8 +62,9 @@ public sealed class SettingsViewModelTests
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _storeLocation));
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("UTC+02", TimeSpan.FromHours(2), "UTC+02", "UTC+02"));
+        _preferences = new(_uiSettingsStore, _themeService, NullLogger<UiPreferences>.Instance);
         _viewModel = new(
-            _configStore, _toolPathsStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger);
+            _configStore, _toolPathsStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger, _preferences);
     }
 
     [Fact]
@@ -95,6 +102,72 @@ public sealed class SettingsViewModelTests
 
         _viewModel.BackupRoot.ShouldBe(@"D:\Other");
         await _configStore.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public void ThemeOptions_ListsSystemLightDarkWithSystemSelectedByDefault()
+    {
+        SettingsViewModel.ThemeOptions.Select(option => option.Value).ShouldBe([UiTheme.System, UiTheme.Light, UiTheme.Dark]);
+        SettingsViewModel.ThemeOptions.Select(option => option.Label).ShouldBe(["System", "Light", "Dark"]);
+        _viewModel.SelectedTheme.Value.ShouldBe(UiTheme.System);
+    }
+
+    [Fact]
+    public void Constructor_SavedTheme_SelectsIt()
+    {
+        _preferences.Theme = UiTheme.Dark;
+
+        var viewModel = new SettingsViewModel(
+            _configStore, _toolPathsStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
+            TimeProvider.System, _logger, _preferences);
+
+        viewModel.SelectedTheme.Value.ShouldBe(UiTheme.Dark);
+        _themeService.DidNotReceiveWithAnyArgs().Apply(default);
+    }
+
+    [Fact]
+    public async Task SelectedTheme_Changed_AppliesAndSavesAtOnceWithoutUnsavedChanges()
+    {
+        await LoadAsync();
+
+        _viewModel.SelectedTheme = SettingsViewModel.ThemeOptions[2];
+        await _viewModel.ThemeChange;
+
+        _themeService.Received(1).Apply(UiTheme.Dark);
+        await _uiSettingsStore.Received(1).SaveAsync(
+            Arg.Is<UiSettings>(settings => settings.Theme == UiTheme.Dark), Arg.Any<CancellationToken>());
+        _preferences.Theme.ShouldBe(UiTheme.Dark);
+        _viewModel.IsDirty.ShouldBeFalse();
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SelectedTheme_ConfigNotReadable_StillAppliesAndSaves()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(
+            new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]));
+        await LoadAsync();
+
+        _viewModel.SelectedTheme = SettingsViewModel.ThemeOptions[1];
+        await _viewModel.ThemeChange;
+
+        _viewModel.IsLoaded.ShouldBeFalse();
+        _themeService.Received(1).Apply(UiTheme.Light);
+        await _uiSettingsStore.Received(1).SaveAsync(Arg.Any<UiSettings>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Cancel_AfterThemeChange_LeavesWithoutQuestionAndKeepsTheme()
+    {
+        await LoadAsync();
+        _viewModel.SelectedTheme = SettingsViewModel.ThemeOptions[2];
+        await _viewModel.ThemeChange;
+
+        var canClose = await _viewModel.CanCloseAsync();
+
+        canClose.ShouldBeTrue();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+        _preferences.Theme.ShouldBe(UiTheme.Dark);
     }
 
     [Fact]

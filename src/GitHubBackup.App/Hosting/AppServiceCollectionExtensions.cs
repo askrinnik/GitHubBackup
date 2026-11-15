@@ -23,7 +23,8 @@ internal static class AppServiceCollectionExtensions
         /// Adds the desktop lifetime, the navigation, the dialogs, the <see cref="IDiscoveryDecisionHandlerFactory"/> and
         /// the <see cref="IBackupRunService"/> of a run started from the window, the <see cref="IUiDispatcher"/> that
         /// brings its progress to the UI thread, the main window and the ViewModels, among them the <see cref="SettingsViewModel"/> of the settings editor and the
-        /// <see cref="HistoryViewModel"/> of the history screen, and the <see cref="IExplorerLauncher"/> it opens archives with.
+        /// <see cref="HistoryViewModel"/> of the history screen, the <see cref="IExplorerLauncher"/> it opens archives with, and the
+        /// <see cref="UiPreferences"/> of the session with the <see cref="IThemeService"/> and <see cref="IMonitorLayout"/> they need.
         /// </summary>
         /// <remarks>
         /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
@@ -35,6 +36,9 @@ internal static class AppServiceCollectionExtensions
             services.Replace(ServiceDescriptor.Singleton<IHostLifetime, DesktopHostLifetime>());
             services.AddSingleton<INavigationService, NavigationService>();
             services.AddSingleton<IDialogService, MessageBoxDialogService>();
+            services.AddSingleton<IThemeService, WpfThemeService>();
+            services.AddSingleton<IMonitorLayout, Win32MonitorLayout>();
+            services.AddSingleton<UiPreferences>();
             services.AddSingleton<MainWindowViewModel>();
             services.AddSingleton<MainWindow>();
             services.AddSingleton<IDiscoveryDialogService, WpfDiscoveryDialogService>();

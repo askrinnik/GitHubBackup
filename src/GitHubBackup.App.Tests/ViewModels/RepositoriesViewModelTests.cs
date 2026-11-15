@@ -1,6 +1,7 @@
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Runs;
+using GitHubBackup.App.Shell;
 using GitHubBackup.App.Tests.Logging;
 using GitHubBackup.App.Tests.Runs;
 using GitHubBackup.App.ViewModels;
@@ -8,9 +9,11 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.Ui;
 using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
@@ -64,6 +67,8 @@ public sealed class RepositoriesViewModelTests
 
     private readonly INavigationService _navigation = Substitute.For<INavigationService>();
 
+    private readonly UiPreferences _layout = new(Substitute.For<IUiSettingsStore>(), Substitute.For<IThemeService>(), NullLogger<UiPreferences>.Instance);
+
     private readonly RepositoriesViewModel _viewModel;
 
     /// <summary>
@@ -78,7 +83,16 @@ public sealed class RepositoriesViewModelTests
         environment.ContentRootPath.Returns(@"C:\app");
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
-        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _navigation, _logger);
+        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _navigation, _layout, _logger);
+    }
+
+    [Fact]
+    public void Layout_ReturnsSessionPreferencesThatHoldPanelHeights()
+    {
+        _layout.LogPanelHeight = 321;
+
+        _viewModel.Layout.ShouldBeSameAs(_layout);
+        _viewModel.Layout.LogPanelHeight.ShouldBe(321);
     }
 
     [Fact]

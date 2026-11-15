@@ -4,6 +4,8 @@
     <OutputType>Exe</OutputType>
     <!-- Shared with the WPF host so both executables read the same secrets; must equal GitHubBackupHostBuilder.UserSecretsId. -->
     <UserSecretsId>GitHubBackup</UserSecretsId>
+    <!-- One icon for both executables; assets/icon holds its vector source and the script that renders it. -->
+    <ApplicationIcon>..\..\assets\icon\GitHubBackup.ico</ApplicationIcon>
     <!-- Parser messages stay English whatever the UI culture, as all CLI messages are in English; the localized resource assemblies of System.CommandLine are not shipped. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
   </PropertyGroup>

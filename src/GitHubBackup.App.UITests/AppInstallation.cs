@@ -116,6 +116,22 @@ internal sealed class AppInstallation : IDisposable
         File.WriteAllText(Path.Combine(FolderPath, GitHubBackupHostBuilder.AppSettingsFileName), json);
 
     /// <summary>
+    /// Writes <c>user-settings.json</c> of the installation.
+    /// </summary>
+    /// <param name="json">The content of the file.</param>
+    public void WriteUserSettings(string json) => File.WriteAllText(UserSettingsPath, json);
+
+    /// <summary>
+    /// Reads the <c>Ui:MainWindow</c> object of <c>user-settings.json</c>.
+    /// </summary>
+    /// <returns>A copy of the object.</returns>
+    public JsonElement ReadMainWindowSettings()
+    {
+        using var document = JsonDocument.Parse(File.ReadAllText(UserSettingsPath));
+        return document.RootElement.GetProperty("Ui").GetProperty("MainWindow").Clone();
+    }
+
+    /// <summary>
     /// Reads <c>backup-config.json</c> of the installation.
     /// </summary>
     /// <returns>The text of the file.</returns>

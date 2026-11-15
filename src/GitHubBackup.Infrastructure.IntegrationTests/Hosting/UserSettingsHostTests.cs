@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Tools;
+using GitHubBackup.Core.Ui;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.TestUtilities;
@@ -99,6 +100,52 @@ public sealed class UserSettingsHostTests
         var paths = nextHost.Services.GetRequiredService<IToolPathsStore>().Current;
         paths.GitPath.ShouldBe(@"D:\Saved\git.exe");
         paths.SevenZipPath.ShouldBeOneOf(null, string.Empty, ToolsOptions.DefaultSevenZipPath);
+    }
+
+    [Fact]
+    public void BuildHost_UiSection_StaysOutOfConfiguration()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        WriteUserSettings(contentRoot, """{ "Ui": { "Theme": "Dark", "MainWindow": { "Width": 900 } } }""");
+
+        using var host = contentRoot.BuildHost();
+
+        var configuration = host.Services.GetRequiredService<IConfiguration>();
+        configuration.GetSection(UserSettingsFile.UiSectionName).Exists().ShouldBeFalse();
+        configuration["Ui:Theme"].ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task StartAsync_InvalidUiSection_StartsAndLoadsDefaults()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        WriteUserSettings(contentRoot, """{ "Ui": { "Theme": 5, "MainWindow": { "Width": "wide", "LogPanelHeight": -1 } } }""");
+        using var host = contentRoot.BuildHost();
+
+        await host.StartAsync(TestContext.Current.CancellationToken);
+
+        var settings = await host.Services.GetRequiredService<IUiSettingsStore>().LoadAsync(TestContext.Current.CancellationToken);
+        settings.ShouldBe(UiSettings.Default);
+        await host.StopAsync(TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SaveAsync_ToolsAndUi_NewHostReadsBoth()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        var saved = new UiSettings(UiTheme.Dark, new(10, 20, 1000, 700, true), 200, 300);
+        using (var host = contentRoot.BuildHost())
+        {
+            await host.Services.GetRequiredService<IUiSettingsStore>().SaveAsync(saved, TestContext.Current.CancellationToken);
+            await host.Services.GetRequiredService<IToolPathsStore>()
+                .SaveAsync(new(@"D:\Saved\git.exe", @"D:\Saved\7z.exe"), TestContext.Current.CancellationToken);
+        }
+
+        using var nextHost = contentRoot.BuildHost();
+
+        nextHost.Services.GetRequiredService<IToolPathsStore>().Current.ShouldBe(new(@"D:\Saved\git.exe", @"D:\Saved\7z.exe"));
+        var settings = await nextHost.Services.GetRequiredService<IUiSettingsStore>().LoadAsync(TestContext.Current.CancellationToken);
+        settings.ShouldBe(saved);
     }
 
     /// <summary>

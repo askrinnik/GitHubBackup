@@ -1,50 +1,26 @@
-using System.Text.Encodings.Web;
 using System.Text.Json;
 using GitHubBackup.Core.Tools;
-using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Hosting;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace GitHubBackup.Infrastructure.Configuration;
 
 /// <summary>
-/// Reads the tool paths from <see cref="ToolsOptions"/> and writes them to
-/// <see cref="GitHubBackupHostBuilder.UserSettingsFileName"/> in the content root, which the host reads at start-up
-/// right after <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
+/// Reads the tool paths from <see cref="ToolsOptions"/> and writes them to the <c>Tools</c> section of
+/// <see cref="GitHubBackupHostBuilder.UserSettingsFileName"/>, which the host reads at start-up right after
+/// <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
 /// </summary>
 /// <remarks>
-/// The file holds only the <c>Tools</c> section and is replaced as a whole; a path that is not set is written as
-/// <c>null</c>, which the configuration reads as not set, so it also clears a path set in
+/// The <c>Tools</c> section is replaced as a whole and the other sections of the file stay as they are; a path that
+/// is not set is written as <c>null</c>, which the configuration reads as not set, so it also clears a path set in
 /// <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
 /// </remarks>
 /// <param name="options">The tool paths of the running application.</param>
-/// <param name="environment">The host environment whose content root holds the file.</param>
-/// <param name="writer">The writer that replaces the file atomically.</param>
-internal sealed class JsonToolPathsStore(
-    IOptions<ToolsOptions> options,
-    IHostEnvironment environment,
-    AtomicFileWriter writer) : IToolPathsStore
+/// <param name="file">The user settings file.</param>
+internal sealed class JsonToolPathsStore(IOptions<ToolsOptions> options, UserSettingsFile file) : IToolPathsStore
 {
-    /// <summary>
-    /// The options of the JSON text: indented with the line breaks of the other settings files, and with non-ASCII
-    /// characters of a path kept readable.
-    /// </summary>
-    private static readonly JsonWriterOptions _writerOptions = new()
-    {
-        Indented = true,
-        NewLine = "\r\n",
-        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-    };
-
-    /// <summary>The line break that ends the file.</summary>
-    private static readonly byte[] _finalNewLine = "\r\n"u8.ToArray();
-
     /// <inheritdoc />
     public ToolPaths Current => new(options.Value.GitPath, options.Value.SevenZipPath);
-
-    /// <summary>Gets the absolute path of the file.</summary>
-    private string FilePath => Path.Combine(environment.ContentRootPath, GitHubBackupHostBuilder.UserSettingsFileName);
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate(ToolPaths paths)
@@ -63,20 +39,16 @@ internal sealed class JsonToolPathsStore(
         }
 
         var normalized = Normalize(paths);
-
-        using var buffer = new MemoryStream();
-        await using (var json = new Utf8JsonWriter(buffer, _writerOptions))
-        {
-            json.WriteStartObject();
-            json.WriteStartObject(ToolsOptions.SectionName);
-            WritePath(json, nameof(ToolsOptions.GitPath), normalized.GitPath);
-            WritePath(json, nameof(ToolsOptions.SevenZipPath), normalized.SevenZipPath);
-            json.WriteEndObject();
-            json.WriteEndObject();
-        }
-
-        buffer.Write(_finalNewLine);
-        await writer.WriteAsync(FilePath, buffer.ToArray(), cancellationToken);
+        await file.WriteSectionAsync(
+            ToolsOptions.SectionName,
+            json =>
+            {
+                json.WriteStartObject();
+                WritePath(json, nameof(ToolsOptions.GitPath), normalized.GitPath);
+                WritePath(json, nameof(ToolsOptions.SevenZipPath), normalized.SevenZipPath);
+                json.WriteEndObject();
+            },
+            cancellationToken);
     }
 
     /// <summary>

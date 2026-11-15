@@ -105,9 +105,10 @@ public static class GitHubBackupHostBuilder
     /// Reads the tool paths from <see cref="UserSettingsFileName"/>, if the file exists.
     /// </summary>
     /// <remarks>
-    /// Only <see cref="ToolPaths.GitPathKey"/> and <see cref="ToolPaths.SevenZipPathKey"/> are taken: the settings
-    /// editor writes nothing else, and a key such as <c>GitHub:ApiBaseUrl</c> added by hand to a file the application
-    /// writes must not redirect the token to another host.
+    /// Only <see cref="ToolPaths.GitPathKey"/> and <see cref="ToolPaths.SevenZipPathKey"/> are taken: a key such as
+    /// <c>GitHub:ApiBaseUrl</c> added by hand to a file the application writes must not redirect the token to another
+    /// host. The <c>Ui</c> section stays out of the configuration as well: only the WPF application reads it, from the
+    /// file itself, and an invalid value there must not fail the start of either host.
     /// </remarks>
     /// <param name="fileProvider">The provider of the folder of the executable.</param>
     /// <returns>The tool path keys found in the file with their values.</returns>
