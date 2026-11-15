@@ -1,5 +1,7 @@
 using System.Text.Json;
+using FlaUI.Core.AutomationElements;
 using GitHubBackup.App.ViewModels;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.TestUtilities;
 
 namespace GitHubBackup.App.UITests;
@@ -14,6 +16,12 @@ public sealed class SettingsEditorTests : IDisposable
 
     /// <summary>The 7-Zip path that the settings of the installation configure.</summary>
     private const string _sevenZip = @"C:\Program Files\7-Zip\7z.exe";
+
+    /// <summary>The value of a header that the tests type into the headers field.</summary>
+    private const string _headersSecret = "ui-test-secret";
+
+    /// <summary>The header list that the tests type into the headers field.</summary>
+    private const string _headersValue = "api-key=" + _headersSecret;
 
     private readonly GitHubApiStub _api = new();
     private readonly AppInstallation _installation;
@@ -204,6 +212,87 @@ public sealed class SettingsEditorTests : IDisposable
         telemetry.Name.ShouldBe("Telemetry");
         AppSession.WaitFor(telemetry, "TelemetryEnabledCheckBox");
         AppSession.WaitFor(telemetry, "OtlpEndpointBox");
+        AppSession.WaitFor(telemetry, "TelemetryHeadersBox").Properties.IsPassword.Value.ShouldBeTrue();
+        AppSession.WaitFor(telemetry, "ShowTelemetryHeadersToggle").Name.ShouldBe("Show OTLP headers");
+        telemetry.FindFirstDescendant(condition => condition.ByAutomationId("TelemetryHeadersTextBox")).ShouldBeNull();
+        telemetry.FindFirstDescendant(condition => condition.ByAutomationId("TelemetryHeadersOverriddenNote")).ShouldBeNull();
+    }
+
+    [Fact]
+    public void Save_TelemetryHeadersTyped_WritesHeadersToAppSettings()
+    {
+        OpenSettings();
+        _session.SetText("TelemetryHeadersBox", " api-key=ui-test-secret ");
+
+        _session.Invoke("SaveSettingsButton");
+
+        _session.WaitFor("RepositoryTree");
+        _session.WaitUntilGone("SaveSettingsButton");
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.AppSettingsPath));
+        document.RootElement.GetProperty("OpenTelemetry").GetProperty("Headers").GetString().ShouldBe("api-key=ui-test-secret");
+        File.Exists(_installation.AppSettingsPath + ".bak").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void ShowToggle_RevealsAndHidesValue()
+    {
+        OpenSettings();
+        _session.SetText("TelemetryHeadersBox", _headersValue);
+
+        _session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
+
+        var shown = _session.WaitFor("TelemetryHeadersTextBox");
+        shown.Patterns.Value.Pattern.Value.Value.ShouldBe(_headersValue);
+        _session.WaitUntilGone("TelemetryHeadersBox");
+
+        _session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
+
+        _session.WaitFor("TelemetryHeadersBox").Properties.IsPassword.Value.ShouldBeTrue();
+        _session.WaitUntilGone("TelemetryHeadersTextBox");
+    }
+
+    [Fact]
+    public void TelemetryHeadersFields_AutomationNamesNeverContainValue()
+    {
+        OpenSettings();
+        _session.SetText("TelemetryHeadersBox", _headersValue);
+        var telemetry = _session.WaitFor("SettingsTelemetryGroup");
+
+        AssertNoElementExposes(telemetry, _headersSecret);
+        _session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
+        _session.WaitFor("TelemetryHeadersTextBox");
+
+        AssertNoElementExposes(telemetry, _headersSecret);
+    }
+
+    [Fact]
+    public void Open_HeadersVariableSet_ShowsOverriddenNoteAndFileValueOnly()
+    {
+        using var api = new GitHubApiStub();
+        using var installation = new AppInstallation(
+            api.Url,
+            environmentVariables: new Dictionary<string, string>
+            {
+                [GitHubBackupHostBuilder.EnvironmentVariablePrefix + "OpenTelemetry__Headers"] = "api-key=variable-secret",
+            });
+        installation.WriteAppSettings($$"""
+            {
+              "GitHub": { "ApiBaseUrl": {{Json(api.Url)}}, "Token": "{{AppInstallation.Token}}" },
+              "Tools": { "SevenZipPath": {{Json(_sevenZip)}} },
+              "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317", "Headers": "api-key=file-secret" }
+            }
+            """);
+        installation.NewBackupConfig().WriteTo(installation.BackupConfigPath);
+        using var session = AppSession.Start(installation);
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+
+        session.WaitFor("TelemetryHeadersOverriddenNote").Name.ShouldBe(SettingsViewModel.HeadersOverriddenMessage);
+        session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
+        session.WaitFor("TelemetryHeadersTextBox").Patterns.Value.Pattern.Value.Value.ShouldBe("api-key=file-secret");
+        AssertNoElementExposes(session.MainWindow, "variable-secret");
     }
 
     [Fact]
@@ -254,6 +343,20 @@ public sealed class SettingsEditorTests : IDisposable
         _session.Invoke("SettingsButton");
         var save = _session.WaitFor("SaveSettingsButton");
         AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+    }
+
+    /// <summary>
+    /// Asserts that no element below <paramref name="root"/> has <paramref name="secret"/> in its name or help text.
+    /// </summary>
+    /// <param name="root">The element whose descendants are checked.</param>
+    /// <param name="secret">The text that must not appear.</param>
+    private static void AssertNoElementExposes(AutomationElement root, string secret)
+    {
+        foreach (var element in root.FindAllDescendants())
+        {
+            (element.Properties.Name.ValueOrDefault ?? string.Empty).ShouldNotContain(secret);
+            (element.Properties.HelpText.ValueOrDefault ?? string.Empty).ShouldNotContain(secret);
+        }
     }
 
     /// <summary>

@@ -31,6 +31,7 @@ public sealed class SettingsViewModelTests
     private const string _configurationSource = "configuration (GitHub:Token)";
     private const string _configPath = @"C:\app\backup-config.json";
     private const int _backupConfigMissingEventId = 13;
+    private const string _fileHeaders = "api-key=file-secret";
 
     private static readonly DateTimeOffset _resetAt = new(2026, 11, 14, 11, 30, 0, TimeSpan.Zero);
 
@@ -60,7 +61,7 @@ public sealed class SettingsViewModelTests
             .Returns(call => _validator.Validate(call.Arg<BackupConfig>(), _defaultSourcesRoot));
         _toolPathsStore.Current.Returns(new ToolPaths(null, @"C:\Program Files\7-Zip\7z.exe"));
         _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns([]);
-        _telemetryStore.Current.Returns(new TelemetrySettings(true, "http://localhost:4317"));
+        _telemetryStore.Current.Returns(new TelemetrySettings(true, "http://localhost:4317", _fileHeaders));
         _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([]);
         _tokenStore.Location.Returns(_storeLocation);
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _storeLocation));
@@ -608,7 +609,7 @@ public sealed class SettingsViewModelTests
 
         await _viewModel.SaveCommand.ExecuteAsync(null);
 
-        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(false, "http://otel:4317"), Arg.Any<CancellationToken>());
+        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(false, "http://otel:4317", _fileHeaders), Arg.Any<CancellationToken>());
         await AssertOnlyWrittenAsync(telemetry: true);
         _viewModel.HasUnsavedChanges.ShouldBeFalse();
         _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
@@ -622,7 +623,7 @@ public sealed class SettingsViewModelTests
 
         await _viewModel.SaveCommand.ExecuteAsync(null);
 
-        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(true, null), Arg.Any<CancellationToken>());
+        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(true, null, _fileHeaders), Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -911,6 +912,182 @@ public sealed class SettingsViewModelTests
         _dialogs.Received(1).Confirm(SettingsViewModel.DiscardTitle, SettingsViewModel.DiscardMessage);
         _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
     }
+
+    [Fact]
+    public void Constructor_TelemetryHeaders_FillsHiddenFieldWithoutChanges()
+    {
+        _viewModel.TelemetryHeaders.ShouldBe(_fileHeaders);
+        _viewModel.IsTelemetryHeadersShown.ShouldBeFalse();
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Constructor_HeadersOverridden_ShowsNote()
+    {
+        _telemetryStore.HeadersOverridden.Returns(true);
+
+        CreateViewModel().IsTelemetryHeadersOverridden.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Constructor_NotOverridden_HidesNote() =>
+        _viewModel.IsTelemetryHeadersOverridden.ShouldBeFalse();
+
+    [Fact]
+    public void HeadersOverriddenMessage_NamesKeyAndSources()
+    {
+        SettingsViewModel.HeadersOverriddenMessage.ShouldStartWith(TelemetrySettings.HeadersKey);
+        SettingsViewModel.HeadersOverriddenMessage.ShouldContain("environment variable");
+    }
+
+    [Fact]
+    public async Task EditTelemetryHeaders_MarksUnsavedChanges()
+    {
+        await LoadAsync();
+
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task ToggleShown_DoesNotMarkUnsavedChanges()
+    {
+        await LoadAsync();
+
+        _viewModel.IsTelemetryHeadersShown = true;
+        _viewModel.IsTelemetryHeadersShown = false;
+
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Save_HeadersChanged_WritesTelemetryWithHeadersAndNavigatesBack()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = " api-key=new-secret ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(
+            new TelemetrySettings(true, "http://localhost:4317", "api-key=new-secret"),
+            Arg.Any<CancellationToken>());
+        await AssertOnlyWrittenAsync(telemetry: true);
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_BlankHeaders_WritesNullHeaders()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "   ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(
+            new TelemetrySettings(true, "http://localhost:4317", null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_OnlyEnabledChanged_WritesFileHeadersUnchanged()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryEnabled = false;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(
+            new TelemetrySettings(false, "http://localhost:4317", _fileHeaders),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task Save_HeadersError_ShowsErrorAtHeadersFieldAndWritesNothing()
+    {
+        const string error = "OpenTelemetry:Headers must be a comma-separated list of name=value pairs with a header name and a value in each pair.";
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([error]);
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "malformed secret";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.TelemetryHeaders)).ShouldBe([error]);
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldBeEmpty();
+        _viewModel.GeneralErrors.ShouldBeEmpty();
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Save_EndpointErrorMentioningHeaders_ShowsErrorAtEndpointField()
+    {
+        const string error = "OpenTelemetry:OtlpEndpoint must be an absolute https URI, or http for a loopback address, when OpenTelemetry:Headers is set.";
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([error]);
+        await LoadAsync();
+        _viewModel.OtlpEndpoint = "http://collector.example:4317";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldBe([error]);
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.TelemetryHeaders)).ShouldBeEmpty();
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Save_TelemetryWriteFails_ShowsMaskedDialogAndKeepsHeaders()
+    {
+        _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                _masker.Register("new-secret");
+                return Task.FromException(new IOException("Cannot write new-secret to appsettings.json."));
+            });
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Cannot write *** to appsettings.json.");
+        _viewModel.TelemetryHeaders.ShouldBe("api-key=new-secret");
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Cancel_UnsavedHeaders_Asks()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+
+        _viewModel.CancelCommand.Execute(null);
+
+        _dialogs.Received(1).Confirm(SettingsViewModel.DiscardTitle, SettingsViewModel.DiscardMessage);
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Reopen_AfterSave_ShowsSavedHeadersHidden()
+    {
+        await LoadAsync();
+        _viewModel.IsTelemetryHeadersShown = true;
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+        _telemetryStore.Current.Returns(new TelemetrySettings(true, "http://localhost:4317", "api-key=new-secret"));
+
+        var reopened = CreateViewModel();
+
+        reopened.TelemetryHeaders.ShouldBe("api-key=new-secret");
+        reopened.IsTelemetryHeadersShown.ShouldBeFalse();
+    }
+
+    /// <summary>
+    /// Creates another editor over the same substitutes, as opening the editor again does.
+    /// </summary>
+    /// <returns>The editor.</returns>
+    private SettingsViewModel CreateViewModel() => new(
+        _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
+        TimeProvider.System, _logger, _preferences);
 
     /// <summary>
     /// Asserts that exactly the given groups were written and the others never were.

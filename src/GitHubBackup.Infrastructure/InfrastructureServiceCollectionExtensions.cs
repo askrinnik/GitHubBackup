@@ -90,7 +90,11 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<AppSettingsFile>();
             services.TryAddSingleton<UiSettingsFile>();
             services.TryAddSingleton<IToolPathsStore, JsonToolPathsStore>();
-            services.TryAddSingleton<ITelemetrySettingsStore, JsonTelemetrySettingsStore>();
+            services.TryAddSingleton<ITelemetrySettingsStore>(provider => new JsonTelemetrySettingsStore(
+                provider.GetRequiredService<IOptions<OpenTelemetryOptions>>(),
+                configuration,
+                provider.GetRequiredService<ISecretMasker>(),
+                provider.GetRequiredService<AppSettingsFile>()));
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.TryAddSingleton<ICloneLocationStore, JsonCloneLocationStore>();

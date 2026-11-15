@@ -1,6 +1,8 @@
+using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Hosting;
 using Microsoft.Extensions.Configuration;
+using NSubstitute;
 
 namespace GitHubBackup.Infrastructure.Tests.Hosting;
 
@@ -95,6 +97,31 @@ public sealed class HostSecretMaskerTests
         var masker = HostSecretMasker.Create(configuration);
 
         masker.Mask($"Sent {_opaqueToken} and first-secret.").ShouldBe("Sent *** and ***.");
+    }
+
+    [Fact]
+    public void RegisterHeaders_MasksWholeStringEachValueAndDecodedValue()
+    {
+        var masker = new SecretMasker();
+
+        HostSecretMasker.RegisterHeaders(masker, "api-key=first-secret,x-test=fake%20value");
+
+        masker.Mask("Headers api-key=first-secret,x-test=fake%20value.").ShouldBe("Headers ***.");
+        masker.Mask("Sent first-secret, fake%20value and fake value.").ShouldBe("Sent ***, *** and ***.");
+        masker.Mask("Header api-key was rejected.").ShouldBe("Header api-key was rejected.");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RegisterHeaders_Blank_RegistersNothing(string? headers)
+    {
+        var masker = Substitute.For<ISecretMasker>();
+
+        HostSecretMasker.RegisterHeaders(masker, headers);
+
+        masker.DidNotReceiveWithAnyArgs().Register(default!);
     }
 
     /// <summary>

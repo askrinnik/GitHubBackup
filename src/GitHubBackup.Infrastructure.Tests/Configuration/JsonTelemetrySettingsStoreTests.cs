@@ -1,8 +1,11 @@
 using System.IO.Abstractions.TestingHelpers;
+using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Hosting;
+using GitHubBackup.TestUtilities;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -18,6 +21,8 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.AppSettingsFileName;
 
     private readonly MockFileSystem _fileSystem = new();
+
+    private readonly SecretMasker _masker = new();
 
     private readonly AppSettingsFile _file;
 
@@ -40,7 +45,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     {
         var store = CreateStore(new() { Enabled = true, OtlpEndpoint = "http://otel:4317" });
 
-        store.Current.ShouldBe(new TelemetrySettings(true, "http://otel:4317"));
+        store.Current.ShouldBe(new TelemetrySettings(true, "http://otel:4317", null));
     }
 
     [Fact]
@@ -48,9 +53,9 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     {
         var store = CreateStore(new() { Enabled = true, OtlpEndpoint = "http://otel:4317" });
 
-        await store.SaveAsync(new(false, " http://new:4317 "), TestContext.Current.CancellationToken);
+        await store.SaveAsync(new(false, " http://new:4317 ", null), TestContext.Current.CancellationToken);
 
-        store.Current.ShouldBe(new TelemetrySettings(false, "http://new:4317"));
+        store.Current.ShouldBe(new TelemetrySettings(false, "http://new:4317", null));
     }
 
     [Fact]
@@ -59,21 +64,22 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
         var store = CreateStore(new() { Enabled = true, OtlpEndpoint = "http://otel:4317" });
 
         await Should.ThrowAsync<ArgumentException>(
-            () => store.SaveAsync(new(true, "not a uri"), TestContext.Current.CancellationToken));
+            () => store.SaveAsync(new(true, "not a uri", null), TestContext.Current.CancellationToken));
 
-        store.Current.ShouldBe(new TelemetrySettings(true, "http://otel:4317"));
+        store.Current.ShouldBe(new TelemetrySettings(true, "http://otel:4317", null));
     }
 
     [Fact]
     public async Task SaveAsync_EnabledWithEndpoint_WritesOpenTelemetrySection()
     {
-        await CreateStore().SaveAsync(new(true, " http://otel:4317 "), TestContext.Current.CancellationToken);
+        await CreateStore().SaveAsync(new(true, " http://otel:4317 ", null), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
               "OpenTelemetry": {
                 "Enabled": true,
-                "OtlpEndpoint": "http://otel:4317"
+                "OtlpEndpoint": "http://otel:4317",
+                "Headers": null
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
@@ -85,7 +91,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     [InlineData("  ")]
     public async Task SaveAsync_DisabledWithoutEndpoint_WritesNull(string? endpoint)
     {
-        await CreateStore().SaveAsync(new(false, endpoint), TestContext.Current.CancellationToken);
+        await CreateStore().SaveAsync(new(false, endpoint, null), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"Enabled\": false");
         _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"OtlpEndpoint\": null");
@@ -102,7 +108,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
             }
             """));
 
-        await CreateStore().SaveAsync(new(true, "http://new:4317"), TestContext.Current.CancellationToken);
+        await CreateStore().SaveAsync(new(false, "http://new:4317", "x"), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
@@ -110,7 +116,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
                 "GitPath": "C:\\Git\\git.exe"
               },
               "OpenTelemetry": {
-                "Enabled": true,
+                "Enabled": false,
                 "OtlpEndpoint": "http://new:4317",
                 "Headers": "x"
               },
@@ -130,7 +136,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     public async Task SaveAsync_EnabledWithoutAbsoluteEndpoint_ThrowsWithoutValueAndWritesNothing(string? endpoint)
     {
         var exception = await Should.ThrowAsync<ArgumentException>(
-            () => CreateStore().SaveAsync(new(true, endpoint), TestContext.Current.CancellationToken));
+            () => CreateStore().SaveAsync(new(true, endpoint, null), TestContext.Current.CancellationToken));
 
         exception.Message.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
         _fileSystem.File.Exists(_filePath).ShouldBeFalse();
@@ -139,7 +145,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_DisabledWithRelativeEndpoint_Writes()
     {
-        await CreateStore().SaveAsync(new(false, "not a uri"), TestContext.Current.CancellationToken);
+        await CreateStore().SaveAsync(new(false, "not a uri", null), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"OtlpEndpoint\": \"not a uri\"");
     }
@@ -147,7 +153,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     [Fact]
     public void Validate_EnabledWithRelativeEndpoint_ReturnsErrorWithKeyWithoutValue()
     {
-        var errors = CreateStore().Validate(new(true, "secret-host"));
+        var errors = CreateStore().Validate(new(true, "secret-host", null));
 
         var error = errors.ShouldHaveSingleItem();
         error.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
@@ -159,16 +165,167 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     {
         var store = CreateStore();
 
-        store.Validate(new(false, "anything")).ShouldBeEmpty();
-        store.Validate(new(true, "http://localhost:4317")).ShouldBeEmpty();
+        store.Validate(new(false, "anything", null)).ShouldBeEmpty();
+        store.Validate(new(true, "http://localhost:4317", null)).ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(false, "http://collector.example:4317")]
+    [InlineData(true, "https://otlp.nr-data.net:4317")]
+    [InlineData(true, "http://localhost:4317")]
+    public void Validate_FieldHeadersWithHttpsLoopbackOrDisabled_ReturnsNoError(bool enabled, string endpoint) =>
+        CreateStore().Validate(new(enabled, endpoint, "api-key=secret-value")).ShouldBeEmpty();
+
+    [Fact]
+    public void Current_FileHeaders_ReturnsFileValue()
+    {
+        var store = CreateStore(
+            new() { Headers = "api-key=file-secret" },
+            """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""");
+
+        store.Current.Headers.ShouldBe("api-key=file-secret");
+        store.HeadersOverridden.ShouldBeFalse();
     }
 
     [Fact]
-    public void Validate_HeadersConfiguredWithHttpRemoteEndpoint_ReturnsErrorWithoutValue()
+    public void Current_HeadersOverridden_ReturnsFileValueNotOverrideValue()
     {
-        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+        var store = CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""",
+            "--OpenTelemetry:Headers=api-key=override-secret");
 
-        var errors = store.Validate(new(true, "http://collector.example:4317"));
+        store.Current.Headers.ShouldBe("api-key=file-secret");
+    }
+
+    [Theory]
+    [InlineData(new string[0], false)]
+    [InlineData(new[] { "--OpenTelemetry:Headers=api-key=override-secret" }, true)]
+    [InlineData(new[] { "--OpenTelemetry:Headers=" }, true)]
+    public void HeadersOverridden_ReflectsConfiguration(string[] arguments, bool expected)
+    {
+        var store = CreateStore(appSettings: """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""", arguments: arguments);
+
+        store.HeadersOverridden.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task Current_AfterSave_ReturnsSavedHeaders()
+    {
+        var store = CreateStore(appSettings: """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""");
+
+        await store.SaveAsync(new(false, null, " api-key=new-secret "), TestContext.Current.CancellationToken);
+
+        store.Current.ShouldBe(new TelemetrySettings(false, null, "api-key=new-secret"));
+    }
+
+    [Fact]
+    public async Task SaveAsync_Headers_WritesKeyAndKeepsBackup()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            {
+              "OpenTelemetry": { "Enabled": false }
+            }
+            """));
+
+        await CreateStore().SaveAsync(
+            new(true, "https://otlp.nr-data.net:4317", "api-key=new-secret"),
+            TestContext.Current.CancellationToken);
+
+        _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
+            {
+              "OpenTelemetry": {
+                "Enabled": true,
+                "OtlpEndpoint": "https://otlp.nr-data.net:4317",
+                "Headers": "api-key=new-secret"
+              }
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n");
+        _fileSystem.File.Exists(_filePath + ".bak").ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task SaveAsync_BlankHeaders_WritesNull(string? headers)
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""{ "OpenTelemetry": { "Headers": "api-key=old-secret" } }"""));
+
+        await CreateStore().SaveAsync(new(false, null, headers), TestContext.Current.CancellationToken);
+
+        _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"Headers\": null");
+        _fileSystem.File.ReadAllText(_filePath).ShouldNotContain("old-secret");
+    }
+
+    [Fact]
+    public async Task SaveAsync_HeadersWithSurroundingSpaces_WritesTrimmed()
+    {
+        await CreateStore().SaveAsync(new(false, null, "  api-key=new-secret  "), TestContext.Current.CancellationToken);
+
+        _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"Headers\": \"api-key=new-secret\"");
+    }
+
+    [Fact]
+    public async Task SaveAsync_HeadersOverridden_WritesFieldValueAndNeverOverrideValue()
+    {
+        var store = CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            "{}",
+            "--OpenTelemetry:Headers=api-key=override-secret");
+
+        await store.SaveAsync(new(true, "https://otlp.nr-data.net:4317", null), TestContext.Current.CancellationToken);
+
+        var text = _fileSystem.File.ReadAllText(_filePath);
+        text.ShouldContain("\"Headers\": null");
+        text.ShouldNotContain("override-secret");
+    }
+
+    [Fact]
+    public async Task SaveAsync_Headers_RegistersWholeStringAndEachValueBeforeWriting()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("not json"));
+        var store = CreateStore();
+
+        await Should.ThrowAsync<IOException>(() => store.SaveAsync(
+            new(false, null, "api-key=first-secret,x-other=second-secret"),
+            TestContext.Current.CancellationToken));
+
+        _masker.Mask("api-key=first-secret,x-other=second-secret").ShouldBe("***");
+        _masker.Mask("first-secret and second-secret").ShouldBe("*** and ***");
+    }
+
+    [Fact]
+    public async Task SaveAsync_MalformedHeadersWhileEnabled_RegistersThemAndThrowsWithoutValue()
+    {
+        var exception = await Should.ThrowAsync<ArgumentException>(() => CreateStore().SaveAsync(
+            new(true, "https://otlp.nr-data.net:4317", "api-key first-secret"),
+            TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldStartWith(TelemetrySettings.HeadersKey);
+        exception.Message.ShouldNotContain("first-secret");
+        _masker.Mask("api-key first-secret").ShouldBe("***");
+        _fileSystem.File.Exists(_filePath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Validate_EnabledMalformedHeaders_ReturnsHeadersErrorWithoutValue()
+    {
+        var errors = CreateStore().Validate(new(true, "https://otlp.nr-data.net:4317", "api-key=,secret-value"));
+
+        var error = errors.ShouldHaveSingleItem();
+        error.ShouldStartWith(TelemetrySettings.HeadersKey);
+        error.ShouldNotContain("secret-value");
+    }
+
+    [Fact]
+    public void Validate_DisabledMalformedHeaders_ReturnsNoError() =>
+        CreateStore().Validate(new(false, "http://collector.example:4317", "malformed secret-value")).ShouldBeEmpty();
+
+    [Fact]
+    public void Validate_FieldHeadersWithHttpRemoteEndpoint_ReturnsEndpointErrorWithoutValue()
+    {
+        var errors = CreateStore().Validate(new(true, "http://collector.example:4317", "api-key=secret-value"));
 
         var error = errors.ShouldHaveSingleItem();
         error.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
@@ -176,44 +333,79 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
         error.ShouldNotContain("secret-value");
     }
 
-    [Theory]
-    [InlineData(false, "http://collector.example:4317")]
-    [InlineData(true, "https://otlp.nr-data.net:4317")]
-    [InlineData(true, "http://localhost:4317")]
-    public void Validate_HeadersConfiguredWithHttpsLoopbackOrDisabled_ReturnsNoError(bool enabled, string endpoint)
+    [Fact]
+    public void Validate_OverrideHeadersWithHttpRemoteEndpointAndEmptyField_ReturnsEndpointError()
     {
-        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+        var store = CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            "{}",
+            "--OpenTelemetry:Headers=api-key=override-secret");
 
-        store.Validate(new(enabled, endpoint)).ShouldBeEmpty();
+        var errors = store.Validate(new(true, "http://collector.example:4317", null));
+
+        var error = errors.ShouldHaveSingleItem();
+        error.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
+        error.ShouldNotContain("override-secret");
     }
 
     [Fact]
-    public async Task SaveAsync_HeadersInOptions_NeverWritesThem()
+    public void Validate_OverriddenAndMalformedField_ReturnsHeadersError()
     {
-        _fileSystem.AddFile(_filePath, new MockFileData("""
-            {
-              "OpenTelemetry": { "Enabled": false }
-            }
-            """));
-        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+        var store = CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            "{}",
+            "--OpenTelemetry:Headers=api-key=override-secret");
 
-        await store.SaveAsync(new(true, "https://otlp.nr-data.net:4317"), TestContext.Current.CancellationToken);
+        var errors = store.Validate(new(true, "https://otlp.nr-data.net:4317", "malformed secret-value"));
 
-        _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
-            {
-              "OpenTelemetry": {
-                "Enabled": true,
-                "OtlpEndpoint": "https://otlp.nr-data.net:4317"
-              }
-            }
-            """.ReplaceLineEndings("\r\n") + "\r\n");
+        var error = errors.ShouldHaveSingleItem();
+        error.ShouldStartWith(TelemetrySettings.HeadersKey);
+        error.ShouldNotContain("secret-value");
+    }
+
+    [Fact]
+    public void Validate_OverriddenEmptyAndFieldWithHttpRemoteEndpoint_ReturnsEndpointErrorWithoutValue()
+    {
+        var store = CreateStore(appSettings: "{}", arguments: "--OpenTelemetry:Headers=");
+
+        var errors = store.Validate(new(true, "http://collector.example:4317", "api-key=secret-value"));
+
+        errors.ShouldHaveSingleItem().ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
+        errors[0].ShouldNotContain("secret-value");
+    }
+
+    [Fact]
+    public void Constructor_FileHeaders_RegistersThemWithMasker()
+    {
+        CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""",
+            "--OpenTelemetry:Headers=api-key=override-secret");
+
+        _masker.Mask("Sent file-secret.").ShouldBe("Sent ***.");
     }
 
     /// <summary>
-    /// Creates the subject over the mock file system and <paramref name="options"/>.
+    /// Creates the subject over the mock file system, <paramref name="options"/> and a configuration with
+    /// <paramref name="appSettings"/> as the settings file and <paramref name="arguments"/> as the command line.
     /// </summary>
     /// <param name="options">The telemetry options, or <see langword="null"/> for the defaults.</param>
+    /// <param name="appSettings">The JSON text of the settings file the configuration reads.</param>
+    /// <param name="arguments">The command-line arguments, which override the file.</param>
     /// <returns>The subject.</returns>
-    private JsonTelemetrySettingsStore CreateStore(OpenTelemetryOptions? options = null) =>
-        new(Options.Create(options ?? new()), _file);
+    private JsonTelemetrySettingsStore CreateStore(
+        OpenTelemetryOptions? options = null,
+        string appSettings = "{}",
+        params string[] arguments)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddJsonFile(
+                InMemoryFileProvider.WithAppSettings(appSettings),
+                GitHubBackupHostBuilder.AppSettingsFileName,
+                optional: true,
+                reloadOnChange: false)
+            .AddCommandLine(arguments)
+            .Build();
+        return new(Options.Create(options ?? new()), configuration, _masker, _file);
+    }
 }

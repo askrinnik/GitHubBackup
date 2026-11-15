@@ -51,7 +51,15 @@ internal sealed class AppInstallation : IDisposable
     /// the token and the API address as prefixed environment variables instead, so that every other setting keeps
     /// its default.
     /// </param>
-    public AppInstallation(string apiBaseUrl, string? remotesRoot = null, bool writeAppSettings = true)
+    /// <param name="environmentVariables">
+    /// More environment variables of the executable, such as prefixed configuration keys that override
+    /// <c>appsettings.json</c>, or <see langword="null"/> for none.
+    /// </param>
+    public AppInstallation(
+        string apiBaseUrl,
+        string? remotesRoot = null,
+        bool writeAppSettings = true,
+        IReadOnlyDictionary<string, string>? environmentVariables = null)
     {
         FolderPath = TemporaryFolder.Create();
         var publishedFolder = System.Environment.GetEnvironmentVariable(PublishedAppPathVariable);
@@ -93,6 +101,11 @@ internal sealed class AppInstallation : IDisposable
             {
                 environment[name] = value;
             }
+        }
+
+        foreach (var (name, value) in environmentVariables ?? new Dictionary<string, string>())
+        {
+            environment[name] = value;
         }
 
         Environment = environment;

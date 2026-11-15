@@ -55,6 +55,14 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The error shown when GitHub rejects the checked token.</summary>
     public const string TokenRejectedMessage = "GitHub rejected the token: it is invalid or expired (HTTP 401).";
 
+    /// <summary>
+    /// The note shown at the OTLP headers field while a source with a higher priority than <c>appsettings.json</c> sets
+    /// the key.
+    /// </summary>
+    public const string HeadersOverriddenMessage =
+        "OpenTelemetry:Headers is set by an environment variable, the command line or user secrets, which take priority "
+        + "over appsettings.json; the value saved here does not take effect while that source sets it.";
+
     /// <summary>The message shown when the user cancels the token check.</summary>
     public const string TokenCheckCancelledMessage = "The token check was cancelled.";
 
@@ -132,6 +140,18 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [NotifyDataErrorInfo]
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
     private string _otlpEndpoint;
+
+    /// <summary>
+    /// The OTLP headers as <c>name=value</c> pairs, a secret shown hidden; empty or white space means not set.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyDataErrorInfo]
+    [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
+    private string _telemetryHeaders;
+
+    /// <summary>Whether the OTLP headers field shows its value; hidden whenever the editor opens.</summary>
+    [ObservableProperty]
+    private bool _isTelemetryHeadersShown;
 
     /// <summary>The token typed by the user; cleared after it is saved.</summary>
     [ObservableProperty]
@@ -240,6 +260,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         var telemetry = telemetrySettingsStore.Current;
         _telemetryEnabled = telemetry.Enabled;
         _otlpEndpoint = telemetry.OtlpEndpoint ?? string.Empty;
+        _telemetryHeaders = telemetry.Headers ?? string.Empty;
+        IsTelemetryHeadersOverridden = telemetrySettingsStore.HeadersOverridden;
     }
 
     /// <summary>Gets the tracked accounts, in file order.</summary>
@@ -256,6 +278,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Gets the location of the saved token, for the label of the token field.</summary>
     public string TokenStoreLocation => _tokenStore.Location;
+
+    /// <summary>
+    /// Gets whether a source with a higher priority than <c>appsettings.json</c> sets the OTLP headers, so that the
+    /// editor shows <see cref="HeadersOverriddenMessage"/>.
+    /// </summary>
+    public bool IsTelemetryHeadersOverridden { get; }
 
     /// <summary>Gets whether errors that belong to no field are shown.</summary>
     public bool HasGeneralErrors => GeneralErrors.Count > 0;
@@ -368,7 +396,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         TelemetrySettings? telemetry = null;
         if (_telemetryDirty)
         {
-            telemetry = new TelemetrySettings(TelemetryEnabled, NullIfBlank(OtlpEndpoint));
+            telemetry = new TelemetrySettings(TelemetryEnabled, NullIfBlank(OtlpEndpoint), NullIfBlank(TelemetryHeaders));
             valid &= ValidateTelemetry(telemetry, general);
         }
 
@@ -770,11 +798,16 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     {
         var errors = _telemetrySettingsStore.Validate(settings);
         ClearReportedError(nameof(OtlpEndpoint));
+        ClearReportedError(nameof(TelemetryHeaders));
         foreach (var error in errors)
         {
             if (error.StartsWith(TelemetrySettings.OtlpEndpointKey, StringComparison.Ordinal))
             {
                 ReportError(nameof(OtlpEndpoint), error);
+            }
+            else if (error.StartsWith(TelemetrySettings.HeadersKey, StringComparison.Ordinal))
+            {
+                ReportError(nameof(TelemetryHeaders), error);
             }
             else
             {
@@ -783,6 +816,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         }
 
         RefreshError(nameof(OtlpEndpoint));
+        RefreshError(nameof(TelemetryHeaders));
         return errors.Count == 0;
     }
 
@@ -874,6 +908,10 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Marks the telemetry settings as changed.</summary>
     /// <param name="value">The new endpoint.</param>
     partial void OnOtlpEndpointChanged(string value) => _telemetryDirty = true;
+
+    /// <summary>Marks the telemetry settings as changed.</summary>
+    /// <param name="value">The new headers.</param>
+    partial void OnTelemetryHeadersChanged(string value) => _telemetryDirty = true;
 
     /// <summary>Applies and saves the chosen theme.</summary>
     /// <param name="value">The chosen entry.</param>
