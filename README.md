@@ -52,8 +52,10 @@ The folder holds two programs that use the same files:
 <application folder>\
 ├── GitHubBackup.exe          desktop app
 ├── GitHubBackup.Cli.exe      console app
-├── appsettings.json          application settings (read only)
-├── user-settings.json        tool paths, telemetry settings, theme and window placement saved by the desktop app (optional)
+├── appsettings.json          how the program works (optional; you and the settings editor write it)
+├── appsettings.json.bak      previous version, written when the settings editor saves it
+├── ui-settings.json          theme, window placement and panel heights of the desktop app (optional; only the desktop app uses it)
+├── ui-settings.json.bak      previous version, written on every save
 ├── backup-config.json        what to back up and where (you create it, see "First run")
 ├── backup-config.json.bak    previous version, written on every save
 ├── logs\                     text and JSON logs, one file per day
@@ -61,7 +63,7 @@ The folder holds two programs that use the same files:
 └── sources\                  clones (default location)
 ```
 
-The publish step creates only the two exe files and `appsettings.json`. The application creates `logs\`, `data\` and `sources\` itself. Do not put the application folder into OneDrive unless you set `sourcesRoot` to a local folder: the clones would then sync to the cloud (see [OneDrive scenario](#onedrive-scenario)).
+The publish step creates only the two exe files. The application creates the other files and `logs\`, `data\` and `sources\` itself, or you create them. To update an installed copy, replace only the two exe files: your settings, configuration, history and clones stay as they are. Do not put the application folder into OneDrive unless you set `sourcesRoot` to a local folder: the clones would then sync to the cloud (see [OneDrive scenario](#onedrive-scenario)).
 
 Both exe files are framework-dependent single-file builds. The native SQLite library sits inside the exe and unpacks at startup.
 
@@ -108,7 +110,7 @@ The program takes the first token it finds in this order:
 
 The log names only the source, never the value. If no source has a token, the program works anonymously: it sees only public repositories, and the GitHub API allows 60 requests per hour.
 
-Do not pass the token on the command line (`--GitHub:Token=...`). Other processes can read it, and it stays in your shell history. Use the Credential Manager (`set-token`) or an environment variable instead. Do not write the token into `appsettings.json` of a folder you share or publish.
+Do not pass the token on the command line (`--GitHub:Token=...`). Other processes can read it, and it stays in your shell history. Use the Credential Manager (`set-token`) or an environment variable instead. Do not write the token into `appsettings.json` of a folder you share or publish. If you keep the token in `appsettings.json`, note that after **Save** in the settings editor a copy of it also sits in `appsettings.json.bak` in the same folder.
 
 ## Configuration
 
@@ -116,13 +118,13 @@ Three files control the program. All of them sit next to the exe files.
 
 | File | Who writes it | Purpose |
 |---|---|---|
-| `appsettings.json` | you (optional edits) | application settings: GitHub API address, tool paths, logging, telemetry |
-| `user-settings.json` | the desktop app | the paths to git and 7-Zip; the telemetry settings; the theme and the window placement of the desktop app |
+| `appsettings.json` | you and the settings editor (optional) | how the program works: GitHub API address, tool paths, logging, telemetry |
+| `ui-settings.json` | the desktop app (optional) | the theme, the window placement and the panel heights of the desktop app |
 | `backup-config.json` | you and the program | what to back up and where |
 
 ### appsettings.json
 
-The published folder contains this file with these defaults. The program needs the file: without it, it stops with a configuration error.
+The file is optional and is not published. Every key has a default in the program, so both exe files start without the file. The example shows every key with its default; write only the keys you want to change.
 
 ```json
 {
@@ -168,45 +170,35 @@ The published folder contains this file with these defaults. The program needs t
 | `OpenTelemetry:Enabled` | `false` | Turns telemetry on (see [Telemetry](#telemetry-opentelemetry)). |
 | `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
-| `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The shipped value keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; remove it to log them again. |
+| `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. |
 
 If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the value of `GitHub:Token`.
 
 The program reads its configuration from these sources. A later source overrides an earlier one:
 
-1. `appsettings.json` next to the exe.
-2. `user-settings.json` next to the exe (optional, see below).
+1. The defaults in the program.
+2. `appsettings.json` next to the exe, if it exists. If the file is not a valid JSON object, the program exits with code `2` and names the file and the position of the error. An empty file is not a valid JSON object either: delete it or write `{}` into it.
 3. user secrets, only in the `Development` environment.
 4. Environment variables with the prefix `GitHubBackup__`, for example `GitHubBackup__Backup__ShortHashLength`. Variables without the prefix and files `appsettings.{Environment}.json` are not read.
 5. The command line: `--Section:Key=value`.
 
+No other file next to the exe is part of the configuration: `ui-settings.json` belongs to the desktop app alone (see [ui-settings.json](#ui-settingsjson)).
+
 The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Production`.
 
-### user-settings.json
+**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these four keys, adds the keys and sections that are missing and keeps every other key and section. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
 
-The desktop app writes this optional file: the settings editor when you select **Save** after changing tool paths or telemetry settings, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
+### ui-settings.json
+
+Only the desktop app reads and writes this optional file; the console app never opens it. The theme is saved as soon as you choose it, and the window placement and the panel heights when the main window closes (see [Theme and window placement](#theme-and-window-placement)). Each write replaces the file atomically, and the previous version stays in `ui-settings.json.bak`. An invalid value never stops the start: the desktop app uses the default of that value instead. If the file does not exist or is not a valid JSON object, the desktop app uses all defaults; it does not overwrite a file it cannot read, and a save that fails goes to the log.
 
 ```json
 {
-  "Tools": {
-    "GitPath": "C:\\Program Files\\Git\\cmd\\git.exe",
-    "SevenZipPath": null
-  },
-  "OpenTelemetry": {
-    "Enabled": true,
-    "OtlpEndpoint": "http://localhost:4317"
-  },
-  "Ui": {
-    "Theme": "System",
-    "MainWindow": { "Left": 100, "Top": 100, "Width": 1000, "Height": 700, "IsMaximized": false,
-                    "LogPanelHeight": 160, "SummaryPanelHeight": 220 }
-  }
+  "Theme": "System",
+  "MainWindow": { "Left": 100, "Top": 100, "Width": 1000, "Height": 700, "IsMaximized": false,
+                  "LogPanelHeight": 160, "SummaryPanelHeight": 220 }
 }
 ```
-
-The program reads only the keys `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint` and the section `Ui` from this file and ignores any other key. The tool paths and the telemetry settings follow the same rules as in `appsettings.json` (absolute paths; an absolute endpoint URI while telemetry is on). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. These keys override `appsettings.json`; environment variables and the command line override this file. New values apply after you restart the program.
-
-Only the desktop app reads the section `Ui` (see [Theme and window placement](#theme-and-window-placement)); the console app ignores it. An invalid value there never stops the start: the desktop app uses the default of that value instead.
 
 | Key | Valid values | Default |
 |---|---|---|
@@ -588,7 +580,7 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 
 ### Theme and window placement
 
-The desktop app uses the Fluent theme of Windows. The list **Theme** in the group **General** of the settings editor offers **System** (follows the light or dark mode of Windows; the default), **Light** and **Dark**. The choice applies at once to every window and is saved to `user-settings.json` right away; **Save** and **Cancel** of the editor do not affect it, and the list works even when `backup-config.json` cannot be read.
+The desktop app uses the Fluent theme of Windows. The list **Theme** in the group **General** of the settings editor offers **System** (follows the light or dark mode of Windows; the default), **Light** and **Dark**. The choice applies at once to every window and is saved to `ui-settings.json` right away; **Save** and **Cancel** of the editor do not affect it, and the list works even when `backup-config.json` cannot be read.
 
 When the main window closes, the app saves its position and size, whether it is maximized, and the heights of the live log and the summary. The next start opens the window the same way. A window closed while minimized opens in its normal size. If the saved position is on no connected monitor, the window opens at the default position, maximized on the primary monitor if it was maximized. If the file cannot be written, the app writes the error to the log and closes anyway.
 
@@ -611,7 +603,7 @@ One button, **Save**, saves every group that you changed: the configuration, the
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the paths to git and 7-Zip go to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file. The editor shows the values you saved last; before your first save it shows the values the program uses now. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+In the group **Tools**, the paths to git and 7-Zip go to `appsettings.json` (see [Who writes the file](#appsettingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file and keeps every other key and section of it. The editor shows the values you saved last; before your first save it shows the values the program uses now, including values you wrote into `appsettings.json` by hand. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 
@@ -639,7 +631,7 @@ The history of runs and archives sits in the SQLite database `data\history.db` n
 
 Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces, metrics and logs over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
 
-Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the group **Telemetry** has a checkbox and the OTLP endpoint field, and the settings apply after you restart the program. The editor writes them to `user-settings.json` (see [user-settings.json](#user-settingsjson)); environment variables and the command line still override them. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
+Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the group **Telemetry** has a checkbox and the OTLP endpoint field, and the settings apply after you restart the program. The editor writes them to `appsettings.json` (see [appsettings.json](#appsettingsjson)); environment variables and the command line still override them. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
 
 Traces:
 

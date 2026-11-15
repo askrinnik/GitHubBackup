@@ -1,9 +1,8 @@
 namespace GitHubBackup.Infrastructure.Hosting;
 
 /// <summary>
-/// Reports that a configuration file the host reads at start-up (<c>appsettings.json</c>, <c>user-settings.json</c>
-/// or the user secrets file)
-/// is missing or unreadable.
+/// Reports that a configuration file the host reads at start-up (<c>appsettings.json</c> or the user secrets file)
+/// is unreadable or not a valid JSON object.
 /// </summary>
 /// <remarks>
 /// The host throws this type only for its own configuration inputs, so <see cref="ConfigurationErrorMessages"/> can

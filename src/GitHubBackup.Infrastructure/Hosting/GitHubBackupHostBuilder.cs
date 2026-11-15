@@ -1,12 +1,9 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
-using GitHubBackup.Core.Telemetry;
-using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.Infrastructure.Hosting;
@@ -16,22 +13,25 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// The host starts without the framework defaults so that only the documented sources are read, in this order of
-/// increasing priority: <see cref="AppSettingsFileName"/>, the optional <see cref="UserSettingsFileName"/>, user secrets (<see cref="Environments.Development"/> only),
-/// environment variables with <see cref="EnvironmentVariablePrefix"/>, the <c>--Section:Key=value</c> arguments of
+/// increasing priority: the defaults of the options classes, the optional <see cref="AppSettingsFileName"/>, user
+/// secrets (<see cref="Environments.Development"/> only), environment variables with <see cref="EnvironmentVariablePrefix"/>, the <c>--Section:Key=value</c> arguments of
 /// <see cref="GitHubBackupHostSettings.ConfigurationArguments"/>, and
 /// <see cref="GitHubBackupHostSettings.BackupConfigPath"/>, which sets <see cref="BackupOptions.ConfigPath"/>.
-/// Unprefixed variables and <c>appsettings.{Environment}.json</c> are not read.
+/// Unprefixed variables, <c>appsettings.{Environment}.json</c> and <see cref="UiSettingsFileName"/> are not read.
 /// </remarks>
 public static class GitHubBackupHostBuilder
 {
-    /// <summary>The name of the required settings file in the folder of the executable.</summary>
+    /// <summary>
+    /// The name of the optional settings file in the folder of the executable that both the user and the settings
+    /// editor write.
+    /// </summary>
     public const string AppSettingsFileName = "appsettings.json";
 
     /// <summary>
-    /// The name of the optional settings file in the folder of the executable that holds the tool paths and the
-    /// telemetry settings written by the settings editor.
+    /// The name of the optional file in the folder of the executable that holds the theme, the main window placement
+    /// and the panel heights; only the WPF application reads and writes it.
     /// </summary>
-    public const string UserSettingsFileName = "user-settings.json";
+    public const string UiSettingsFileName = "ui-settings.json";
 
     /// <summary>The prefix of environment variables that override settings, for example <c>GitHubBackup__Backup__ShortHashLength</c>.</summary>
     public const string EnvironmentVariablePrefix = "GitHubBackup__";
@@ -50,8 +50,7 @@ public static class GitHubBackupHostBuilder
     /// <param name="settings">The process the host is built for.</param>
     /// <returns>The host builder.</returns>
     /// <exception cref="ConfigurationFileException">
-    /// <see cref="AppSettingsFileName"/> does not exist or is not valid JSON, or <see cref="UserSettingsFileName"/> or
-    /// the user secrets file is not valid JSON.
+    /// <see cref="AppSettingsFileName"/> or the user secrets file exists but is not a valid JSON object.
     /// </exception>
     public static HostApplicationBuilder Create(GitHubBackupHostSettings settings)
     {
@@ -67,15 +66,14 @@ public static class GitHubBackupHostBuilder
         var fileProvider = settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider;
         try
         {
-            configuration.AddJsonFile(fileProvider, AppSettingsFileName, optional: false, reloadOnChange: false);
-            configuration.AddInMemoryCollection(ReadUserSettings(fileProvider));
+            configuration.AddJsonFile(fileProvider, AppSettingsFileName, optional: true, reloadOnChange: false);
 
             if (builder.Environment.IsDevelopment())
             {
                 configuration.AddUserSecrets(UserSecretsId, reloadOnChange: false);
             }
         }
-        catch (Exception exception) when (exception is FileNotFoundException or InvalidDataException)
+        catch (InvalidDataException exception)
         {
             throw new ConfigurationFileException(exception);
         }
@@ -100,37 +98,5 @@ public static class GitHubBackupHostBuilder
             .AddGitHubBackupTelemetry(configuration);
 
         return builder;
-    }
-
-    /// <summary>
-    /// Reads the tool paths and the telemetry settings from <see cref="UserSettingsFileName"/>, if the file exists.
-    /// </summary>
-    /// <remarks>
-    /// Only <see cref="ToolPaths.GitPathKey"/>, <see cref="ToolPaths.SevenZipPathKey"/>,
-    /// <see cref="TelemetrySettings.EnabledKey"/> and <see cref="TelemetrySettings.OtlpEndpointKey"/> are taken: a key
-    /// such as <c>GitHub:ApiBaseUrl</c> added by hand to a file the application writes must not redirect the token to
-    /// another host. The <c>Ui</c> section stays out of the configuration as well: only the WPF application reads it,
-    /// from the file itself, and an invalid value there must not fail the start of either host.
-    /// </remarks>
-    /// <param name="fileProvider">The provider of the folder of the executable.</param>
-    /// <returns>The allowed keys found in the file with their values.</returns>
-    /// <exception cref="InvalidDataException">The file is not valid JSON.</exception>
-    private static List<KeyValuePair<string, string?>> ReadUserSettings(IFileProvider fileProvider)
-    {
-        var userSettings = new ConfigurationBuilder()
-            .AddJsonFile(fileProvider, UserSettingsFileName, optional: true, reloadOnChange: false)
-            .Build();
-        string[] allowedKeys =
-        [
-            ToolPaths.GitPathKey,
-            ToolPaths.SevenZipPathKey,
-            TelemetrySettings.EnabledKey,
-            TelemetrySettings.OtlpEndpointKey,
-        ];
-        return
-        [
-            .. userSettings.AsEnumerable().Where(entry =>
-                allowedKeys.Contains(entry.Key, StringComparer.OrdinalIgnoreCase)),
-        ];
     }
 }

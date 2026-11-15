@@ -33,11 +33,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Both executables read one settings file; the shared publish folder holds the single copy next to them. -->
-    <None Include="..\GitHubBackup.Cli\appsettings.json" Link="appsettings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true" />
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- The windows show the same icon as the executable. -->
     <Resource Include="..\..\assets\icon\GitHubBackup.ico" Link="Assets\GitHubBackup.ico" />
   </ItemGroup>

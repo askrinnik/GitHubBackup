@@ -73,6 +73,22 @@ public sealed class UserSecretsSourceTests : IDisposable
     }
 
     [Fact]
+    public void BuildHost_DevelopmentWithoutAppSettings_ReadsUserSecret()
+    {
+        WriteUserSecrets(14);
+        var settings = new GitHubBackupHostSettings
+        {
+            ContentRootPath = _contentRoot.FolderPath,
+            EnvironmentName = Environments.Development,
+        };
+
+        using var host = CliApplication.BuildHost(settings, TestCliConsole.Create());
+
+        File.Exists(Path.Combine(_contentRoot.FolderPath, GitHubBackupHostBuilder.AppSettingsFileName)).ShouldBeFalse();
+        host.Services.GetRequiredService<IOptions<BackupOptions>>().Value.ShortHashLength.ShouldBe(14);
+    }
+
+    [Fact]
     public void BuildHost_DevelopmentWithBrokenSecretsFile_ThrowsConfigurationError()
     {
         WriteUserSecretsText("""{ "Backup:ShortHashLength": """);

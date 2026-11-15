@@ -28,11 +28,9 @@ public sealed class OpenTelemetryHostTests
     }
 
     [Fact]
-    public void BuildHost_EnabledOnlyInUserSettings_RegistersProviders()
+    public void BuildHost_EnabledInAppSettings_RegistersProviders()
     {
-        using var contentRoot = new TemporaryContentRoot("{}");
-        File.WriteAllText(
-            Path.Combine(contentRoot.FolderPath, GitHubBackupHostBuilder.UserSettingsFileName),
+        using var contentRoot = new TemporaryContentRoot(
             """{ "OpenTelemetry": { "Enabled": true, "OtlpEndpoint": "http://localhost:4317" } }""");
 
         using var host = contentRoot.BuildHost();

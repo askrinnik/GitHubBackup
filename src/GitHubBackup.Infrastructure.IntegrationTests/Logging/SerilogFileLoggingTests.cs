@@ -17,9 +17,9 @@ public sealed class SerilogFileLoggingTests
     /// <summary>A settings file that sets only the default level.</summary>
     private const string _informationAppSettings = """{ "Serilog": { "MinimumLevel": { "Default": "Information" } } }""";
 
-    /// <summary>A settings file that raises the level of the host lifetime messages as the shipped file does.</summary>
-    private const string _lifetimeWarningAppSettings =
-        """{ "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Warning" } } } }""";
+    /// <summary>A settings file that lowers the level of the host lifetime messages back to the default level.</summary>
+    private const string _lifetimeInformationAppSettings =
+        """{ "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Information" } } } }""";
 
     /// <summary>The source of the status messages that the host writes on start and stop.</summary>
     private const string _hostLifetimeSource = "Microsoft.Hosting.Lifetime";
@@ -123,8 +123,8 @@ public sealed class SerilogFileLoggingTests
     }
 
     [Theory]
-    [InlineData(_informationAppSettings, true)]
-    [InlineData(_lifetimeWarningAppSettings, false)]
+    [InlineData(_lifetimeInformationAppSettings, true)]
+    [InlineData(_informationAppSettings, false)]
     public async Task StartAndStop_HostLifetimeOverride_DecidesWhetherLifetimeMessagesAreLogged(string appSettings, bool expected)
     {
         using var contentRoot = new TemporaryContentRoot(appSettings);

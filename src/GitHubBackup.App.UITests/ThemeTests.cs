@@ -31,8 +31,9 @@ public sealed class ThemeTests : IDisposable
     }
 
     [Fact]
-    public void SelectTheme_LightThenDark_AppliesAtOnceAndSaves()
+    public void SelectTheme_LightThenDark_AppliesAtOnceAndSavesOnlyToUiSettings()
     {
+        var appSettings = File.ReadAllText(_installation.AppSettingsPath);
         var session = Start();
         var themes = OpenSettings(session);
 
@@ -42,13 +43,14 @@ public sealed class ThemeTests : IDisposable
         session.WaitFor("ThemeComboBox").AsComboBox().Select("Dark");
 
         AppSession.WaitUntil(() => MeanBrightness(session.MainWindow) < _darkThreshold, "the dark theme");
-        AppSession.WaitUntil(() => SavedTheme() == "Dark", "the theme in user-settings.json");
+        AppSession.WaitUntil(() => SavedTheme() == "Dark", "the theme in ui-settings.json");
+        File.ReadAllText(_installation.AppSettingsPath).ShouldBe(appSettings);
     }
 
     [Fact]
     public void SavedDarkTheme_Start_OpensDarkWithDarkSelected()
     {
-        _installation.WriteUserSettings("""{ "Ui": { "Theme": "dark" } }""");
+        _installation.WriteUiSettings("""{ "Theme": "dark" }""");
 
         var session = Start();
         session.WaitFor("RepositoryTree");
@@ -78,7 +80,7 @@ public sealed class ThemeTests : IDisposable
         var session = Start();
         var themes = OpenSettings(session);
         themes.Select("Dark");
-        AppSession.WaitUntil(() => SavedTheme() == "Dark", "the theme in user-settings.json");
+        AppSession.WaitUntil(() => SavedTheme() == "Dark", "the theme in ui-settings.json");
 
         session.Invoke("CancelSettingsButton");
 
@@ -132,20 +134,18 @@ public sealed class ThemeTests : IDisposable
     }
 
     /// <summary>
-    /// Returns the theme saved in <c>user-settings.json</c>, or <see langword="null"/> while there is none.
+    /// Returns the theme saved in <c>ui-settings.json</c>, or <see langword="null"/> while there is none.
     /// </summary>
     /// <returns>The saved theme name.</returns>
     private string? SavedTheme()
     {
-        if (!File.Exists(_installation.UserSettingsPath))
+        if (!File.Exists(_installation.UiSettingsPath))
         {
             return null;
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(_installation.UserSettingsPath));
-        return document.RootElement.TryGetProperty("Ui", out var ui) && ui.TryGetProperty("Theme", out var theme)
-            ? theme.GetString()
-            : null;
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.UiSettingsPath));
+        return document.RootElement.TryGetProperty("Theme", out var theme) ? theme.GetString() : null;
     }
 
     /// <summary>

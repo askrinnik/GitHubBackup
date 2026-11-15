@@ -512,6 +512,10 @@ backup-config.json.bak
 # Local settings overrides and secrets (never commit tokens)
 appsettings.*.local.json
 *.local.json
+appsettings.json
+appsettings.json.bak
+ui-settings.json
+ui-settings.json.bak
 .env
 
 # Claude Code local settings

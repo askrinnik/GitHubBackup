@@ -107,7 +107,8 @@ public sealed class MainWindowLayoutTests : IDisposable
     [Fact]
     public async Task SavedPlacement_Start_OpensAtSavedBoundsAndSavesThemAgain()
     {
-        _installation.WriteUserSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: false));
+        _installation.WriteUiSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: false));
+        var appSettings = File.ReadAllText(_installation.AppSettingsPath);
 
         var session = Start();
         session.WaitFor("RepositoryTree");
@@ -124,12 +125,13 @@ public sealed class MainWindowLayoutTests : IDisposable
         saved.GetProperty("Width").GetDouble().ShouldBe(900, 1);
         saved.GetProperty("Height").GetDouble().ShouldBe(640, 1);
         saved.GetProperty("IsMaximized").GetBoolean().ShouldBeFalse();
+        File.ReadAllText(_installation.AppSettingsPath).ShouldBe(appSettings);
     }
 
     [Fact]
     public void SavedPlacementOffScreen_Start_OpensOnScreenInNormalState()
     {
-        _installation.WriteUserSettings(MainWindowSettings(-50000, -50000, 900, 640, isMaximized: false));
+        _installation.WriteUiSettings(MainWindowSettings(-50000, -50000, 900, 640, isMaximized: false));
 
         var session = Start();
         session.WaitFor("RepositoryTree");
@@ -141,7 +143,7 @@ public sealed class MainWindowLayoutTests : IDisposable
     [Fact]
     public void SavedPlacementOffScreenMaximized_Start_OpensMaximized()
     {
-        _installation.WriteUserSettings(MainWindowSettings(-50000, -50000, 900, 640, isMaximized: true));
+        _installation.WriteUiSettings(MainWindowSettings(-50000, -50000, 900, 640, isMaximized: true));
 
         var session = Start();
         session.WaitFor("RepositoryTree");
@@ -152,7 +154,7 @@ public sealed class MainWindowLayoutTests : IDisposable
     [Fact]
     public async Task ClosedMaximized_Restart_KeepsRestoreBoundsAndOpensMaximized()
     {
-        _installation.WriteUserSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: true));
+        _installation.WriteUiSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: true));
         var session = Start();
         session.WaitFor("RepositoryTree");
         session.MainWindow.Patterns.Window.Pattern.WindowVisualState.Value.ShouldBe(WindowVisualState.Maximized);
@@ -171,7 +173,7 @@ public sealed class MainWindowLayoutTests : IDisposable
     [Fact]
     public async Task ClosedMinimized_Restart_SavesNormalBoundsAndOpensNormal()
     {
-        _installation.WriteUserSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: false));
+        _installation.WriteUiSettings(MainWindowSettings(150, 120, 900, 640, isMaximized: false));
         var session = Start();
         session.WaitFor("RepositoryTree");
         session.MainWindow.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Minimized);
@@ -201,7 +203,7 @@ public sealed class MainWindowLayoutTests : IDisposable
     }
 
     /// <summary>
-    /// Returns the <c>user-settings.json</c> text with a placement of the main window and the default panel heights.
+    /// Returns the <c>ui-settings.json</c> text with a placement of the main window and the default panel heights.
     /// </summary>
     /// <param name="left">The left edge.</param>
     /// <param name="top">The top edge.</param>
@@ -213,7 +215,7 @@ public sealed class MainWindowLayoutTests : IDisposable
         string.Create(
             CultureInfo.InvariantCulture,
             $$"""
-            { "Ui": { "MainWindow": { "Left": {{left}}, "Top": {{top}}, "Width": {{width}}, "Height": {{height}}, "IsMaximized": {{(isMaximized ? "true" : "false")}} } } }
+            { "MainWindow": { "Left": {{left}}, "Top": {{top}}, "Width": {{width}}, "Height": {{height}}, "IsMaximized": {{(isMaximized ? "true" : "false")}} } }
             """);
 
     /// <summary>

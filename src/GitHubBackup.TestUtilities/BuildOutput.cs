@@ -10,18 +10,36 @@ namespace GitHubBackup.TestUtilities;
 /// </summary>
 public static class BuildOutput
 {
+    /// <summary>The extension of the copy of its previous version that the application keeps next to a file it writes.</summary>
+    private const string _backupExtension = ".bak";
+
+    /// <summary>The name of the settings file that earlier builds of the desktop app wrote next to the executable.</summary>
+    private const string _legacyUserSettingsFileName = "user-settings.json";
+
     /// <summary>
-    /// The files that runs of a developer may leave in the build output: the backup configuration and the user
-    /// settings that the settings editor and the main window write.
+    /// The files that runs of a developer may leave in the build output: the backup configuration, the settings file
+    /// the settings editor writes, the user interface settings the main window writes, their backups, and the
+    /// <c>user-settings.json</c> that earlier builds of the desktop app wrote; a test that checks the application
+    /// leaves that file alone must start without it.
     /// </summary>
-    private static readonly string[] _runFiles = ["backup-config.json", GitHubBackupHostBuilder.UserSettingsFileName];
+    private static readonly string[] _runFiles =
+    [
+        "backup-config.json",
+        GitHubBackupHostBuilder.AppSettingsFileName,
+        GitHubBackupHostBuilder.UiSettingsFileName,
+        _legacyUserSettingsFileName,
+        "backup-config.json" + _backupExtension,
+        GitHubBackupHostBuilder.AppSettingsFileName + _backupExtension,
+        GitHubBackupHostBuilder.UiSettingsFileName + _backupExtension,
+        _legacyUserSettingsFileName + _backupExtension,
+    ];
 
     /// <summary>The folders of the build output that runs create: the log, the run history and the default clones.</summary>
     private static readonly string[] _runFolders = [LogFiles.FolderName, "data", BackupConfig.DefaultSourcesFolderName];
 
     /// <summary>
     /// Copies every file of <paramref name="sourceFolder"/> into <paramref name="targetFolder"/>, without the folders
-    /// that runs create and without <c>backup-config.json</c> and <c>user-settings.json</c>.
+    /// that runs create and without the settings and configuration files that runs write.
     /// </summary>
     /// <param name="sourceFolder">The absolute path of the build output.</param>
     /// <param name="targetFolder">The absolute path of the folder to copy into.</param>

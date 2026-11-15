@@ -23,7 +23,31 @@ public sealed class FileLoggingServiceCollectionExtensionsTests
         var options = provider.GetRequiredService<IOptions<SerilogOptions>>().Value;
 
         options.Default.ShouldBe("Debug");
-        options.Override.ShouldBe(new Dictionary<string, string?> { ["Microsoft.Hosting"] = "Warning" });
+        options.Override.ShouldBe(new Dictionary<string, string?>
+        {
+            [SerilogOptions.HostingLifetimeSource] = "Warning",
+            ["Microsoft.Hosting"] = "Warning",
+        });
+    }
+
+    [Fact]
+    public void AddGitHubBackupLogging_NoSection_RaisesHostingLifetimeToWarning()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IOptions<SerilogOptions>>().Value.Override.ShouldBe(
+            new Dictionary<string, string?> { [SerilogOptions.HostingLifetimeSource] = "Warning" });
+    }
+
+    [Fact]
+    public void AddGitHubBackupLogging_HostingLifetimeOverrideInOtherCase_ReplacesDefault()
+    {
+        using var provider = BuildProvider(new() { ["Serilog:MinimumLevel:Override:microsoft.hosting.lifetime"] = "Information" });
+
+        var options = provider.GetRequiredService<IOptions<SerilogOptions>>().Value;
+
+        options.Override.ShouldHaveSingleItem().Value.ShouldBe("Information");
+        options.Override[SerilogOptions.HostingLifetimeSource].ShouldBe("Information");
     }
 
     [Fact]

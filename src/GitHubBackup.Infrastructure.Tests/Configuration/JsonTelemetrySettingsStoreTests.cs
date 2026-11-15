@@ -15,14 +15,14 @@ namespace GitHubBackup.Infrastructure.Tests.Configuration;
 public sealed class JsonTelemetrySettingsStoreTests : IDisposable
 {
     private const string _contentRootPath = @"C:\app";
-    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.UserSettingsFileName;
+    private const string _filePath = @"C:\app\" + GitHubBackupHostBuilder.AppSettingsFileName;
 
     private readonly MockFileSystem _fileSystem = new();
 
-    private readonly UserSettingsFile _file;
+    private readonly AppSettingsFile _file;
 
     /// <summary>
-    /// Creates the content root and the user settings file of the store.
+    /// Creates the content root and the settings file of the store.
     /// </summary>
     public JsonTelemetrySettingsStoreTests()
     {
@@ -92,13 +92,13 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveAsync_ToolsAndUiSectionsInFile_KeepsThem()
+    public async Task SaveAsync_OtherSectionsInFile_KeepsThemInPlace()
     {
         _fileSystem.AddFile(_filePath, new MockFileData("""
             {
               "Tools": { "GitPath": "C:\\Git\\git.exe" },
-              "Ui": { "Theme": "Dark" },
-              "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://old:4317" }
+              "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://old:4317", "Headers": "x" },
+              "Serilog": { "MinimumLevel": { "Default": "Debug" } }
             }
             """));
 
@@ -111,10 +111,13 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
               },
               "OpenTelemetry": {
                 "Enabled": true,
-                "OtlpEndpoint": "http://new:4317"
+                "OtlpEndpoint": "http://new:4317",
+                "Headers": "x"
               },
-              "Ui": {
-                "Theme": "Dark"
+              "Serilog": {
+                "MinimumLevel": {
+                  "Default": "Debug"
+                }
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");

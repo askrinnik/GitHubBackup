@@ -2,6 +2,7 @@ using System.Text.Json.Nodes;
 using GitHubBackup.Core;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Runs;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
@@ -349,6 +350,37 @@ public sealed class CliEndToEndTests : IDisposable
 
         result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
         (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task Validate_NoAppSettings_ExitsSuccessAndCreatesNoSettingsFile()
+    {
+        using var installation = new CliInstallation(
+            _api.Url, Path.Combine(_sandbox.RootPath, "remotes"), writeAppSettings: false);
+        installation.NewBackupConfig().WithRepository(_owner, "a", 1).WriteTo(installation.BackupConfigPath);
+
+        var result = await installation.RunAsync("validate");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ShouldContain(ValidateCommandHandler.PassedMessage);
+        File.Exists(installation.AppSettingsPath).ShouldBeFalse();
+        File.Exists(Path.Combine(installation.FolderPath, GitHubBackupHostBuilder.UiSettingsFileName)).ShouldBeFalse();
+    }
+
+    [Theory]
+    [InlineData(GitHubBackupHostBuilder.UiSettingsFileName, """{ "Theme": """)]
+    [InlineData("user-settings.json", """{ "Tools": { "GitPath": "relative\\git.exe" }, "Ui": { "Theme": "Dark" } }""")]
+    public async Task Validate_OtherSettingsFile_IsNeitherReadNorWritten(string fileName, string content)
+    {
+        _config.WithRepository(_owner, "a", 1).WriteTo(_installation.BackupConfigPath);
+        var path = Path.Combine(_installation.FolderPath, fileName);
+        await File.WriteAllTextAsync(path, content, CancellationToken);
+
+        var result = await _installation.RunAsync("validate");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        (await File.ReadAllTextAsync(path, CancellationToken)).ShouldBe(content);
+        File.Exists(path + ".bak").ShouldBeFalse();
     }
 
     /// <summary>

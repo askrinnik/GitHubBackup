@@ -9,7 +9,7 @@ namespace GitHubBackup.App.Tests;
 internal static class AppTestSettings
 {
     /// <summary>
-    /// A valid settings file with every section of the shipped <c>appsettings.json</c>.
+    /// A valid settings file with every section of <c>appsettings.json</c>.
     /// </summary>
     /// <remarks>
     /// It sets <c>GitHub:Token</c> so that the token chain of the real host stops at its first source and never reads
