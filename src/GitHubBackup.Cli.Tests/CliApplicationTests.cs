@@ -36,7 +36,7 @@ public sealed class CliApplicationTests : IDisposable
           "Backup": { "ConfigPath": "backup-config.json", "ShortHashLength": 10, "VerifyArchive": true },
           "History": { "DatabasePath": "data\\history.db" },
           "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317" },
-          "Serilog": { "MinimumLevel": { "Default": "Information" } }
+          "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Warning" } } }
         }
         """;
 
