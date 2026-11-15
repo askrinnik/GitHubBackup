@@ -281,6 +281,32 @@
                         </StackPanel>
                     </StackPanel>
                 </GroupBox>
+                <GroupBox Header="Telemetry"
+                          Style="{StaticResource GroupStyle}"
+                          AutomationProperties.AutomationId="SettingsTelemetryGroup">
+                    <StackPanel>
+                        <TextBlock Text="Telemetry settings take effect after the application restarts." Style="{StaticResource LabelStyle}" Margin="0,0,0,6" />
+                        <CheckBox Content="Send telemetry (OpenTelemetry)"
+                                  IsChecked="{Binding TelemetryEnabled, Mode=TwoWay}"
+                                  Margin="0,0,0,6"
+                                  AutomationProperties.AutomationId="TelemetryEnabledCheckBox" />
+                        <TextBlock Text="OTLP endpoint (gRPC), for example http://localhost:4317" Style="{StaticResource LabelStyle}" />
+                        <TextBox Text="{Binding OtlpEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource FormTextBoxStyle}"
+                                 AutomationProperties.AutomationId="OtlpEndpointBox" />
+                        <StackPanel Orientation="Horizontal">
+                            <Button Content="Save telemetry settings"
+                                    Command="{Binding SaveTelemetryCommand, Mode=OneWay}"
+                                    Padding="8,2"
+                                    AutomationProperties.AutomationId="SaveTelemetryButton" />
+                            <TextBlock Text="{Binding TelemetryStatus, Mode=OneWay}"
+                                       Style="{StaticResource OptionalLineStyle}"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       AutomationProperties.AutomationId="TelemetryStatus" />
+                        </StackPanel>
+                    </StackPanel>
+                </GroupBox>
                 <GroupBox Header="GitHub token"
                           Style="{StaticResource GroupStyle}"
                           AutomationProperties.AutomationId="SettingsTokenGroup">

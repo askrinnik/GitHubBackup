@@ -11,6 +11,7 @@ using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Core.Ui;
 using GitHubBackup.Infrastructure.Archiving;
@@ -88,6 +89,7 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<IBackupConfigStore, JsonBackupConfigStore>();
             services.TryAddSingleton<UserSettingsFile>();
             services.TryAddSingleton<IToolPathsStore, JsonToolPathsStore>();
+            services.TryAddSingleton<ITelemetrySettingsStore, JsonTelemetrySettingsStore>();
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.TryAddSingleton<ICloneLocationStore, JsonCloneLocationStore>();

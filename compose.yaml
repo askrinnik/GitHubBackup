@@ -1,0 +1,14 @@
+# Local .NET Aspire Dashboard that receives the OpenTelemetry traces and metrics of GitHubBackup.
+# Start: docker compose up -d    Sign-in link: docker compose logs aspire-dashboard    Stop: docker compose down
+# The ports listen on 127.0.0.1 only: the telemetry holds repository names, private ones included.
+name: githubbackup
+
+services:
+  aspire-dashboard:
+    image: mcr.microsoft.com/dotnet/aspire-dashboard:13
+    container_name: githubbackup-aspire-dashboard
+    ports:
+      # Dashboard UI: http://localhost:18888
+      - "127.0.0.1:18888:18888"
+      # OTLP over gRPC, the default OpenTelemetry:OtlpEndpoint http://localhost:4317
+      - "127.0.0.1:4317:18889"

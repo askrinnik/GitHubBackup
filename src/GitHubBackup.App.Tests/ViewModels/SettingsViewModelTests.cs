@@ -6,6 +6,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Core.Ui;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,7 @@ public sealed class SettingsViewModelTests
 
     private readonly IBackupConfigStore _configStore = Substitute.For<IBackupConfigStore>();
     private readonly IToolPathsStore _toolPathsStore = Substitute.For<IToolPathsStore>();
+    private readonly ITelemetrySettingsStore _telemetryStore = Substitute.For<ITelemetrySettingsStore>();
     private readonly ITokenStore _tokenStore = Substitute.For<ITokenStore>();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
     private readonly IGitHubTokenInspector _inspector = Substitute.For<IGitHubTokenInspector>();
@@ -58,13 +60,15 @@ public sealed class SettingsViewModelTests
             .Returns(call => _validator.Validate(call.Arg<BackupConfig>(), _defaultSourcesRoot));
         _toolPathsStore.Current.Returns(new ToolPaths(null, @"C:\Program Files\7-Zip\7z.exe"));
         _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns([]);
+        _telemetryStore.Current.Returns(new TelemetrySettings(true, "http://localhost:4317"));
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([]);
         _tokenStore.Location.Returns(_storeLocation);
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _storeLocation));
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("UTC+02", TimeSpan.FromHours(2), "UTC+02", "UTC+02"));
         _preferences = new(_uiSettingsStore, _themeService, NullLogger<UiPreferences>.Instance);
         _viewModel = new(
-            _configStore, _toolPathsStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger, _preferences);
+            _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger, _preferences);
     }
 
     [Fact]
@@ -118,7 +122,7 @@ public sealed class SettingsViewModelTests
         _preferences.Theme = UiTheme.Dark;
 
         var viewModel = new SettingsViewModel(
-            _configStore, _toolPathsStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
+            _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
             TimeProvider.System, _logger, _preferences);
 
         viewModel.SelectedTheme.Value.ShouldBe(UiTheme.Dark);
@@ -602,6 +606,65 @@ public sealed class SettingsViewModelTests
         _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("Locked"));
 
         await _viewModel.SaveToolsCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Locked");
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Constructor_TelemetrySettings_FillsFieldsWithoutChanges()
+    {
+        _viewModel.TelemetryEnabled.ShouldBeTrue();
+        _viewModel.OtlpEndpoint.ShouldBe("http://localhost:4317");
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SaveTelemetry_ValidSettings_SavesAndShowsRestartHint()
+    {
+        _viewModel.TelemetryEnabled = false;
+        _viewModel.OtlpEndpoint = " http://otel:4317 ";
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+
+        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(
+            new TelemetrySettings(false, "http://otel:4317"), Arg.Any<CancellationToken>());
+        _viewModel.TelemetryStatus.ShouldBe(SettingsViewModel.TelemetrySavedMessage);
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task SaveTelemetry_BlankEndpoint_SavesNull()
+    {
+        _viewModel.OtlpEndpoint = "  ";
+
+        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(true, null), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SaveTelemetry_InvalidEndpoint_ShowsErrorAtFieldAndWritesNothing()
+    {
+        const string error = "OpenTelemetry:OtlpEndpoint must be an absolute URI when OpenTelemetry:Enabled is true.";
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([error]);
+        _viewModel.OtlpEndpoint = "localhost";
+
+        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldBe([error]);
+        _viewModel.TelemetryStatus.ShouldBeNull();
+        await _telemetryStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task SaveTelemetry_WriteFails_ShowsDialogAndKeepsChanges()
+    {
+        _viewModel.OtlpEndpoint = "http://otel:4317";
+        _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("Locked"));
+
+        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
 
         _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Locked");
         _viewModel.HasUnsavedChanges.ShouldBeTrue();

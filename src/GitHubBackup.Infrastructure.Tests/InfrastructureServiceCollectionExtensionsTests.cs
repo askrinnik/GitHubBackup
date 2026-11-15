@@ -11,6 +11,7 @@ using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.Authentication;
@@ -74,6 +75,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
         provider.GetRequiredService<IFileSystem>().ShouldBeOfType<FileSystem>();
         provider.GetRequiredService<IBackupConfigStore>().ShouldBeOfType<JsonBackupConfigStore>();
         provider.GetRequiredService<IToolPathsStore>().ShouldBeOfType<JsonToolPathsStore>();
+        provider.GetRequiredService<ITelemetrySettingsStore>().ShouldBeOfType<JsonTelemetrySettingsStore>();
     }
 
     [Fact]

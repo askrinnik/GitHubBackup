@@ -53,7 +53,7 @@ The folder holds two programs that use the same files:
 ├── GitHubBackup.exe          desktop app
 ├── GitHubBackup.Cli.exe      console app
 ├── appsettings.json          application settings (read only)
-├── user-settings.json        tool paths, theme and window placement saved by the desktop app (optional)
+├── user-settings.json        tool paths, telemetry settings, theme and window placement saved by the desktop app (optional)
 ├── backup-config.json        what to back up and where (you create it, see "First run")
 ├── backup-config.json.bak    previous version, written on every save
 ├── logs\                     text and JSON logs, one file per day
@@ -117,7 +117,7 @@ Three files control the program. All of them sit next to the exe files.
 | File | Who writes it | Purpose |
 |---|---|---|
 | `appsettings.json` | you (optional edits) | application settings: GitHub API address, tool paths, logging, telemetry |
-| `user-settings.json` | the desktop app | the paths to git and 7-Zip; the theme and the window placement of the desktop app |
+| `user-settings.json` | the desktop app | the paths to git and 7-Zip; the telemetry settings; the theme and the window placement of the desktop app |
 | `backup-config.json` | you and the program | what to back up and where |
 
 ### appsettings.json
@@ -184,13 +184,17 @@ The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Producti
 
 ### user-settings.json
 
-The desktop app writes this optional file: the settings editor when you select **Save tool paths** or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save tool paths** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
+The desktop app writes this optional file: the settings editor when you select **Save tool paths** or **Save telemetry settings**, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save tool paths** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
 
 ```json
 {
   "Tools": {
     "GitPath": "C:\\Program Files\\Git\\cmd\\git.exe",
     "SevenZipPath": null
+  },
+  "OpenTelemetry": {
+    "Enabled": true,
+    "OtlpEndpoint": "http://localhost:4317"
   },
   "Ui": {
     "Theme": "System",
@@ -200,7 +204,7 @@ The desktop app writes this optional file: the settings editor when you select *
 }
 ```
 
-The program reads only the two keys `Tools:GitPath` and `Tools:SevenZipPath` and the section `Ui` from this file and ignores any other key. The tool paths follow the same rules as in `appsettings.json` (absolute paths). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. The tool paths override `appsettings.json`; environment variables and the command line override this file. New paths apply after you restart the program.
+The program reads only the keys `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint` and the section `Ui` from this file and ignores any other key. The tool paths and the telemetry settings follow the same rules as in `appsettings.json` (absolute paths; an absolute endpoint URI while telemetry is on). `null` means "not set": git comes from `PATH`, and 7-Zip from `C:\Program Files\7-Zip\7z.exe`. These keys override `appsettings.json`; environment variables and the command line override this file. New values apply after you restart the program.
 
 Only the desktop app reads the section `Ui` (see [Theme and window placement](#theme-and-window-placement)); the console app ignores it. An invalid value there never stops the start: the desktop app uses the default of that value instead.
 
@@ -605,7 +609,7 @@ Before it writes, the editor runs the same validation as the load of the file. E
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)).
+In the group **Tools**, the button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save telemetry settings** writes them to the same file. The editor shows the values the program uses now, and a saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 
@@ -633,6 +637,8 @@ The history of runs and archives sits in the SQLite database `data\history.db` n
 
 Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces and metrics over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
 
+Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the group **Telemetry** has a checkbox and the OTLP endpoint field, and the settings apply after you restart the program. The editor writes them to `user-settings.json` (see [user-settings.json](#user-settingsjson)); environment variables and the command line still override them. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
+
 Traces:
 
 ```
@@ -658,18 +664,51 @@ Metrics (meter `GitHubBackup`):
 | `githubbackup.run.duration` | Histogram, `s` | `githubbackup.run.outcome`, `githubbackup.dry_run` |
 | `githubbackup.archive.size` | Histogram, `By` | `githubbackup.target`; only created archives |
 
-To check it by hand with the .NET Aspire Dashboard:
+#### View telemetry in the .NET Aspire Dashboard
 
-1. Start the dashboard in Docker. The OTLP port `18889` of the dashboard is published as `4317`:
+The repository holds [compose.yaml](compose.yaml), which starts the standalone .NET Aspire Dashboard in Docker. The dashboard receives OTLP over gRPC on `http://localhost:4317`, the default `OpenTelemetry:OtlpEndpoint`, so the program needs no other setting. Both ports listen on `127.0.0.1` only, because the telemetry holds repository names. The dashboard keeps the data in memory: a restart clears it.
+
+You need Docker Desktop (Linux containers) running.
+
+1. Start the dashboard from the repository root:
 
    ```
-   docker run --rm -it -p 18888:18888 -p 4317:18889 --name aspire-dashboard mcr.microsoft.com/dotnet/aspire-dashboard:latest
+   docker compose up -d
    ```
 
-2. Open the link `http://localhost:18888/login?t=...` from the container output.
-3. Run a backup with telemetry on: `GitHubBackup.Cli.exe backup --dry-run --OpenTelemetry:Enabled=true`. Another address is set with `--OpenTelemetry:OtlpEndpoint=<uri>`.
-4. On the **Traces** tab, select the resource `GitHubBackup`: the trace `backup.run` shows the hierarchy above and the span tags.
-5. On the **Metrics** tab, select the meter `GitHubBackup`. The counter and the durations are recorded at the end of a run, and the program sends the last batch of metrics when it exits, so they appear after the run ends.
+2. Get the sign-in link and open it in a browser:
+
+   ```
+   docker compose logs aspire-dashboard
+   ```
+
+   Use the line `Login to the dashboard at http://localhost:18888/login?t=<token>`. The token changes every time the container starts.
+3. Run a backup with telemetry on:
+
+   ```
+   GitHubBackup.Cli.exe backup --OpenTelemetry:Enabled=true
+   ```
+
+   Add `--dry-run` to change nothing, or set `"Enabled": true` in the `OpenTelemetry` section of `appsettings.json` to send telemetry on every run.
+4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags.
+5. On the **Metrics** page, select the resource `GitHubBackup`: it lists the four `githubbackup.*` metrics. Use the **Table** view to read single values.
+6. Stop the dashboard:
+
+   ```
+   docker compose down
+   ```
+
+Common problems:
+
+| Symptom | Cause and fix |
+|---|---|
+| `docker compose up` fails with `port is already allocated` | Another program uses port `4317` or `18888` (often another OTLP collector). Stop it, or change the host port in `compose.yaml` (`127.0.0.1:<port>:18889`) and run the backup with `--OpenTelemetry:OtlpEndpoint=http://localhost:<port>`. |
+| The run ends, but no trace appears | Telemetry is off (`OpenTelemetry:Enabled` is not `true`), or the endpoint points to another port. The program sends OTLP over gRPC only: an endpoint for the OTLP/HTTP protocol (port `4318`, or `18890` in the dashboard) receives nothing. |
+| The log of the container shows `OTLP/gRPC: http://localhost:18889` | That is the port inside the container. `compose.yaml` publishes it on the host as `4317`. |
+| Metrics appear only after the run | The counter and the durations are recorded at the end of a run, and the program sends the last batch of metrics when it exits. |
+| The dashboard asks for a token | The token is in `docker compose logs aspire-dashboard` and changes with every start of the container. |
+| The resource is named `GitHubBackup-<suffix>` | Several processes sent telemetry, for example the console app and the desktop app; the dashboard tells them apart by the instance. Select any of them. |
+| The dashboard shows the warning `Endpoint is unsecured` | The OTLP endpoint accepts telemetry without a key. It listens on `127.0.0.1` only, so only programs on this computer can send to it. |
 
 ## Development
 

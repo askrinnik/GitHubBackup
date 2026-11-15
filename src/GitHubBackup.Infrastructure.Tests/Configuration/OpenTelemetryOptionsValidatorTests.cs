@@ -32,4 +32,17 @@ public sealed class OpenTelemetryOptionsValidatorTests
         result.Failures.ShouldHaveSingleItem()
             .ShouldBe("OpenTelemetry:OtlpEndpoint must be an absolute URI when OpenTelemetry:Enabled is true.");
     }
+
+    [Theory]
+    [InlineData(false, "not a uri", 0)]
+    [InlineData(true, "http://localhost:4317", 0)]
+    [InlineData(true, "not a uri", 1)]
+    [InlineData(true, null, 1)]
+    public void ValidateValues_EnabledAndEndpoint_ReturnsFailuresWithKeyAndWithoutValue(bool enabled, string? endpoint, int count)
+    {
+        var failures = OpenTelemetryOptionsValidator.Validate(enabled, endpoint);
+
+        failures.Count.ShouldBe(count);
+        failures.ShouldAllBe(failure => failure.StartsWith("OpenTelemetry:OtlpEndpoint") && !failure.Contains("not a uri"));
+    }
 }
