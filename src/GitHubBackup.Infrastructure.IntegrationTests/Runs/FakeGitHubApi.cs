@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.GitHub;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Runs;
@@ -38,6 +39,12 @@ internal sealed class FakeGitHubApi : IGitHubApi
     /// </summary>
     /// <param name="id">The GitHub id.</param>
     public void RemoveRepository(long id) => _repositories.Remove(id);
+
+    /// <inheritdoc />
+    /// <remarks>The answers do not depend on the token.</remarks>
+    public void UseToken(GitHubToken token)
+    {
+    }
 
     /// <inheritdoc />
     public Task<GitHubAccount> GetAccountAsync(string login, CancellationToken cancellationToken) =>

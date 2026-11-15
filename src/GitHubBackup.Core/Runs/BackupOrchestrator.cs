@@ -37,7 +37,8 @@ namespace GitHubBackup.Core.Runs;
 /// <param name="decisionApplier">Applies the decisions about discovered repositories to the configuration.</param>
 /// <param name="remoteUrlProvider">Supplies the URL git clones each repository and wiki from.</param>
 /// <param name="gitHubApi">
-/// Tells whether the wiki feature of a repository is enabled when discovery did not report the repository.
+/// Receives the token of each run, and tells whether the wiki feature of a repository is enabled when discovery did not
+/// report the repository.
 /// </param>
 /// <param name="changeDetector">Brings each clone up to date and decides whether it needs an archive.</param>
 /// <param name="cloneRelocator">Moves a clone whose configured folder changed.</param>
@@ -172,6 +173,10 @@ public sealed class BackupOrchestrator(
             return Stop(run, [RunLockHeldMessage], loaded.Warnings, null);
         }
 
+        // The API gets the token of this run, the same one git gets, so a token changed between runs of one process
+        // takes effect for both. It is set under the run lock, so a run that could not take the lock never changes the
+        // token of the run that holds it, and dropped when the run ends, so the token does not outlive the run.
+        gitHubApi.UseToken(token);
         try
         {
             return await RunLockedAsync(request, run, loaded, tools, items, token, cancellationToken);
@@ -180,6 +185,10 @@ public sealed class BackupOrchestrator(
         {
             BackupOrchestratorLog.RunCancelled(logger, 0, 0);
             return new([], loaded.Warnings, []) { IsCancelled = true, IsDryRun = request.DryRun };
+        }
+        finally
+        {
+            gitHubApi.UseToken(GitHubToken.Anonymous);
         }
     }
 

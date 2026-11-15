@@ -609,7 +609,7 @@ In the group **Tools**, the button **Save tool paths** saves the paths to git an
 
 The group **GitHub token**:
 
-- **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The running program keeps using the previous token, so the editor asks you to restart it. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
+- **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
 - **Check token** checks the token in the field, or, if the field is empty, the token that the source chain found, and names its source. It shows the login, the scopes (a fine-grained token has none, and the editor says so), the remaining and total request limit and the reset time. Without a token, it shows only the limit for anonymous access. An invalid or expired token (401) and other API errors appear on a separate line. **Cancel check** stops the check. The request goes only to the configured `GitHub:ApiBaseUrl`.
 
 The token value never reaches the log, the error messages or any file.

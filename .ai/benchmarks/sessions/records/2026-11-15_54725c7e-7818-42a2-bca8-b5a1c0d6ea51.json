@@ -1,0 +1,235 @@
+{
+  "schema": 2,
+  "profiler": "profile-session/8",
+  "session": "54725c7e-7818-42a2-bca8-b5a1c0d6ea51",
+  "workItem": "117",
+  "lane": "Bug",
+  "branch": "117-github-api-token-per-run",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-15 11:23",
+  "started": "2026-11-15 11:07",
+  "ended": "2026-11-15 11:23",
+  "duration": {
+    "wall": 978,
+    "active": 978,
+    "waiting": 0,
+    "waits": 0
+  },
+  "version": "2.1.325",
+  "model": "claude-opus-5-5",
+  "account": "org-d1ea",
+  "note": null,
+  "marker": null,
+  "calls": 69,
+  "humanTurns": 1,
+  "subagents": 3,
+  "subagentCalls": 32,
+  "tokens": {
+    "input": 226,
+    "cacheRead": 11337173,
+    "cacheWrite": 317369,
+    "output": 56955
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 1815430,
+    "main": 1511685,
+    "subagents": 303745
+  },
+  "costUsd": {
+    "total": 5.0178,
+    "main": 4.5626,
+    "subagents": 0.4552
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite5m": 0.125,
+        "cacheWrite1h": 0.2,
+        "cacheRead": 0.01,
+        "longPrompt": {
+          "above": 100000,
+          "input": 0.5,
+          "output": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1,
+          "cacheRead": 0.05
+        }
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
+  "cacheReadShare": 62.4,
+  "unitsPerCall": {
+    "first40": 21572,
+    "first70": null,
+    "whole": 21908
+  },
+  "context": {
+    "first": 78761,
+    "max": 202389,
+    "last": 202389,
+    "first40": 170511,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 522052,
+  "diff": {
+    "files": 10,
+    "lines": 329
+  },
+  "byActivity": [
+    {
+      "activity": "explore (read/search)",
+      "calls": 26,
+      "cost": 561028,
+      "costUsd": 2.0437
+    },
+    {
+      "activity": "implement",
+      "calls": 18,
+      "cost": 428389,
+      "costUsd": 1.2013
+    },
+    {
+      "activity": "bash (other)",
+      "calls": 11,
+      "cost": 228512,
+      "costUsd": 0.5684
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 5,
+      "cost": 102526,
+      "costUsd": 0.2414
+    },
+    {
+      "activity": "build/test",
+      "calls": 3,
+      "cost": 68504,
+      "costUsd": 0.1684
+    },
+    {
+      "activity": "ship",
+      "calls": 3,
+      "cost": 48730,
+      "costUsd": 0.1333
+    },
+    {
+      "activity": "plan",
+      "calls": 1,
+      "cost": 29361,
+      "costUsd": 0.0975
+    },
+    {
+      "activity": "other tool",
+      "calls": 1,
+      "cost": 23351,
+      "costUsd": 0.0613
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 21283,
+      "costUsd": 0.0475
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "security-reviewer",
+      "model": "claude-opus-5-5",
+      "agents": 1,
+      "calls": 10,
+      "cost": 126590,
+      "costUsd": 0.4375
+    },
+    {
+      "type": "issue-kit:skill-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 9,
+      "cost": 95716,
+      "costUsd": 0.0096
+    },
+    {
+      "type": "issue-kit:build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 13,
+      "cost": 81439,
+      "costUsd": 0.0081
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "Read",
+      "cost": 82061
+    },
+    {
+      "tools": "mcp__ccd_turn__update_plan + PowerShell + Read",
+      "cost": 30403
+    },
+    {
+      "tools": "Read",
+      "cost": 28260
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 526
+    },
+    {
+      "rule": "external-processes",
+      "tokens": 1647
+    },
+    {
+      "rule": "security",
+      "tokens": 1338
+    },
+    {
+      "rule": "tests",
+      "tokens": 1351
+    },
+    {
+      "rule": "wpf-mvvm",
+      "tokens": 1280
+    }
+  ],
+  "rulesTokens": 8939,
+  "limit": {
+    "startPct": 15,
+    "startAt": "2026-11-15 11:07",
+    "endPct": 16,
+    "usedPct": 1,
+    "limitCost": 1666649,
+    "unitsPerPct": 1666649,
+    "reason": null
+  }
+}

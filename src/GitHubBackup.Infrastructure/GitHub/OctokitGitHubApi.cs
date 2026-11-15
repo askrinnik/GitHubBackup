@@ -11,28 +11,30 @@ namespace GitHubBackup.Infrastructure.GitHub;
 /// Implements <see cref="IGitHubApi"/> with Octokit.NET against the address in <see cref="GitHubOptions.ApiBaseUrl"/>.
 /// </summary>
 /// <remarks>
-/// The token is resolved through <see cref="ITokenProvider"/> on the first call and kept for the lifetime of the
-/// instance. After every successful call the rate limit state of the last response is logged.
+/// The token set by <see cref="UseToken"/> goes with every following request. After every successful call the rate
+/// limit state of the last response is logged.
 /// </remarks>
-/// <param name="tokenProvider">The provider of the token, asked once on the first call.</param>
 /// <param name="options">The GitHub options that hold the API address.</param>
 /// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
 /// <param name="logger">The logger.</param>
 internal sealed class OctokitGitHubApi(
-    ITokenProvider tokenProvider,
     IOptions<GitHubOptions> options,
     TimeProvider timeProvider,
-    ILogger<OctokitGitHubApi> logger) : IGitHubApi, IDisposable
+    ILogger<OctokitGitHubApi> logger) : IGitHubApi
 {
     private const string _pageSize = "100";
 
-    private readonly ITokenProvider _tokenProvider = tokenProvider;
     private readonly TimeProvider _timeProvider = timeProvider;
     private readonly ILogger<OctokitGitHubApi> _logger = logger;
     private readonly GitHubClient _client = new(OctokitConnectionFactory.Create(options.Value.ApiBaseUrl));
-    private readonly SemaphoreSlim _credentialsLock = new(1, 1);
-    private volatile bool _credentialsResolved;
-    private bool _isAnonymous;
+    private volatile bool _isAnonymous = true;
+
+    /// <inheritdoc />
+    public void UseToken(GitHubToken token)
+    {
+        _client.Credentials = token.Value is { } value ? new Credentials(value) : Credentials.Anonymous;
+        _isAnonymous = token.IsAnonymous;
+    }
 
     /// <inheritdoc />
     public Task<GitHubAccount> GetAccountAsync(string login, CancellationToken cancellationToken)
@@ -48,7 +50,7 @@ internal sealed class OctokitGitHubApi(
     /// <inheritdoc />
     public async Task<IReadOnlyList<GitHubRepository>> GetCurrentUserRepositoriesAsync(CancellationToken cancellationToken)
     {
-        if (await IsAnonymousAsync(cancellationToken))
+        if (_isAnonymous)
         {
             OctokitGitHubApiLog.CurrentUserRepositoriesSkipped(_logger);
             return [];
@@ -112,9 +114,6 @@ internal sealed class OctokitGitHubApi(
             async () => OctokitModelMapper.ToRepository(await _client.Repository.Get(id)),
             cancellationToken);
     }
-
-    /// <inheritdoc />
-    public void Dispose() => _credentialsLock.Dispose();
 
     /// <summary>
     /// Rejects a value that is not a GitHub login, so it never becomes part of a request path.
@@ -204,8 +203,6 @@ internal sealed class OctokitGitHubApi(
     /// <returns>The result of the operation.</returns>
     private async Task<T> ExecuteAsync<T>(string resource, Func<Task<T>> operation, CancellationToken cancellationToken)
     {
-        await IsAnonymousAsync(cancellationToken);
-
         T result;
         try
         {
@@ -230,37 +227,6 @@ internal sealed class OctokitGitHubApi(
 
         LogRateLimit();
         return result;
-    }
-
-    /// <summary>
-    /// Resolves the token on the first call, applies it to the client and tells whether access is anonymous.
-    /// </summary>
-    /// <param name="cancellationToken">The token that cancels the lookup.</param>
-    /// <returns><see langword="true"/> when no token is configured.</returns>
-    private async Task<bool> IsAnonymousAsync(CancellationToken cancellationToken)
-    {
-        if (_credentialsResolved)
-        {
-            return _isAnonymous;
-        }
-
-        await _credentialsLock.WaitAsync(cancellationToken);
-        try
-        {
-            if (!_credentialsResolved)
-            {
-                var token = await _tokenProvider.GetTokenAsync(cancellationToken);
-                _client.Credentials = token.Value is { } value ? new Credentials(value) : Credentials.Anonymous;
-                _isAnonymous = token.IsAnonymous;
-                _credentialsResolved = true;
-            }
-        }
-        finally
-        {
-            _credentialsLock.Release();
-        }
-
-        return _isAnonymous;
     }
 
     /// <summary>

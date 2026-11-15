@@ -6,7 +6,6 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
-using NSubstitute;
 using WireMock.RequestBuilders;
 using WireMock.ResponseBuilders;
 using WireMock.Server;
@@ -26,17 +25,18 @@ public sealed class OctokitGitHubApiTests : IDisposable
     private static readonly DateTimeOffset _now = new(2026, 11, 11, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset _resetAt = DateTimeOffset.FromUnixTimeSeconds(_resetEpochSeconds);
 
+    private const string _otherToken = "ghp_ZYXWVUTSRQPONMLKJIHGFEDCBA9876543210zy";
+
+    private static readonly GitHubToken _configuredToken = new(_token, "test");
+
     private readonly WireMockServer _server = WireMockServer.Start();
-    private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
     private readonly FakeLogger<OctokitGitHubApi> _logger = new();
     private readonly FakeTimeProvider _timeProvider = new(_now);
-    private readonly List<OctokitGitHubApi> _apis = [];
 
     /// <summary>
-    /// Starts the server and sets up a token provider that returns a configured token.
+    /// The token that <see cref="CreateApi"/> gives the subject.
     /// </summary>
-    public OctokitGitHubApiTests() =>
-        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, "test"));
+    private GitHubToken _runToken = _configuredToken;
 
     /// <summary>
     /// The scenarios of <see cref="GetRepositoryAsync_Found_MapsFlags"/>: the JSON flags and the expected record.
@@ -56,15 +56,7 @@ public sealed class OctokitGitHubApiTests : IDisposable
     public static TheoryData<string> InvalidInputCalls => ["account", "organization", "user", "owner", "name", "id"];
 
     /// <inheritdoc />
-    public void Dispose()
-    {
-        foreach (var api in _apis)
-        {
-            api.Dispose();
-        }
-
-        _server.Dispose();
-    }
+    public void Dispose() => _server.Dispose();
 
     [Fact]
     public async Task GetCurrentUserRepositoriesAsync_TwoPages_ReturnsAllRepositories()
@@ -147,7 +139,7 @@ public sealed class OctokitGitHubApiTests : IDisposable
     [Fact]
     public async Task GetCurrentUserRepositoriesAsync_Anonymous_ReturnsEmptyWithoutRequest()
     {
-        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(GitHubToken.Anonymous);
+        _runToken = GitHubToken.Anonymous;
 
         var repositories = await CreateApi().GetCurrentUserRepositoriesAsync(TestContext.Current.CancellationToken);
 
@@ -353,7 +345,7 @@ public sealed class OctokitGitHubApiTests : IDisposable
     [Fact]
     public async Task GetRepositoryAsync_Anonymous_SendsNoAuthorizationHeader()
     {
-        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(GitHubToken.Anonymous);
+        _runToken = GitHubToken.Anonymous;
         GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
 
         await CreateApi().GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
@@ -405,7 +397,6 @@ public sealed class OctokitGitHubApiTests : IDisposable
         await Should.ThrowAsync<ArgumentException>(action);
 
         _server.LogEntries.ShouldBeEmpty();
-        await _tokenProvider.DidNotReceive().GetTokenAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -424,16 +415,80 @@ public sealed class OctokitGitHubApiTests : IDisposable
     }
 
     [Fact]
-    public async Task GetRepositoryAsync_TwoCalls_ResolvesTokenOnce()
+    public async Task GetRepositoryAsync_NoTokenSet_SendsNoAuthorizationHeader()
+    {
+        GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
+        var options = Options.Create(new GitHubOptions { ApiBaseUrl = _server.Url! });
+        var api = new OctokitGitHubApi(options, _timeProvider, _logger);
+
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        AuthorizationOfRequests().ShouldBe([null]);
+    }
+
+    [Fact]
+    public async Task UseToken_TokenChanged_NextRequestSendsNewTokenAndNeverLogsEither()
     {
         GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
         var api = CreateApi();
-
-        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
         await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
 
-        await _tokenProvider.Received(1).GetTokenAsync(Arg.Any<CancellationToken>());
-        _server.LogEntries.Count.ShouldBe(2);
+        api.UseToken(new(_otherToken, "test"));
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        AuthorizationOfRequests().ShouldBe([_token, _otherToken]);
+        _logger.Collector.GetSnapshot().ShouldAllBe(record =>
+            !record.Message.Contains(_token)
+            && !record.Message.Contains(_otherToken)
+            && (record.StructuredState == null || record.StructuredState.All(pair =>
+                pair.Value == null || (!pair.Value.Contains(_token) && !pair.Value.Contains(_otherToken)))));
+    }
+
+    [Fact]
+    public async Task UseToken_TokenThenAnonymousThenToken_SwitchesAuthorizationOnNextRequest()
+    {
+        GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
+        var api = CreateApi();
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        api.UseToken(GitHubToken.Anonymous);
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+        api.UseToken(_configuredToken);
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        AuthorizationOfRequests().ShouldBe([_token, null, _token]);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserRepositoriesAsync_AnonymousThenToken_RequestsOnlyWithToken()
+    {
+        _runToken = GitHubToken.Anonymous;
+        GivenRepository("/user/repos", RepositoriesJson(Repository(1, "me", "first")));
+        var api = CreateApi();
+        var skipped = await api.GetCurrentUserRepositoriesAsync(TestContext.Current.CancellationToken);
+
+        api.UseToken(_configuredToken);
+        var repositories = await api.GetCurrentUserRepositoriesAsync(TestContext.Current.CancellationToken);
+
+        skipped.ShouldBeEmpty();
+        repositories.ShouldHaveSingleItem().Name.ShouldBe("first");
+        AuthorizationOfRequests().ShouldBe([_token]);
+    }
+
+    [Fact]
+    public async Task GetCurrentUserRepositoriesAsync_TokenThenAnonymous_SkipsWithoutRequest()
+    {
+        GivenRepository("/user/repos", RepositoriesJson(Repository(1, "me", "first")));
+        var api = CreateApi();
+        var listed = await api.GetCurrentUserRepositoriesAsync(TestContext.Current.CancellationToken);
+
+        api.UseToken(GitHubToken.Anonymous);
+        var repositories = await api.GetCurrentUserRepositoriesAsync(TestContext.Current.CancellationToken);
+
+        listed.ShouldHaveSingleItem();
+        repositories.ShouldBeEmpty();
+        AuthorizationOfRequests().ShouldBe([_token]);
+        _logger.Collector.GetSnapshot().ShouldContain(record => record.Id.Id == _currentUserRepositoriesSkippedEventId);
     }
 
     /// <summary>
@@ -509,14 +564,28 @@ public sealed class OctokitGitHubApiTests : IDisposable
     /// Creates the subject against the server, or against <paramref name="apiBaseUrl"/> when given.
     /// </summary>
     /// <param name="apiBaseUrl">The API address, or <see langword="null"/> for the server root.</param>
-    /// <returns>The subject; the test disposes it.</returns>
+    /// <returns>The subject, with <see cref="_runToken"/> set.</returns>
     private OctokitGitHubApi CreateApi(string? apiBaseUrl = null)
     {
         var options = Options.Create(new GitHubOptions { ApiBaseUrl = apiBaseUrl ?? _server.Url! });
-        var api = new OctokitGitHubApi(_tokenProvider, options, _timeProvider, _logger);
-        _apis.Add(api);
+        var api = new OctokitGitHubApi(options, _timeProvider, _logger);
+        api.UseToken(_runToken);
         return api;
     }
+
+    /// <summary>
+    /// Returns the credential of the <c>Authorization</c> header of every request the server received, in order.
+    /// </summary>
+    /// <returns>
+    /// The header values without the scheme; <see langword="null"/> for a request without the header.
+    /// </returns>
+    private string?[] AuthorizationOfRequests() =>
+    [
+        .. _server.LogEntries.Select(entry => entry.RequestMessage!.Headers!
+            .Where(header => header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase))
+            .Select(header => header.Value.ToString()!.Split(' ')[^1])
+            .FirstOrDefault()),
+    ];
 
     /// <summary>
     /// Serves the first page of a repository list with a <c>Link</c> header whose next page is <paramref name="nextUrl"/>.
