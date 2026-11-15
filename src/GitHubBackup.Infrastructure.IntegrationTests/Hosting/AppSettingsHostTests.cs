@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Core.Ui;
@@ -182,13 +183,45 @@ public sealed class AppSettingsHostTests
         using (var host = contentRoot.BuildHost())
         {
             await host.Services.GetRequiredService<ITelemetrySettingsStore>()
-                .SaveAsync(new(true, "http://saved:4317"), TestContext.Current.CancellationToken);
+                .SaveAsync(new(true, "http://saved:4317", null), TestContext.Current.CancellationToken);
         }
 
         using var nextHost = contentRoot.BuildHost();
 
-        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().Current.ShouldBe(new(true, "http://saved:4317"));
+        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().Current.ShouldBe(new(true, "http://saved:4317", null));
         nextHost.Services.GetRequiredService<IToolPathsStore>().Current.ShouldBe(new(@"C:\AppSettings\git.exe", @"C:\AppSettings\7z.exe"));
+    }
+
+    [Fact]
+    public void BuildHost_HeadersOnCommandLine_TelemetryStoreReportsOverridden()
+    {
+        using var contentRoot = new TemporaryContentRoot("""{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""");
+
+        using var host = contentRoot.BuildHost("--OpenTelemetry:Headers=api-key=cli-secret");
+
+        var store = host.Services.GetRequiredService<ITelemetrySettingsStore>();
+        store.Current.Headers.ShouldBe("api-key=file-secret");
+        store.HeadersOverridden.ShouldBeTrue();
+        host.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBe("api-key=cli-secret");
+        var masker = host.Services.GetRequiredService<ISecretMasker>();
+        masker.Mask("Sent file-secret and cli-secret.").ShouldBe("Sent *** and ***.");
+    }
+
+    [Fact]
+    public async Task SaveAsync_TelemetryHeaders_NewHostReadsSavedHeaders()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        using (var host = contentRoot.BuildHost())
+        {
+            await host.Services.GetRequiredService<ITelemetrySettingsStore>()
+                .SaveAsync(new(false, null, "api-key=saved-secret"), TestContext.Current.CancellationToken);
+        }
+
+        using var nextHost = contentRoot.BuildHost();
+
+        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().Current.Headers.ShouldBe("api-key=saved-secret");
+        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().HeadersOverridden.ShouldBeFalse();
+        nextHost.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBe("api-key=saved-secret");
     }
 
     [Fact]

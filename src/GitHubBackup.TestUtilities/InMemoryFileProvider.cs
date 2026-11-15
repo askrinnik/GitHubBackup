@@ -2,13 +2,13 @@ using System.Text;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Primitives;
 
-namespace GitHubBackup.Cli.Tests;
+namespace GitHubBackup.TestUtilities;
 
 /// <summary>
 /// Serves files from memory so that configuration tests do not touch the disk.
 /// </summary>
 /// <param name="files">The file contents by file name.</param>
-internal sealed class InMemoryFileProvider(IReadOnlyDictionary<string, string> files) : IFileProvider
+public sealed class InMemoryFileProvider(IReadOnlyDictionary<string, string> files) : IFileProvider
 {
     /// <summary>
     /// Creates a provider that serves <paramref name="content"/> as <c>appsettings.json</c>.

@@ -38,8 +38,9 @@ public static class TelemetryServiceCollectionExtensions
         /// <see cref="ISecretMasker"/> to be registered.
         /// The switch is read from <paramref name="configuration"/> because registration happens before the options
         /// exist. A value that is not a boolean registers nothing here and is reported by the validation of
-        /// <see cref="OpenTelemetryOptions"/> when the host starts. The endpoint is read from the validated options
-        /// when the exporter is created.
+        /// <see cref="OpenTelemetryOptions"/> when the host starts. The endpoint and the headers are read from the
+        /// validated options when the exporter is created; <see cref="OpenTelemetryOptions.Headers"/> is the only
+        /// source of headers. All three signals use the unnamed <see cref="OtlpExporterOptions"/>.
         /// </remarks>
         /// <param name="configuration">The configuration that holds the <c>OpenTelemetry</c> section.</param>
         /// <returns>The same service collection, for chaining.</returns>
@@ -67,6 +68,10 @@ public static class TelemetryServiceCollectionExtensions
                     {
                         exporter.Endpoint = endpoint;
                     }
+
+                    // Assigned also when not set, so headers the SDK reads from OTEL_EXPORTER_OTLP_HEADERS never reach
+                    // the receiver without being registered with the secret masker.
+                    exporter.Headers = string.IsNullOrWhiteSpace(options.Value.Headers) ? null : options.Value.Headers;
                 });
 
             return services;

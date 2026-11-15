@@ -8,15 +8,10 @@ namespace GitHubBackup.Infrastructure.Configuration;
 internal sealed class GitHubOptionsValidator : IValidateOptions<GitHubOptions>
 {
     /// <inheritdoc />
-    public ValidateOptionsResult Validate(string? name, GitHubOptions options)
-    {
-        // The token goes with every API request, so plain http is allowed only where it never leaves the machine.
-        var isAllowedUri = Uri.TryCreate(options.ApiBaseUrl, UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || (uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback));
-
-        return isAllowedUri
+    /// <remarks>The token goes with every API request, so the address must be one that may receive a secret.</remarks>
+    public ValidateOptionsResult Validate(string? name, GitHubOptions options) =>
+        SecureEndpoint.IsAllowed(options.ApiBaseUrl)
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(
                 $"{GitHubOptions.SectionName}:{nameof(GitHubOptions.ApiBaseUrl)} must be an absolute https URI, or http for a loopback address.");
-    }
 }

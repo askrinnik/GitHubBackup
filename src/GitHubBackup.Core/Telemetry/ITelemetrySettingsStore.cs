@@ -10,15 +10,27 @@ public interface ITelemetrySettingsStore
     /// Gets the telemetry settings the last save of this run wrote, or the settings the running application uses before
     /// the first save, so that the settings editor shows what the next start uses.
     /// </summary>
+    /// <remarks>
+    /// <see cref="TelemetrySettings.Headers"/> is the value of the application settings file only: the last save of
+    /// this run, or the file as read at start-up. A value from a source that overrides the file is a secret the user
+    /// did not put there, so it is never shown and never carried into the file.
+    /// </remarks>
     TelemetrySettings Current { get; }
+
+    /// <summary>
+    /// Gets whether a configuration source with a higher priority than the application settings file sets
+    /// <see cref="TelemetrySettings.HeadersKey"/>, so that the headers of the file do not take effect.
+    /// </summary>
+    bool HeadersOverridden { get; }
 
     /// <summary>
     /// Checks <paramref name="settings"/> by the rules applied to the configured telemetry settings at start-up.
     /// </summary>
     /// <param name="settings">The settings to check.</param>
     /// <returns>
-    /// The errors, empty when the settings are valid; each starts with <see cref="TelemetrySettings.EnabledKey"/> or
-    /// <see cref="TelemetrySettings.OtlpEndpointKey"/> and never quotes the value.
+    /// The errors, empty when the settings are valid; each starts with <see cref="TelemetrySettings.EnabledKey"/>,
+    /// <see cref="TelemetrySettings.OtlpEndpointKey"/> or <see cref="TelemetrySettings.HeadersKey"/> and never quotes
+    /// the value.
     /// </returns>
     IReadOnlyList<string> Validate(TelemetrySettings settings);
 

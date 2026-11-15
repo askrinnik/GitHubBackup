@@ -36,6 +36,9 @@ public sealed class OtlpLogExportTests : IDisposable
     /// <summary>A token in the classic GitHub format that is not registered anywhere.</summary>
     private const string _unregisteredToken = "ghp_TestTokenValue0123456789abcdefABCDEF";
 
+    /// <summary>The value of an OTLP header registered through configuration; it has no recognisable format.</summary>
+    private const string _headerValue = "header-value-without-format";
+
     /// <summary>The category of the entries the tests write.</summary>
     private static readonly string _category = typeof(OtlpLogExportTests).FullName!;
 
@@ -117,6 +120,30 @@ public sealed class OtlpLogExportTests : IDisposable
         record.GetAttribute(SecretMaskingLogRecordProcessor.ExceptionMessageAttribute)
             .ShouldBe("Request failed for *** and ***");
         record.FormattedMessage.ShouldBe("""Calling with "***", "***" and "Authorization: Basic ***" """.TrimEnd());
+    }
+
+    [Fact]
+    public void Log_HeaderValueInMessagePropertyAndException_ExportsStars()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        var exception = new InvalidOperationException($"Export rejected the key {_headerValue}");
+
+        using (var host = BuildHost(
+            contentRoot, _enabledArgument, _endpointArgument, $"--OpenTelemetry:Headers=api-key={_headerValue}"))
+        {
+            TestLog.CallFailed(CreateLogger(host), exception, _headerValue, "none", $"api-key={_headerValue}");
+        }
+
+        var record = OwnRecords().ShouldHaveSingleItem();
+        foreach (var text in record.GetAllTexts())
+        {
+            text.ShouldNotContain(_headerValue);
+        }
+
+        record.GetAttribute("Token").ShouldBe("***");
+        record.GetAttribute("Header").ShouldBe("***");
+        record.GetAttribute(SecretMaskingLogRecordProcessor.ExceptionMessageAttribute)
+            .ShouldBe("Export rejected the key ***");
     }
 
     [Fact]
