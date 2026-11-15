@@ -3,6 +3,9 @@ namespace GitHubBackup.Core.Git;
 /// <summary>
 /// Describes the state of a clone after <see cref="IGitClient.CloneAsync"/> or <see cref="IGitClient.UpdateAsync"/>.
 /// </summary>
+/// <remarks>
+/// When a branch is checked out, the submodules were updated and the LFS files were pulled.
+/// </remarks>
 /// <param name="Branch">
 /// The branch checked out, or <see langword="null"/> when the server has no branch and nothing was checked out.
 /// </param>

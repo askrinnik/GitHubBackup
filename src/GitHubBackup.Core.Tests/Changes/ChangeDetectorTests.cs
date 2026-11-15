@@ -865,8 +865,192 @@ public sealed class ChangeDetectorTests : IDisposable
             CreateRequest(Archive("main", BaseRefs), "main") with { RemoteMayBeMissing = true }, CancellationToken));
 
         var span = _capture.Spans.ShouldHaveSingleItem();
-        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
         span.Status.ShouldBe(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerUnchanged_TagsLsRemoteRefsSpan()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+        using var test = _capture.StartTest();
+
+        await DetectAsync(Archive("main", BaseRefs));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.RemoteRefsQuery);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(3);
+    }
+
+    [Fact]
+    public async Task DetectAsync_ServerUnchangedBranchNotSet_TracesRefsThenDefaultBranch()
+    {
+        AddClone();
+        AddArchiveFile();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch("main");
+        using var test = _capture.StartTest();
+
+        await DetectAsync(Archive("main", BaseRefs), branch: null);
+
+        _capture.Spans.Select(span => span.OperationName).ShouldBe(
+            [BackupTelemetry.LsRemoteRefsSpanName, BackupTelemetry.LsRemoteDefaultBranchSpanName]);
+        var defaultBranch = _capture.Named(BackupTelemetry.LsRemoteDefaultBranchSpanName).ShouldHaveSingleItem();
+        defaultBranch.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
+        defaultBranch.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.DefaultBranchQuery);
+        defaultBranch.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetectAsync_ArchiveFileMissing_TracesOnlyFetch(bool archiveKnown)
+    {
+        AddClone();
+        SetupUpdate(Sync("main", BaseRefs));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(archiveKnown ? Archive("main", BaseRefs) : null);
+
+        _capture.Spans.ShouldHaveSingleItem().OperationName.ShouldBe(BackupTelemetry.FetchOperation);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_RequestedBranchMissing_TagsEachLsRemoteSpanWithItsQuery()
+    {
+        AddClone();
+        SetupRemote(BaseRefs);
+        SetupDefaultBranch("main");
+        using var test = _capture.StartTest();
+
+        await PreviewAsync(last: null, branch: "gone");
+
+        _capture.Spans.Select(span => span.GetTagItem(BackupTelemetry.GitQueryTag)).ShouldBe(
+            [BackupTelemetry.RemoteRefsQuery, BackupTelemetry.DefaultBranchQuery]);
+        _capture.Spans.Select(span => span.OperationName).ShouldBe(
+            [BackupTelemetry.LsRemoteRefsSpanName, BackupTelemetry.LsRemoteDefaultBranchSpanName]);
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneWithRemoteCheck_TracesLsRemoteRefsWithCount()
+    {
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken).Returns(BaseRefs);
+        using var test = _capture.StartTest();
+
+        await CreateDetector().PreviewAsync(
+            CreateRequest(last: null, "main") with { CheckRemoteWithoutClone = true, RemoteMayBeMissing = true },
+            CancellationToken);
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(3);
+        span.Status.ShouldBe(ActivityStatusCode.Unset);
+    }
+
+    [Fact]
+    public async Task DetectAsync_LsRemoteFails_SetsNoRefsCount()
+    {
+        AddClone();
+        AddArchiveFile();
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken)
+            .ThrowsAsync(new GitCommandException("failed", "git ls-remote", 128));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<GitCommandException>(() => DetectAsync(Archive("main", BaseRefs)));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.Status.ShouldBe(ActivityStatusCode.Error);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DetectAsync_CloneSucceeds_TagsLfsAndSubmodulesByCheckout(bool hasBranch)
+    {
+        SetupClone(hasBranch ? Sync("main", BaseRefs) : new GitSyncResult(null, false, RefSnapshot.Empty));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(last: null);
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.GetTagItem(BackupTelemetry.GitLfsTag).ShouldBe(hasBranch);
+        span.GetTagItem(BackupTelemetry.GitSubmodulesTag).ShouldBe(hasBranch);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DetectAsync_FetchSucceeds_TagsLfsAndSubmodulesByCheckout(bool hasBranch)
+    {
+        AddClone();
+        SetupUpdate(hasBranch ? Sync("main", BaseRefs) : new GitSyncResult(null, false, RefSnapshot.Empty));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(last: null);
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.FetchOperation);
+        span.GetTagItem(BackupTelemetry.GitLfsTag).ShouldBe(hasBranch);
+        span.GetTagItem(BackupTelemetry.GitSubmodulesTag).ShouldBe(hasBranch);
+    }
+
+    [Fact]
+    public async Task DetectAsync_CloneFails_SetsNoLfsOrSubmodulesTag()
+    {
+        _git.CloneAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken)
+            .ThrowsAsync(new InvalidOperationException("failed"));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<InvalidOperationException>(() => DetectAsync(last: null));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.GetTagItem(BackupTelemetry.GitLfsTag).ShouldBeNull();
+        span.GetTagItem(BackupTelemetry.GitSubmodulesTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DetectAsync_FetchRecheckFindsLocalWork_SetsNoLfsOrSubmodulesTag()
+    {
+        AddClone();
+        _guard.CheckLocalAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<RefSnapshot?>(), Arg.Any<CancellationToken>())
+            .Returns(new CloneCheckResult(_clonePath, ["local work"]));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<LocalChangesException>(() => DetectAsync(last: null));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.Status.ShouldBe(ActivityStatusCode.Error);
+        span.GetTagItem(BackupTelemetry.GitLfsTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task DetectAsync_AllPaths_TagKeysCarryNoUrlTokenOrCommandLine()
+    {
+        AddClone();
+        AddArchiveFile();
+        var changed = Snapshot(("heads/main", "a2"), ("heads/develop", "b"), ("tags/v1", "t1"));
+        SetupRemote(changed);
+        SetupDefaultBranch("main");
+        SetupUpdate(Sync("main", changed));
+        using var test = _capture.StartTest();
+
+        await DetectAsync(Archive("main", BaseRefs), branch: null);
+
+        _capture.Spans.Count.ShouldBe(2);
+        foreach (var tag in _capture.Spans.SelectMany(span => span.TagObjects))
+        {
+            tag.Key.ShouldStartWith("githubbackup.");
+            var value = tag.Value?.ToString() ?? string.Empty;
+            value.ShouldNotContain("http");
+            value.ShouldNotContain("git ");
+            value.ShouldNotContain(_clonePath);
+        }
     }
 
     [Fact]

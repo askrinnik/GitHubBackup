@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using GitHubBackup.Core.Changes;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
@@ -109,6 +110,130 @@ public sealed class BackupTelemetryTests : IDisposable
 
         _capture.Spans.ShouldHaveSingleItem().Status.ShouldBe(expected);
     }
+
+    [Fact]
+    public async Task TraceOperationAsync_ActivityOverload_HandsSpanToAction()
+    {
+        using var test = _capture.StartTest();
+
+        await Telemetry.TraceOperationAsync(
+            BackupTelemetry.CloneOperation,
+            activity =>
+            {
+                activity.ShouldNotBeNull().SetTag("custom", 1);
+                return Task.FromResult(0);
+            });
+
+        _capture.Spans.ShouldHaveSingleItem().GetTagItem("custom").ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task TraceRemoteRefsAsync_Succeeds_NamesSpanAndTagsQueryAndRefsCount()
+    {
+        using var test = _capture.StartTest();
+        RefSnapshot refs = new([KeyValuePair.Create("heads/main", "a"), KeyValuePair.Create("tags/v1", "b")]);
+
+        var result = await Telemetry.TraceRemoteRefsAsync(() => Task.FromResult(refs));
+
+        result.ShouldBe(refs);
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.RemoteRefsQuery);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(2);
+    }
+
+    [Theory]
+    [InlineData(false, ActivityStatusCode.Error)]
+    [InlineData(true, ActivityStatusCode.Unset)]
+    public async Task TraceRemoteRefsAsync_NoRepository_SetsNoRefsCountAndMarksErrorOnlyWhenRemoteMustExist(
+        bool remoteMayBeMissing, ActivityStatusCode expected)
+    {
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<GitRepositoryNotFoundException>(() => Telemetry.TraceRemoteRefsAsync(
+            () => throw new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128),
+            remoteMayBeMissing));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.Status.ShouldBe(expected);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task TraceDefaultBranchAsync_Succeeds_NamesSpanAndTagsQueryOnly()
+    {
+        using var test = _capture.StartTest();
+
+        var result = await Telemetry.TraceDefaultBranchAsync(() => Task.FromResult<string?>("main"));
+
+        result.ShouldBe("main");
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteDefaultBranchSpanName);
+        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.DefaultBranchQuery);
+        span.TagObjects.Select(tag => tag.Value).ShouldNotContain("main");
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void SetSyncResult_Sync_TagsLfsAndSubmodulesByCheckout(bool hasBranch)
+    {
+        using var test = _capture.StartTest();
+
+        using (var span = Telemetry.StartOperation(BackupTelemetry.FetchOperation))
+        {
+            BackupTelemetry.SetSyncResult(
+                span, new GitSyncResult(hasBranch ? "main" : null, false, RefSnapshot.Empty));
+        }
+
+        var stopped = _capture.Spans.ShouldHaveSingleItem();
+        stopped.GetTagItem(BackupTelemetry.GitLfsTag).ShouldBe(hasBranch);
+        stopped.GetTagItem(BackupTelemetry.GitSubmodulesTag).ShouldBe(hasBranch);
+    }
+
+    [Fact]
+    public void SetArchiveSize_Size_TagsBytes()
+    {
+        using var test = _capture.StartTest();
+
+        using (var span = Telemetry.StartOperation(BackupTelemetry.ArchiveOperation))
+        {
+            BackupTelemetry.SetArchiveSize(span, 4096);
+        }
+
+        _capture.Spans.ShouldHaveSingleItem().GetTagItem(BackupTelemetry.ArchiveSizeTag).ShouldBe(4096L);
+    }
+
+    [Theory]
+    [InlineData("main", true)]
+    [InlineData(null, false)]
+    public void SetDetection_Detection_TagsDecisionReasonAndKnownBranch(string? branch, bool branchTagged)
+    {
+        using var test = _capture.StartTest();
+
+        using (var span = Telemetry.StartRepository("owner/repo", BackupTarget.Repository))
+        {
+            BackupTelemetry.SetDetection(
+                span, new ChangeDetection(ChangeDecision.ArchiveNeeded, ChangeReason.RefsChanged, branch, false, RefSnapshot.Empty));
+        }
+
+        var stopped = _capture.Spans.ShouldHaveSingleItem();
+        stopped.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBe(nameof(ChangeDecision.ArchiveNeeded));
+        stopped.GetTagItem(BackupTelemetry.ChangeReasonTag).ShouldBe(nameof(ChangeReason.RefsChanged));
+        (stopped.GetTagItem(BackupTelemetry.BranchTag) is not null).ShouldBe(branchTagged);
+    }
+
+    [Fact]
+    public void SetHelpers_NoSpan_DoNothing() =>
+        Should.NotThrow(() =>
+        {
+            BackupTelemetry.SetSyncResult(null, new GitSyncResult("main", false, RefSnapshot.Empty));
+            BackupTelemetry.SetArchiveSize(null, 1);
+            BackupTelemetry.SetDetection(
+                null, new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, "main", false, RefSnapshot.Empty));
+        });
 
     [Fact]
     public void SetError_NoException_SetsErrorStatusWithoutType()

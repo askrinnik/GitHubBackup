@@ -999,7 +999,7 @@ public sealed class BackupOrchestrator(
                     remoteUrlProvider.GetRepositoryUrl(item.Owner, item.Name),
                     item.Branch);
                 source = await PrepareCloneFolderAsync(item, source, settings, cancellationToken);
-                outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
+                outcome = await BackupAsync(item, source, settings, stages, activity, cancellationToken);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -1091,7 +1091,7 @@ public sealed class BackupOrchestrator(
                 remoteUrlProvider.GetWikiUrl(item.Owner, item.Name),
                 Branch: null);
             source = await PrepareCloneFolderAsync(item, source, settings, cancellationToken);
-            outcome = await BackupAsync(item, source, settings, stages, cancellationToken);
+            outcome = await BackupAsync(item, source, settings, stages, activity, cancellationToken);
         }
         catch (GitRepositoryNotFoundException)
         {
@@ -1161,6 +1161,9 @@ public sealed class BackupOrchestrator(
     /// <param name="source">The repository or its wiki.</param>
     /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
     /// <param name="stages">Receives each git operation and the archiving, or <see langword="null"/>.</param>
+    /// <param name="activity">
+    /// The span of the item, which receives the decision of the change detection, or <see langword="null"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the work.</param>
     /// <returns>
     /// The status, the archive created or the archive a dry run predicts, the warning, the branch and its commit, and
@@ -1171,6 +1174,7 @@ public sealed class BackupOrchestrator(
         BackupSource source,
         RunSettings settings,
         IProgress<BackupProgressStage>? stages,
+        Activity? activity,
         CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
@@ -1194,6 +1198,7 @@ public sealed class BackupOrchestrator(
         var detection = settings.DryRun
             ? await changeDetector.PreviewAsync(request, cancellationToken)
             : await changeDetector.DetectAsync(request, cancellationToken);
+        BackupTelemetry.SetDetection(activity, detection);
         if (detection.Decision == ChangeDecision.CloneNeeded)
         {
             return new(BackupItemStatus.WouldClone, null, source.Notice);
@@ -1261,7 +1266,7 @@ public sealed class BackupOrchestrator(
         RunSettings settings,
         ChangeDetection detection,
         CancellationToken cancellationToken) =>
-        telemetry.TraceOperationAsync(BackupTelemetry.ArchiveOperation, async () =>
+        telemetry.TraceOperationAsync(BackupTelemetry.ArchiveOperation, async activity =>
         {
             var (branch, headCommit) = GetHeadCommit(source, detection);
             var name = nameBuilder.Build(item.Owner, item.Name, source.Target, headCommit);
@@ -1286,6 +1291,7 @@ public sealed class BackupOrchestrator(
                 },
                 cancellationToken);
             telemetry.RecordArchiveSize(result.SizeBytes, source.Target);
+            BackupTelemetry.SetArchiveSize(activity, result.SizeBytes);
 
             var record = new ArchiveRecord(name.FileName, name.CreatedAt, branch, headCommit, result.SizeBytes, detection.Refs);
             await stateStore.AppendAsync(item.ArchiveFolder, item.Id, item.FullName, source.Target, record, CancellationToken.None);

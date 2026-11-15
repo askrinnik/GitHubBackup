@@ -646,15 +646,52 @@ Traces:
 ```
 backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 ├── backup.discovery            absent with --repo
-├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status
-│   ├── ls-remote | clone | fetch
-│   └── archive
+├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status,
+│   │                           githubbackup.change.decision, githubbackup.change.reason, githubbackup.branch
+│   ├── ls-remote refs          githubbackup.operation, githubbackup.git.query, githubbackup.git.refs_count
+│   ├── ls-remote default-branch    githubbackup.operation, githubbackup.git.query
+│   ├── clone | fetch           githubbackup.operation, githubbackup.git.lfs, githubbackup.git.submodules
+│   └── archive                 githubbackup.operation, githubbackup.archive.size
 └── backup.repository           wiki of the same repository (githubbackup.target = Wiki)
 ```
 
+Spans:
+
+| Span | When it appears | What it does |
+|---|---|---|
+| `backup.run` | Always; the root of the trace | The whole run. |
+| `backup.discovery` | Every run except a run with `--repo` | Asks the GitHub API for the repositories and finds new, missing and renamed ones. |
+| `backup.repository` | Once for each processed repository or wiki | Processes one repository or its wiki; the operation spans below are its children. |
+| `ls-remote refs` | A normal run with an existing clone and a last archive whose file exists; a dry run with an existing clone; a dry run of a wiki without a clone | Reads the branches and tags of the server without changing the clone. |
+| `ls-remote default-branch` | After `ls-remote refs`, when the branch is not set or is missing on the server | Asks the server for its default branch. |
+| `clone` | A normal run without a clone | Clones the repository, checks out the branch, updates the submodules and pulls the LFS files. |
+| `fetch` | A normal run with a clone, when `ls-remote refs` found a change or was skipped (no last archive, or its file is missing) | Brings the clone up to date and checks out the branch; the steps for the submodules and LFS are the same as in `clone`. |
+| `archive` | A normal run that creates an archive | Packs the clone with 7-Zip and records the archive in the state file. |
+
+The `git ls-remote --symref` call that `clone` and `fetch` make inside themselves has no span of its own. A dry run makes no `clone`, `fetch` or `archive` span.
+
+- An unchanged repository has only `ls-remote` spans: no `fetch` and no `archive`. Its `githubbackup.change.decision` is `UpToDate` and its `githubbackup.change.reason` is `Unchanged`, which tells why.
+- A `backup.repository` span without children means that the program decided about the item without calling git. `githubbackup.status` shows the outcome: `Skipped` for an inactive repository, or `Failed` with `error.type` for a failure before the server is contacted. A dry run of a repository without a clone also has no children; its `githubbackup.change.decision` is `CloneNeeded` and its `githubbackup.change.reason` is `NoClone`.
+
+Attributes:
+
+| Attribute | Span | Value |
+|---|---|---|
+| `githubbackup.change.decision` | `backup.repository` | The decision of the change check: `CloneNeeded`, `ArchiveNeeded`, `UpToDate` or `NothingToArchive`. |
+| `githubbackup.change.reason` | `backup.repository` | The reason of the decision, such as `NoClone`, `NoArchive`, `ArchiveFileMissing`, `RefsChanged`, `BranchChanged`, `Unchanged` or `EmptyRepository`. |
+| `githubbackup.branch` | `backup.repository` | The branch that is archived (or would be); absent when no branch is known. |
+| `githubbackup.operation` | operation spans | The operation: `clone`, `fetch`, `ls-remote` (for both `ls-remote` spans) or `archive`. |
+| `githubbackup.git.query` | `ls-remote` spans | `remote_refs` for `ls-remote refs`, `default_branch` for `ls-remote default-branch`. |
+| `githubbackup.git.refs_count` | `ls-remote refs` | The number of branches and tags on the server. |
+| `githubbackup.git.lfs` | `clone`, `fetch` | `true` when a branch was checked out and the LFS files were pulled; `false` for an empty repository. |
+| `githubbackup.git.submodules` | `clone`, `fetch` | `true` when a branch was checked out and the submodules were updated; `false` for an empty repository. |
+| `githubbackup.archive.size` | `archive` | The size of the new archive in bytes. The metric `githubbackup.archive.size` is a separate signal. |
+
+An attribute is absent when its value is unknown. A repository that is skipped or fails before the change check has no `githubbackup.change.*` and no `githubbackup.branch`. A failed `clone` or `fetch` has no `githubbackup.git.lfs` or `githubbackup.git.submodules`, a failed `ls-remote refs` has no `githubbackup.git.refs_count`, and an `archive` that fails before 7-Zip finishes has no `githubbackup.archive.size`. The attributes hold only fixed values, numbers and branch names, never a git command line, a URL or the token.
+
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
-- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote`, `clone` or `fetch` span ends without the status `Error`.
+- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`.
 - The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector with the variable `OTEL_EXPORTER_OTLP_HEADERS`, not in `OtlpEndpoint`.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 
@@ -700,7 +737,7 @@ You need Docker Desktop (Linux containers) running.
    ```
 
    Add `--dry-run` to change nothing, or set `"Enabled": true` in the `OpenTelemetry` section of `appsettings.json` to send telemetry on every run.
-4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags.
+4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote refs`, `ls-remote default-branch`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags: on `backup.repository` the decision, its reason and the branch; on the operation spans the git query, the number of refs, the LFS and submodule steps and the archive size.
 5. On the **Metrics** page, select the resource `GitHubBackup`: it lists the four `githubbackup.*` metrics. Use the **Table** view to read single values.
 6. On the **Structured logs** page, select the resource `GitHubBackup`: it lists the log entries of the run with their level and message. Select an entry to see its attributes, or filter by `RunId`, `Repository` or `Operation` to follow one run, repository or step.
 7. Stop the dashboard:

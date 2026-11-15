@@ -16,6 +16,10 @@ namespace GitHubBackup.Core.Git;
 /// default branch and report it in <see cref="GitSyncResult.BranchFallback"/>. A server without any branch is a
 /// valid, empty repository: nothing is checked out and <see cref="GitSyncResult.IsEmpty"/> is set.
 /// </para>
+/// <para>
+/// The submodule update and the LFS pull run exactly when a branch is checked out, that is, when
+/// <see cref="GitSyncResult.IsEmpty"/> is not set.
+/// </para>
 /// </remarks>
 public interface IGitClient
 {
