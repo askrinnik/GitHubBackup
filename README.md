@@ -431,7 +431,7 @@ If the cancel comes during discovery or the questions, there is no table. The ca
 |---|---|
 | `0` | No errors |
 | `1` | At least one repository ended with `Failed` |
-| `2` | Critical error: wrong arguments, `appsettings.json`, `backup-config.json`, missing tools, another run is active, or a GitHub API failure during discovery or `id` lookup (for example, the rate limit is exhausted or the token is rejected). The program processes no repositories and prints one line per error to stderr, then the log path. The same code means a run cancelled by the user (Ctrl+C) |
+| `2` | Critical error: wrong arguments, `appsettings.json`, `backup-config.json`, missing tools, another run is active, or a GitHub API failure during discovery or `id` lookup (for example, the rate limit is exhausted or the token is rejected). The program processes no repositories and prints one line per error to stderr, then the log path. The same code means a run cancelled by the user (Ctrl+C). Any other unexpected failure while the program starts prints one line `Startup error: <message> (log: <log path>)` without a stack trace and with the token masked; the full error is in the log |
 | `3` | No errors, but the run found new repositories (by the rule of `discoverAccessibleRepositories`), missing repositories or renamed repositories |
 
 When several conditions apply, the first one wins: `2`, then `1`, then `3`.

@@ -75,6 +75,19 @@ public static class FileLoggingServiceCollectionExtensions
 
         configuration.Enrich.With(new RunIdEnricher(provider.GetRequiredService<IRunContext>()));
 
+        WriteToDailyFiles(configuration, contentRootPath, masker);
+        configuration.WriteTo.Sink(provider.GetRequiredService<LiveLogSink>());
+    }
+
+    /// <summary>
+    /// Adds the sinks of the text and the structured daily files in the log folder of the content root, both masked.
+    /// </summary>
+    /// <param name="configuration">The logger configuration.</param>
+    /// <param name="contentRootPath">The folder of the executable.</param>
+    /// <param name="masker">The masker applied to every rendered entry.</param>
+    internal static void WriteToDailyFiles(
+        LoggerConfiguration configuration, string contentRootPath, ISecretMasker masker)
+    {
         WriteToDailyFile(
             configuration,
             new MessageTemplateTextFormatter(TextOutputTemplate, CultureInfo.InvariantCulture),
@@ -85,7 +98,6 @@ public static class FileLoggingServiceCollectionExtensions
             new CompactJsonFormatter(),
             masker,
             LogFiles.GetPathTemplate(contentRootPath, LogFiles.JsonExtension));
-        configuration.WriteTo.Sink(provider.GetRequiredService<LiveLogSink>());
     }
 
     /// <summary>

@@ -22,6 +22,7 @@ using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.GitHub;
 using GitHubBackup.Infrastructure.History;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.Infrastructure.Runs;
 using GitHubBackup.Infrastructure.State;
@@ -65,7 +66,7 @@ public static class InfrastructureServiceCollectionExtensions
         /// <returns>The same service collection, for chaining.</returns>
         public IServiceCollection AddGitHubBackupInfrastructure(IConfiguration configuration)
         {
-            services.TryAddSingleton<ISecretMasker>(_ => CreateSecretMasker(configuration));
+            services.TryAddSingleton<ISecretMasker>(_ => HostSecretMasker.Create(configuration));
             services.TryAddSingleton<ITokenStore>(
                 _ => new CredentialManagerTokenStore(CredentialManagerTokenStore.DefaultTarget));
 
@@ -125,23 +126,5 @@ public static class InfrastructureServiceCollectionExtensions
 
             return services;
         }
-    }
-
-    /// <summary>
-    /// Creates the <see cref="ISecretMasker"/> of the host with <see cref="GitHubOptions.TokenKey"/> registered when
-    /// the configuration sets it.
-    /// </summary>
-    /// <param name="configuration">The application configuration.</param>
-    /// <returns>The masker.</returns>
-    private static SecretMasker CreateSecretMasker(IConfiguration configuration)
-    {
-        var masker = new SecretMasker();
-        var token = configuration[GitHubOptions.TokenKey];
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            masker.Register(token);
-        }
-
-        return masker;
     }
 }

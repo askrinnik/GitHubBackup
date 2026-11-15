@@ -24,4 +24,13 @@ internal static partial class CliLog
     /// <param name="exitCode">The exit code of the process.</param>
     [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "GitHubBackup.Cli finished with exit code {ExitCode}")]
     public static partial void RunFinished(ILogger logger, ExitCode exitCode);
+
+    /// <summary>
+    /// Logs that the host of the console application could not be built or started for a reason other than invalid
+    /// configuration.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="exception">The exception that stopped the start.</param>
+    [LoggerMessage(EventId = 3, Level = LogLevel.Critical, Message = "GitHubBackup.Cli failed to start")]
+    public static partial void StartupFailed(ILogger logger, Exception exception);
 }
