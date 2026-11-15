@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Core.Ui;
 using GitHubBackup.Infrastructure.Configuration;
@@ -100,6 +101,50 @@ public sealed class UserSettingsHostTests
         var paths = nextHost.Services.GetRequiredService<IToolPathsStore>().Current;
         paths.GitPath.ShouldBe(@"D:\Saved\git.exe");
         paths.SevenZipPath.ShouldBeOneOf(null, string.Empty, ToolsOptions.DefaultSevenZipPath);
+    }
+
+    [Fact]
+    public void BuildHost_TelemetryKeysInUserSettings_OverrideAppSettings()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317" } }""");
+        WriteUserSettings(
+            contentRoot, """{ "OpenTelemetry": { "Enabled": true, "OtlpEndpoint": "http://otel.example:4317" } }""");
+
+        using var host = contentRoot.BuildHost();
+
+        var options = host.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value;
+        options.Enabled.ShouldBeTrue();
+        options.OtlpEndpoint.ShouldBe("http://otel.example:4317");
+        host.Services.GetRequiredService<ITelemetrySettingsStore>().Current.ShouldBe(
+            new TelemetrySettings(true, "http://otel.example:4317"));
+    }
+
+    [Fact]
+    public void BuildHost_OtherOpenTelemetryKeyInUserSettings_IsIgnored()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        WriteUserSettings(contentRoot, """{ "OpenTelemetry": { "Other": "value", "enabled": true } }""");
+
+        using var host = contentRoot.BuildHost();
+
+        host.Services.GetRequiredService<IConfiguration>()["OpenTelemetry:Other"].ShouldBeNull();
+        host.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Enabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SaveAsync_Telemetry_NewHostReadsSavedSettings()
+    {
+        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        using (var host = contentRoot.BuildHost())
+        {
+            await host.Services.GetRequiredService<ITelemetrySettingsStore>()
+                .SaveAsync(new(true, "http://saved:4317"), TestContext.Current.CancellationToken);
+        }
+
+        using var nextHost = contentRoot.BuildHost();
+
+        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().Current.ShouldBe(new(true, "http://saved:4317"));
     }
 
     [Fact]

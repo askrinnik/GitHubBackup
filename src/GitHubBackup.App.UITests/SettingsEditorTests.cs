@@ -187,6 +187,37 @@ public sealed class SettingsEditorTests : IDisposable
             """.ReplaceLineEndings());
     }
 
+    [Fact]
+    public void Open_ShowsTelemetryGroupWithItsFields()
+    {
+        OpenSettings();
+
+        var telemetry = _session.WaitFor("SettingsTelemetryGroup");
+
+        telemetry.Name.ShouldBe("Telemetry");
+        AppSession.WaitFor(telemetry, "TelemetryEnabledCheckBox");
+        AppSession.WaitFor(telemetry, "OtlpEndpointBox");
+        AppSession.WaitFor(telemetry, "SaveTelemetryButton");
+    }
+
+    [Fact]
+    public void SaveTelemetry_EnabledWithEndpoint_WritesOpenTelemetrySection()
+    {
+        OpenSettings();
+        _session.WaitFor("TelemetryEnabledCheckBox").Patterns.Toggle.Pattern.Toggle();
+        _session.SetText("OtlpEndpointBox", "http://localhost:4318");
+
+        _session.Invoke("SaveTelemetryButton");
+
+        AppSession.WaitUntil(
+            () => _session.WaitFor("TelemetryStatus").Name == SettingsViewModel.TelemetrySavedMessage,
+            "the saved telemetry settings");
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.UserSettingsPath));
+        var section = document.RootElement.GetProperty("OpenTelemetry");
+        section.GetProperty("Enabled").GetBoolean().ShouldBeTrue();
+        section.GetProperty("OtlpEndpoint").GetString().ShouldBe("http://localhost:4318");
+    }
+
     /// <summary>
     /// Stops the application, then deletes the installation and stops the API stub.
     /// </summary>

@@ -11,6 +11,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using Microsoft.Extensions.Logging;
 
@@ -48,6 +49,9 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The message shown after the tool paths are saved.</summary>
     public const string ToolsSavedMessage = "Tool paths saved. They take effect after the application restarts.";
 
+    /// <summary>The message shown after the telemetry settings are saved.</summary>
+    public const string TelemetrySavedMessage = "Telemetry settings saved. They take effect after the application restarts.";
+
     /// <summary>The source shown when the check uses the token typed in the field.</summary>
     public const string TypedTokenSource = "the token field";
 
@@ -65,6 +69,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     private readonly IBackupConfigStore _configStore;
     private readonly IToolPathsStore _toolPathsStore;
+    private readonly ITelemetrySettingsStore _telemetrySettingsStore;
     private readonly ITokenStore _tokenStore;
     private readonly ITokenProvider _tokenProvider;
     private readonly IGitHubTokenInspector _tokenInspector;
@@ -83,6 +88,9 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Whether the tool paths changed since they were read or saved.</summary>
     private bool _toolsDirty;
+
+    /// <summary>Whether the telemetry settings changed since they were read or saved.</summary>
+    private bool _telemetryDirty;
 
     /// <summary>The absolute path of the root folder of the archives.</summary>
     [ObservableProperty]
@@ -121,6 +129,20 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The outcome of saving the tool paths, or <see langword="null"/>.</summary>
     [ObservableProperty]
     private string? _toolsStatus;
+
+    /// <summary>Whether traces and metrics are exported over OTLP.</summary>
+    [ObservableProperty]
+    private bool _telemetryEnabled;
+
+    /// <summary>The OTLP endpoint (gRPC) that receives the telemetry; may be empty while telemetry is off.</summary>
+    [ObservableProperty]
+    [NotifyDataErrorInfo]
+    [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
+    private string _otlpEndpoint;
+
+    /// <summary>The outcome of saving the telemetry settings, or <see langword="null"/>.</summary>
+    [ObservableProperty]
+    private string? _telemetryStatus;
 
     /// <summary>The token typed by the user; cleared after it is saved.</summary>
     [ObservableProperty]
@@ -186,11 +208,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     private bool _isDirty;
 
     /// <summary>
-    /// Initializes the editor with the tool paths of the running application; the configuration is read by
-    /// <see cref="LoadCommand"/>.
+    /// Initializes the editor with the tool paths and telemetry settings of the running application; the
+    /// configuration is read by <see cref="LoadCommand"/>.
     /// </summary>
     /// <param name="configStore">Reads, validates and writes <c>backup-config.json</c>.</param>
     /// <param name="toolPathsStore">Reads, validates and writes the tool paths.</param>
+    /// <param name="telemetrySettingsStore">Reads, validates and writes the telemetry settings.</param>
     /// <param name="tokenStore">Keeps the token the user saves.</param>
     /// <param name="tokenProvider">Finds the token the application uses, for the check and the shadowing warning.</param>
     /// <param name="tokenInspector">Asks the GitHub API about a token.</param>
@@ -203,6 +226,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     public SettingsViewModel(
         IBackupConfigStore configStore,
         IToolPathsStore toolPathsStore,
+        ITelemetrySettingsStore telemetrySettingsStore,
         ITokenStore tokenStore,
         ITokenProvider tokenProvider,
         IGitHubTokenInspector tokenInspector,
@@ -215,6 +239,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     {
         _configStore = configStore;
         _toolPathsStore = toolPathsStore;
+        _telemetrySettingsStore = telemetrySettingsStore;
         _tokenStore = tokenStore;
         _tokenProvider = tokenProvider;
         _tokenInspector = tokenInspector;
@@ -229,6 +254,10 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         var tools = toolPathsStore.Current;
         _gitPath = tools.GitPath ?? string.Empty;
         _sevenZipPath = tools.SevenZipPath ?? string.Empty;
+
+        var telemetry = telemetrySettingsStore.Current;
+        _telemetryEnabled = telemetry.Enabled;
+        _otlpEndpoint = telemetry.OtlpEndpoint ?? string.Empty;
     }
 
     /// <summary>Gets the tracked accounts, in file order.</summary>
@@ -258,8 +287,11 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Gets whether the editor holds a configuration that is not yet saved to any file.</summary>
     public bool IsNewConfig => NewConfigMessage is not null;
 
-    /// <summary>Gets whether leaving the editor would lose a change: the configuration, the tool paths or a typed token.</summary>
-    public bool HasUnsavedChanges => IsDirty || _toolsDirty || !string.IsNullOrEmpty(Token);
+    /// <summary>
+    /// Gets whether leaving the editor would lose a change: the configuration, the tool paths, the telemetry settings or a
+    /// typed token.
+    /// </summary>
+    public bool HasUnsavedChanges => IsDirty || _toolsDirty || _telemetryDirty || !string.IsNullOrEmpty(Token);
 
     /// <inheritdoc />
     /// <remarks>Unsaved changes are discarded only after the user confirms.</remarks>
@@ -465,6 +497,52 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
         _toolsDirty = false;
         ToolsStatus = ToolsSavedMessage;
+    }
+
+    /// <summary>
+    /// Validates the telemetry settings and writes them; they take effect after a restart.
+    /// </summary>
+    /// <param name="cancellationToken">Cancels the write.</param>
+    /// <returns>A task that completes when the settings are written or the errors are shown.</returns>
+    [RelayCommand]
+    private async Task SaveTelemetryAsync(CancellationToken cancellationToken)
+    {
+        var settings = new TelemetrySettings(TelemetryEnabled, NullIfBlank(OtlpEndpoint));
+        var errors = _telemetrySettingsStore.Validate(settings);
+        ClearReportedError(nameof(OtlpEndpoint));
+        List<string> other = [];
+        foreach (var error in errors)
+        {
+            if (error.StartsWith(TelemetrySettings.OtlpEndpointKey, StringComparison.Ordinal))
+            {
+                ReportError(nameof(OtlpEndpoint), error);
+            }
+            else
+            {
+                other.Add(error);
+            }
+        }
+
+        RefreshError(nameof(OtlpEndpoint));
+        TelemetryStatus = other.Count > 0 ? string.Join(" ", other) : null;
+        if (errors.Count > 0)
+        {
+            return;
+        }
+
+        try
+        {
+            await _telemetrySettingsStore.SaveAsync(settings, cancellationToken);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            AppLog.SettingsSaveFailed(_logger, exception);
+            _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
+            return;
+        }
+
+        _telemetryDirty = false;
+        TelemetryStatus = TelemetrySavedMessage;
     }
 
     /// <summary>
@@ -786,6 +864,22 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     {
         _toolsDirty = true;
         ToolsStatus = null;
+    }
+
+    /// <summary>Marks the telemetry settings as changed.</summary>
+    /// <param name="value">The new value.</param>
+    partial void OnTelemetryEnabledChanged(bool value)
+    {
+        _telemetryDirty = true;
+        TelemetryStatus = null;
+    }
+
+    /// <summary>Marks the telemetry settings as changed.</summary>
+    /// <param name="value">The new endpoint.</param>
+    partial void OnOtlpEndpointChanged(string value)
+    {
+        _telemetryDirty = true;
+        TelemetryStatus = null;
     }
 
     /// <summary>Applies and saves the chosen theme.</summary>

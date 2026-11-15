@@ -1,5 +1,6 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Telemetry;
@@ -27,8 +28,8 @@ public static class GitHubBackupHostBuilder
     public const string AppSettingsFileName = "appsettings.json";
 
     /// <summary>
-    /// The name of the optional settings file in the folder of the executable that holds the tool paths written by the
-    /// settings editor.
+    /// The name of the optional settings file in the folder of the executable that holds the tool paths and the
+    /// telemetry settings written by the settings editor.
     /// </summary>
     public const string UserSettingsFileName = "user-settings.json";
 
@@ -102,27 +103,34 @@ public static class GitHubBackupHostBuilder
     }
 
     /// <summary>
-    /// Reads the tool paths from <see cref="UserSettingsFileName"/>, if the file exists.
+    /// Reads the tool paths and the telemetry settings from <see cref="UserSettingsFileName"/>, if the file exists.
     /// </summary>
     /// <remarks>
-    /// Only <see cref="ToolPaths.GitPathKey"/> and <see cref="ToolPaths.SevenZipPathKey"/> are taken: a key such as
-    /// <c>GitHub:ApiBaseUrl</c> added by hand to a file the application writes must not redirect the token to another
-    /// host. The <c>Ui</c> section stays out of the configuration as well: only the WPF application reads it, from the
-    /// file itself, and an invalid value there must not fail the start of either host.
+    /// Only <see cref="ToolPaths.GitPathKey"/>, <see cref="ToolPaths.SevenZipPathKey"/>,
+    /// <see cref="TelemetrySettings.EnabledKey"/> and <see cref="TelemetrySettings.OtlpEndpointKey"/> are taken: a key
+    /// such as <c>GitHub:ApiBaseUrl</c> added by hand to a file the application writes must not redirect the token to
+    /// another host. The <c>Ui</c> section stays out of the configuration as well: only the WPF application reads it,
+    /// from the file itself, and an invalid value there must not fail the start of either host.
     /// </remarks>
     /// <param name="fileProvider">The provider of the folder of the executable.</param>
-    /// <returns>The tool path keys found in the file with their values.</returns>
+    /// <returns>The allowed keys found in the file with their values.</returns>
     /// <exception cref="InvalidDataException">The file is not valid JSON.</exception>
     private static List<KeyValuePair<string, string?>> ReadUserSettings(IFileProvider fileProvider)
     {
         var userSettings = new ConfigurationBuilder()
             .AddJsonFile(fileProvider, UserSettingsFileName, optional: true, reloadOnChange: false)
             .Build();
+        string[] allowedKeys =
+        [
+            ToolPaths.GitPathKey,
+            ToolPaths.SevenZipPathKey,
+            TelemetrySettings.EnabledKey,
+            TelemetrySettings.OtlpEndpointKey,
+        ];
         return
         [
             .. userSettings.AsEnumerable().Where(entry =>
-                string.Equals(entry.Key, ToolPaths.GitPathKey, StringComparison.OrdinalIgnoreCase)
-                || string.Equals(entry.Key, ToolPaths.SevenZipPathKey, StringComparison.OrdinalIgnoreCase)),
+                allowedKeys.Contains(entry.Key, StringComparer.OrdinalIgnoreCase)),
         ];
     }
 }

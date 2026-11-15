@@ -37,6 +37,7 @@ src/
   GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot, LocalGitSandbox)
 .ai/
   benchmarks/harness/    harness benchmark: fixtures, history, reports
+compose.yaml             local .NET Aspire Dashboard that receives the OTLP telemetry (README, Telemetry)
 issue-kit.config.json    issue-kit plugin settings for this repository
 profile-session.config.json   harness-kit session profile settings
 ```

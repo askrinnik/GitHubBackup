@@ -45,6 +45,11 @@ internal sealed class UserSettingsFile(IFileSystem fileSystem, IHostEnvironment 
     private static readonly IReadOnlyList<KnownKey> _knownSections =
     [
         new(ToolsOptions.SectionName, [new(nameof(ToolsOptions.GitPath)), new(nameof(ToolsOptions.SevenZipPath))]),
+        new(OpenTelemetryOptions.SectionName,
+        [
+            new(nameof(OpenTelemetryOptions.Enabled)),
+            new(nameof(OpenTelemetryOptions.OtlpEndpoint)),
+        ]),
         new(UiSectionName,
         [
             new(UiThemeKey),
