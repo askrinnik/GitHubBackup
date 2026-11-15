@@ -611,7 +611,7 @@ One button, **Save**, saves every group that you changed: the configuration, the
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the paths to git and 7-Zip go to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file. The editor shows the values the program uses now, and a saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+In the group **Tools**, the paths to git and 7-Zip go to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file. The editor shows the values you saved last; before your first save it shows the values the program uses now. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 

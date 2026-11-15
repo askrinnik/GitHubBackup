@@ -44,6 +44,27 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Current_AfterSave_ReturnsSavedSettings()
+    {
+        var store = CreateStore(new() { Enabled = true, OtlpEndpoint = "http://otel:4317" });
+
+        await store.SaveAsync(new(false, " http://new:4317 "), TestContext.Current.CancellationToken);
+
+        store.Current.ShouldBe(new TelemetrySettings(false, "http://new:4317"));
+    }
+
+    [Fact]
+    public async Task Current_SaveFails_ReturnsConfiguredSettings()
+    {
+        var store = CreateStore(new() { Enabled = true, OtlpEndpoint = "http://otel:4317" });
+
+        await Should.ThrowAsync<ArgumentException>(
+            () => store.SaveAsync(new(true, "not a uri"), TestContext.Current.CancellationToken));
+
+        store.Current.ShouldBe(new TelemetrySettings(true, "http://otel:4317"));
+    }
+
+    [Fact]
     public async Task SaveAsync_EnabledWithEndpoint_WritesOpenTelemetrySection()
     {
         await CreateStore().SaveAsync(new(true, " http://otel:4317 "), TestContext.Current.CancellationToken);
