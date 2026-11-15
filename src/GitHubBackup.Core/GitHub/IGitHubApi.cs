@@ -1,3 +1,5 @@
+using GitHubBackup.Core.Authentication;
+
 namespace GitHubBackup.Core.GitHub;
 
 /// <summary>
@@ -6,9 +8,18 @@ namespace GitHubBackup.Core.GitHub;
 /// <remarks>
 /// List methods return every page. A failed request throws a <see cref="GitHubApiException"/> or one of its derived
 /// types; an invalid login, owner or name throws <see cref="ArgumentException"/> before any request is sent.
+/// Requests are anonymous until <see cref="UseToken"/> is called.
 /// </remarks>
 public interface IGitHubApi
 {
+    /// <summary>
+    /// Sets the token that the following requests send.
+    /// </summary>
+    /// <param name="token">
+    /// The token of the current run; <see cref="GitHubToken.Anonymous"/> makes the following requests anonymous.
+    /// </param>
+    void UseToken(GitHubToken token);
+
     /// <summary>
     /// Returns the account with the given login (<c>GET /users/{login}</c>).
     /// </summary>

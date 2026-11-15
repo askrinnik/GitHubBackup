@@ -45,9 +45,6 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The error shown at the token field when it is empty; the same text as the console command.</summary>
     public const string BlankTokenMessage = "The token cannot be empty.";
 
-    /// <summary>The hint shown after the token is saved, because the running application keeps the token it read.</summary>
-    public const string RestartForTokenMessage = "Restart the application to use the new token.";
-
     /// <summary>The message shown after the tool paths are saved.</summary>
     public const string ToolsSavedMessage = "Tool paths saved. They take effect after the application restarts.";
 
@@ -501,7 +498,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
         TokenError = null;
         Token = string.Empty;
-        TokenStatus = $"Token saved to {_tokenStore.Location}. {RestartForTokenMessage}";
+        TokenStatus = $"Token saved to {_tokenStore.Location}.";
 
         var effective = await _tokenProvider.GetTokenAsync(cancellationToken);
         if (effective.Value != token)

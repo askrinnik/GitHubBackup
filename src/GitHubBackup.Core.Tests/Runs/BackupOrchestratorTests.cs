@@ -664,7 +664,43 @@ public sealed class BackupOrchestratorTests : IDisposable
         _fileSystem.File.Exists(Path.Combine(_temporaryFolder, "left.zip")).ShouldBeTrue();
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+        _gitHubApi.DidNotReceiveWithAnyArgs().UseToken(default!);
         SingleRecord(_runStoppedEventId).GetStructuredStateValue("Error").ShouldBe(BackupOrchestrator.RunLockHeldMessage);
+    }
+
+    [Fact]
+    public async Task RunAsync_Token_GivesGitHubApiTheRunTokenForDiscoveryAndDropsItAfterTheRun()
+    {
+        List<string> events = [];
+        _gitHubApi.When(api => api.UseToken(Arg.Any<GitHubToken>()))
+            .Do(call => events.Add($"token {call.Arg<GitHubToken>().Value ?? "anonymous"}"));
+        _discovery.When(discovery => discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()))
+            .Do(_ => events.Add("discover"));
+
+        await RunAsync();
+
+        events.ShouldBe(["token secret-token", "discover", "token anonymous"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_TokenChangesBetweenRuns_GivesEachRunItsTokenForGitHubApiAndGit()
+    {
+        List<string?> tokens = [];
+        _gitHubApi.When(api => api.UseToken(Arg.Any<GitHubToken>())).Do(call => tokens.Add(call.Arg<GitHubToken>().Value));
+        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>())
+            .Returns(new GitHubToken("first-token", "test"), GitHubToken.Anonymous, new GitHubToken("second-token", "test"));
+
+        await RunAsync();
+        await RunAsync();
+        await RunAsync();
+
+        tokens.ShouldBe(["first-token", null, null, null, "second-token", null]);
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.Git.Token == "second-token"), CancellationToken);
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.Git.Token == "first-token"), CancellationToken);
+        await _detector.Received(1).DetectAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.Git.Token == null), CancellationToken);
     }
 
     [Theory]

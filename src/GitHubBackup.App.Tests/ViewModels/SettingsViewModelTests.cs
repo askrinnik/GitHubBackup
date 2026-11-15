@@ -621,7 +621,7 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public async Task SaveToken_Valid_WritesTrimmedTokenClearsFieldAndShowsRestartHint()
+    public async Task SaveToken_Valid_WritesTrimmedTokenClearsFieldAndShowsSavedStatus()
     {
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_typedToken, _storeLocation));
         _viewModel.Token = $"  {_typedToken} ";
@@ -631,7 +631,7 @@ public sealed class SettingsViewModelTests
         await _tokenStore.Received(1).WriteAsync(_typedToken, Arg.Any<CancellationToken>());
         _viewModel.Token.ShouldBeEmpty();
         _viewModel.TokenError.ShouldBeNull();
-        _viewModel.TokenStatus.ShouldBe($"Token saved to {_storeLocation}. {SettingsViewModel.RestartForTokenMessage}");
+        _viewModel.TokenStatus.ShouldBe($"Token saved to {_storeLocation}.");
         _viewModel.TokenWarning.ShouldBeNull();
         _masker.Mask(_typedToken).ShouldBe("***");
     }
