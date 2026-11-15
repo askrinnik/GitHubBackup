@@ -1974,6 +1974,117 @@ public sealed class BackupOrchestratorTests : IDisposable
         wiki.Status.ShouldBe(ActivityStatusCode.Error);
     }
 
+    [Theory]
+    [InlineData(ChangeDecision.ArchiveNeeded, nameof(ChangeReason.NoArchive), "main")]
+    [InlineData(ChangeDecision.UpToDate, nameof(ChangeReason.NoArchive), "main")]
+    [InlineData(ChangeDecision.NothingToArchive, nameof(ChangeReason.EmptyRepository), null)]
+    public async Task RunAsync_Detected_TagsRepositorySpanWithDecisionReasonAndBranch(
+        ChangeDecision decision, string reason, string? branch)
+    {
+        SetupDetection(decision);
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBe(decision.ToString());
+        repository.GetTagItem(BackupTelemetry.ChangeReasonTag).ShouldBe(reason);
+        repository.GetTagItem(BackupTelemetry.BranchTag).ShouldBe(branch);
+    }
+
+    [Fact]
+    public async Task RunAsync_DetectorFails_SetsNoChangeOrBranchTags()
+    {
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitCommandException("failed", "git fetch", 128));
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBeNull();
+        repository.GetTagItem(BackupTelemetry.ChangeReasonTag).ShouldBeNull();
+        repository.GetTagItem(BackupTelemetry.BranchTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RunAsync_UnavailableRepository_SetsNoChangeTags()
+    {
+        _config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBeNull();
+        repository.GetTagItem(BackupTelemetry.BranchTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunCloneNeeded_TagsDecisionAndReasonWithoutBranch()
+    {
+        SetupPreview(ChangeDecision.CloneNeeded);
+        using var test = _capture.StartTest();
+
+        await DryRunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBe(nameof(ChangeDecision.CloneNeeded));
+        repository.GetTagItem(BackupTelemetry.ChangeReasonTag).ShouldBe(nameof(ChangeReason.NoClone));
+        repository.GetTagItem(BackupTelemetry.BranchTag).ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunArchiveNeeded_TagsDecisionAndBranch()
+    {
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+        using var test = _capture.StartTest();
+
+        await DryRunAsync();
+
+        var repository = _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem();
+        repository.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBe(nameof(ChangeDecision.ArchiveNeeded));
+        repository.GetTagItem(BackupTelemetry.BranchTag).ShouldBe("main");
+    }
+
+    [Fact]
+    public async Task RunAsync_Wiki_TagsWikiSpanWithDecision()
+    {
+        SetupWiki(hasWiki: true);
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var wiki = _capture.Named(BackupTelemetry.RepositorySpanName)
+            .Single(span => span.GetTagItem(BackupTelemetry.TargetTag) as string == nameof(BackupTarget.Wiki));
+        wiki.GetTagItem(BackupTelemetry.ChangeDecisionTag).ShouldBe(nameof(ChangeDecision.ArchiveNeeded));
+    }
+
+    [Fact]
+    public async Task RunAsync_Archived_TagsArchiveSpanWithSize()
+    {
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        _capture.Named(BackupTelemetry.ArchiveOperation).ShouldHaveSingleItem()
+            .GetTagItem(BackupTelemetry.ArchiveSizeTag).ShouldBe(1234L);
+    }
+
+    [Fact]
+    public async Task RunAsync_ArchiverFails_SetsNoArchiveSizeTag()
+    {
+        _archiver.CreateAsync(Arg.Any<ArchiveRequest>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("7z failed"));
+        using var test = _capture.StartTest();
+
+        await RunAsync();
+
+        var archive = _capture.Named(BackupTelemetry.ArchiveOperation).ShouldHaveSingleItem();
+        archive.Status.ShouldBe(ActivityStatusCode.Error);
+        archive.GetTagItem(BackupTelemetry.ArchiveSizeTag).ShouldBeNull();
+    }
+
     [Fact]
     public async Task RunAsync_Progress_ReportsDiscoveryThenEachOperationOfRepository()
     {

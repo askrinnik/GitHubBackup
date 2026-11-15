@@ -268,17 +268,6 @@
                         <TextBox Text="{Binding SevenZipPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource FormTextBoxStyle}"
                                  AutomationProperties.AutomationId="SevenZipPathBox" />
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="Save tool paths"
-                                    Command="{Binding SaveToolsCommand, Mode=OneWay}"
-                                    Padding="8,2"
-                                    AutomationProperties.AutomationId="SaveToolsButton" />
-                            <TextBlock Text="{Binding ToolsStatus, Mode=OneWay}"
-                                       Style="{StaticResource OptionalLineStyle}"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,0,0"
-                                       AutomationProperties.AutomationId="ToolsStatus" />
-                        </StackPanel>
                     </StackPanel>
                 </GroupBox>
                 <GroupBox Header="Telemetry"
@@ -294,17 +283,6 @@
                         <TextBox Text="{Binding OtlpEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource FormTextBoxStyle}"
                                  AutomationProperties.AutomationId="OtlpEndpointBox" />
-                        <StackPanel Orientation="Horizontal">
-                            <Button Content="Save telemetry settings"
-                                    Command="{Binding SaveTelemetryCommand, Mode=OneWay}"
-                                    Padding="8,2"
-                                    AutomationProperties.AutomationId="SaveTelemetryButton" />
-                            <TextBlock Text="{Binding TelemetryStatus, Mode=OneWay}"
-                                       Style="{StaticResource OptionalLineStyle}"
-                                       VerticalAlignment="Center"
-                                       Margin="8,0,0,0"
-                                       AutomationProperties.AutomationId="TelemetryStatus" />
-                        </StackPanel>
                     </StackPanel>
                 </GroupBox>
                 <GroupBox Header="GitHub token"
@@ -320,10 +298,6 @@
                                    Foreground="Firebrick"
                                    AutomationProperties.AutomationId="TokenError" />
                         <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                            <Button Content="Save token"
-                                    Command="{Binding SaveTokenCommand, Mode=OneWay}"
-                                    Padding="8,2" Margin="0,0,8,0"
-                                    AutomationProperties.AutomationId="SaveTokenButton" />
                             <Button Content="Check token"
                                     Command="{Binding CheckTokenCommand, Mode=OneWay}"
                                     ToolTip="Checks the token in the field, or the token the application uses when the field is empty."
@@ -334,14 +308,6 @@
                                     Padding="8,2"
                                     AutomationProperties.AutomationId="CancelTokenCheckButton" />
                         </StackPanel>
-                        <TextBlock Text="{Binding TokenStatus, Mode=OneWay}"
-                                   Style="{StaticResource OptionalLineStyle}"
-                                   Margin="0,6,0,0"
-                                   AutomationProperties.AutomationId="TokenStatus" />
-                        <TextBlock Text="{Binding TokenWarning, Mode=OneWay}"
-                                   Style="{StaticResource OptionalLineStyle}"
-                                   Foreground="DarkGoldenrod"
-                                   AutomationProperties.AutomationId="TokenWarning" />
                         <ItemsControl ItemsSource="{Binding TokenCheckLines, Mode=OneWay}"
                                       Margin="0,6,0,0"
                                       AutomationProperties.AutomationId="TokenCheckResult" />

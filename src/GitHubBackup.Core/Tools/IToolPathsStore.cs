@@ -6,7 +6,10 @@ namespace GitHubBackup.Core.Tools;
 /// <remarks>The written paths take effect the next time the application starts.</remarks>
 public interface IToolPathsStore
 {
-    /// <summary>Gets the tool paths the running application uses.</summary>
+    /// <summary>
+    /// Gets the tool paths the last save of this run wrote, or the paths the running application uses before the first
+    /// save, so that the settings editor shows what the next start uses.
+    /// </summary>
     ToolPaths Current { get; }
 
     /// <summary>

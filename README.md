@@ -96,14 +96,14 @@ The GitHub documentation describes the details: [Managing your personal access t
 Save the token in the Windows Credential Manager. The token then does not appear in any file or command line.
 
 - Console: run `GitHubBackup.Cli.exe set-token`. The program asks for the token with hidden input and stores it as the credential `GitHubBackup:https://github.com`. The token is never accepted as an argument.
-- Desktop app: open **Settings**, paste the token into the token field and select **Save token** (see [Desktop app](#settings-editor)).
+- Desktop app: open **Settings**, paste the token into the token field and select **Save** (see [Desktop app](#settings-editor)).
 
 ### Where the program looks for the token
 
 The program takes the first token it finds in this order:
 
 1. The configuration key `GitHub:Token`, for example the environment variable `GitHubBackup__GitHub__Token` or `appsettings.json`.
-2. The Windows Credential Manager entry `GitHubBackup:https://github.com`, which `set-token` or **Save token** writes.
+2. The Windows Credential Manager entry `GitHubBackup:https://github.com`, which `set-token` or **Save** in the settings editor writes.
 3. GitHub CLI: `gh auth token --hostname github.com`, when `gh.exe` is in `PATH` and you are signed in.
 
 The log names only the source, never the value. If no source has a token, the program works anonymously: it sees only public repositories, and the GitHub API allows 60 requests per hour.
@@ -184,7 +184,7 @@ The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Producti
 
 ### user-settings.json
 
-The desktop app writes this optional file: the settings editor when you select **Save tool paths** or **Save telemetry settings**, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save tool paths** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
+The desktop app writes this optional file: the settings editor when you select **Save** after changing tool paths or telemetry settings, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
 
 ```json
 {
@@ -356,7 +356,7 @@ An archive name is `<owner>_<repo>_<yyyyMMdd-HHmmss>_<shortHash>.zip`. The time 
 Follow these steps once. Each step builds on the previous one.
 
 1. **Install** the application folder (see [Installation](#installation)).
-2. **Save the token.** Run `GitHubBackup.Cli.exe set-token`, or paste it into **Settings** in `GitHubBackup.exe` and select **Save token**.
+2. **Save the token.** Run `GitHubBackup.Cli.exe set-token`, or paste it into **Settings** in `GitHubBackup.exe` and select **Save**.
 3. **Create `backup-config.json`.** You have two ways:
    - Desktop app: start `GitHubBackup.exe`. Without the file, the main window shows `No settings yet. Open the settings editor to create backup-config.json.` and a button **Open settings**; the backup buttons are disabled. The editor opens with an empty configuration and a note that the file does not exist yet and that **Save** creates it. Fill in at least the archive folder (`backupRoot`) and one account, then select **Save**. **Save** checks the fields; without `backupRoot` the file is not created and the error appears at the field. After a successful save, the main window shows the repository tree at once, without a restart. **Cancel** does not create a file.
    - By hand: copy the minimal example from [backup-config.json](#backup-configjson), edit the values and save it as `backup-config.json` next to the exe files.
@@ -596,7 +596,7 @@ When the main window closes, the app saves its position and size, whether it is 
 
 The button **Settings** on the main screen opens the settings editor in place of the repository tree. While a backup run is active, the button is disabled: the run also writes `backup-config.json`.
 
-The editor shows four groups: **General**, **Accounts and repositories**, **Tools** and **GitHub token**. The groups **General** and **Accounts and repositories** change `backup-config.json`:
+The editor shows five groups: **General**, **Accounts and repositories**, **Tools**, **Telemetry** and **GitHub token**. The groups **General** and **Accounts and repositories** change `backup-config.json`:
 
 - the archive root (`backupRoot`), the clone root (`sourcesRoot`; an empty field means the folder `sources` next to the exe) and the global exclusions (masks, comma separated);
 - the switch `discoverAccessibleRepositories` (the group **General** also holds the theme, see [Theme and window placement](#theme-and-window-placement));
@@ -605,15 +605,17 @@ The editor shows four groups: **General**, **Accounts and repositories**, **Tool
 
 Before it writes, the editor runs the same validation as the load of the file. Errors appear at the fields; errors without a field of their own appear under the form. While errors exist, the editor writes no file. The warning about clones inside the archive tree appears as a banner while you edit and does not block saving. The fields the editor does not show (`id`, `status`, repository names of an account, `schemaVersion`) stay as they were. The write is atomic, and the previous version stays in `backup-config.json.bak`. If the write fails, the editor shows the error, keeps the fields filled and leaves the file unchanged.
 
+One button, **Save**, saves every group that you changed: the configuration, the tool paths, the telemetry settings and the entered token. It first validates all changed groups; while any error exists, it writes nothing. It then writes the changed groups in this order: configuration, tool paths, telemetry, token. Groups you did not change are not written. After a successful save, the editor returns to the tree without a question. If a write fails, the editor shows the error in a dialog and stays open with your input; groups already written stay written, and a second **Save** writes only the rest. If `backup-config.json` cannot be read, **Save** still writes the changed tool paths, telemetry settings and token.
+
 **Cancel** returns to the tree and writes nothing. If there are unsaved changes, the editor first asks for confirmation; it asks the same when you close the window.
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save telemetry settings** writes them to the same file. The editor shows the values the program uses now, and a saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+In the group **Tools**, the paths to git and 7-Zip go to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file. The editor shows the values you saved last; before your first save it shows the values the program uses now. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 
-- **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
+- **Save** stores an entered token in the Windows Credential Manager, like `set-token`. An empty field means the token stays as it is; a token of spaces only shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor shows a dialog: that source ranks above the Credential Manager, and the saved token will not be used.
 - **Check token** checks the token in the field, or, if the field is empty, the token that the source chain found, and names its source. It shows the login, the scopes (a fine-grained token has none, and the editor says so), the remaining and total request limit and the reset time. Without a token, it shows only the limit for anonymous access. An invalid or expired token (401) and other API errors appear on a separate line. **Cancel check** stops the check. The request goes only to the configured `GitHub:ApiBaseUrl`.
 
 The token value never reaches the log, the error messages or any file.
@@ -644,15 +646,52 @@ Traces:
 ```
 backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 ├── backup.discovery            absent with --repo
-├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status
-│   ├── ls-remote | clone | fetch
-│   └── archive
+├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status,
+│   │                           githubbackup.change.decision, githubbackup.change.reason, githubbackup.branch
+│   ├── ls-remote refs          githubbackup.operation, githubbackup.git.query, githubbackup.git.refs_count
+│   ├── ls-remote default-branch    githubbackup.operation, githubbackup.git.query
+│   ├── clone | fetch           githubbackup.operation, githubbackup.git.lfs, githubbackup.git.submodules
+│   └── archive                 githubbackup.operation, githubbackup.archive.size
 └── backup.repository           wiki of the same repository (githubbackup.target = Wiki)
 ```
 
+Spans:
+
+| Span | When it appears | What it does |
+|---|---|---|
+| `backup.run` | Always; the root of the trace | The whole run. |
+| `backup.discovery` | Every run except a run with `--repo` | Asks the GitHub API for the repositories and finds new, missing and renamed ones. |
+| `backup.repository` | Once for each processed repository or wiki | Processes one repository or its wiki; the operation spans below are its children. |
+| `ls-remote refs` | A normal run with an existing clone and a last archive whose file exists; a dry run with an existing clone; a dry run of a wiki without a clone | Reads the branches and tags of the server without changing the clone. |
+| `ls-remote default-branch` | After `ls-remote refs`, when the branch is not set or is missing on the server | Asks the server for its default branch. |
+| `clone` | A normal run without a clone | Clones the repository, checks out the branch, updates the submodules and pulls the LFS files. |
+| `fetch` | A normal run with a clone, when `ls-remote refs` found a change or was skipped (no last archive, or its file is missing) | Brings the clone up to date and checks out the branch; the steps for the submodules and LFS are the same as in `clone`. |
+| `archive` | A normal run that creates an archive | Packs the clone with 7-Zip and records the archive in the state file. |
+
+The `git ls-remote --symref` call that `clone` and `fetch` make inside themselves has no span of its own. A dry run makes no `clone`, `fetch` or `archive` span.
+
+- An unchanged repository has only `ls-remote` spans: no `fetch` and no `archive`. Its `githubbackup.change.decision` is `UpToDate` and its `githubbackup.change.reason` is `Unchanged`, which tells why.
+- A `backup.repository` span without children means that the program decided about the item without calling git. `githubbackup.status` shows the outcome: `Skipped` for an inactive repository, or `Failed` with `error.type` for a failure before the server is contacted. A dry run of a repository without a clone also has no children; its `githubbackup.change.decision` is `CloneNeeded` and its `githubbackup.change.reason` is `NoClone`.
+
+Attributes:
+
+| Attribute | Span | Value |
+|---|---|---|
+| `githubbackup.change.decision` | `backup.repository` | The decision of the change check: `CloneNeeded`, `ArchiveNeeded`, `UpToDate` or `NothingToArchive`. |
+| `githubbackup.change.reason` | `backup.repository` | The reason of the decision, such as `NoClone`, `NoArchive`, `ArchiveFileMissing`, `RefsChanged`, `BranchChanged`, `Unchanged` or `EmptyRepository`. |
+| `githubbackup.branch` | `backup.repository` | The branch that is archived (or would be); absent when no branch is known. |
+| `githubbackup.operation` | operation spans | The operation: `clone`, `fetch`, `ls-remote` (for both `ls-remote` spans) or `archive`. |
+| `githubbackup.git.query` | `ls-remote` spans | `remote_refs` for `ls-remote refs`, `default_branch` for `ls-remote default-branch`. |
+| `githubbackup.git.refs_count` | `ls-remote refs` | The number of branches and tags on the server. |
+| `githubbackup.git.lfs` | `clone`, `fetch` | `true` when a branch was checked out and the LFS files were pulled; `false` for an empty repository. |
+| `githubbackup.git.submodules` | `clone`, `fetch` | `true` when a branch was checked out and the submodules were updated; `false` for an empty repository. |
+| `githubbackup.archive.size` | `archive` | The size of the new archive in bytes. The metric `githubbackup.archive.size` is a separate signal. |
+
+An attribute is absent when its value is unknown. A repository that is skipped or fails before the change check has no `githubbackup.change.*` and no `githubbackup.branch`. A failed `clone` or `fetch` has no `githubbackup.git.lfs` or `githubbackup.git.submodules`, a failed `ls-remote refs` has no `githubbackup.git.refs_count`, and an `archive` that fails before 7-Zip finishes has no `githubbackup.archive.size`. The attributes hold only fixed values, numbers and branch names, never a git command line, a URL or the token.
+
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
-- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote`, `clone` or `fetch` span ends without the status `Error`.
+- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`.
 - The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector with the variable `OTEL_EXPORTER_OTLP_HEADERS`, not in `OtlpEndpoint`.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 
@@ -698,7 +737,7 @@ You need Docker Desktop (Linux containers) running.
    ```
 
    Add `--dry-run` to change nothing, or set `"Enabled": true` in the `OpenTelemetry` section of `appsettings.json` to send telemetry on every run.
-4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags.
+4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote refs`, `ls-remote default-branch`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags: on `backup.repository` the decision, its reason and the branch; on the operation spans the git query, the number of refs, the LFS and submodule steps and the archive size.
 5. On the **Metrics** page, select the resource `GitHubBackup`: it lists the four `githubbackup.*` metrics. Use the **Table** view to read single values.
 6. On the **Structured logs** page, select the resource `GitHubBackup`: it lists the log entries of the run with their level and message. Select an entry to see its attributes, or filter by `RunId`, `Repository` or `Operation` to follow one run, repository or step.
 7. Stop the dashboard:

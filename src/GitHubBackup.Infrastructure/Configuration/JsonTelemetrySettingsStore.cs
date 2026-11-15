@@ -18,8 +18,13 @@ namespace GitHubBackup.Infrastructure.Configuration;
 internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> options, UserSettingsFile file)
     : ITelemetrySettingsStore
 {
+    /// <summary>
+    /// The settings the last <see cref="SaveAsync"/> of this run wrote, or <see langword="null"/> before the first one.
+    /// </summary>
+    private TelemetrySettings? _saved;
+
     /// <inheritdoc />
-    public TelemetrySettings Current => new(options.Value.Enabled, options.Value.OtlpEndpoint);
+    public TelemetrySettings Current => _saved ?? new(options.Value.Enabled, options.Value.OtlpEndpoint);
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate(TelemetrySettings settings)
@@ -56,6 +61,7 @@ internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> 
                 json.WriteEndObject();
             },
             cancellationToken);
+        _saved = normalized;
     }
 
     /// <summary>

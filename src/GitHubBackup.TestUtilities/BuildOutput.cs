@@ -1,4 +1,5 @@
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 
 namespace GitHubBackup.TestUtilities;
@@ -9,15 +10,18 @@ namespace GitHubBackup.TestUtilities;
 /// </summary>
 public static class BuildOutput
 {
-    /// <summary>The name of the backup configuration file that runs of a developer may leave in the build output.</summary>
-    private const string _backupConfigFileName = "backup-config.json";
+    /// <summary>
+    /// The files that runs of a developer may leave in the build output: the backup configuration and the user
+    /// settings that the settings editor and the main window write.
+    /// </summary>
+    private static readonly string[] _runFiles = ["backup-config.json", GitHubBackupHostBuilder.UserSettingsFileName];
 
     /// <summary>The folders of the build output that runs create: the log, the run history and the default clones.</summary>
     private static readonly string[] _runFolders = [LogFiles.FolderName, "data", BackupConfig.DefaultSourcesFolderName];
 
     /// <summary>
     /// Copies every file of <paramref name="sourceFolder"/> into <paramref name="targetFolder"/>, without the folders
-    /// that runs create and without <c>backup-config.json</c>.
+    /// that runs create and without <c>backup-config.json</c> and <c>user-settings.json</c>.
     /// </summary>
     /// <param name="sourceFolder">The absolute path of the build output.</param>
     /// <param name="targetFolder">The absolute path of the folder to copy into.</param>
@@ -36,7 +40,7 @@ public static class BuildOutput
             var relativePath = Path.GetRelativePath(sourceFolder, file);
             var topSegment = relativePath.Split(Path.DirectorySeparatorChar)[0];
             if (_runFolders.Contains(topSegment, StringComparer.OrdinalIgnoreCase)
-                || relativePath.Equals(_backupConfigFileName, StringComparison.OrdinalIgnoreCase))
+                || _runFiles.Contains(relativePath, StringComparer.OrdinalIgnoreCase))
             {
                 continue;
             }

@@ -44,6 +44,27 @@ public sealed class JsonToolPathsStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Current_AfterSave_ReturnsSavedPaths()
+    {
+        var store = CreateStore(new() { GitPath = @"C:\Git\git.exe", SevenZipPath = @"C:\7z\7z.exe" });
+
+        await store.SaveAsync(new(@" D:\Git\git.exe ", " "), TestContext.Current.CancellationToken);
+
+        store.Current.ShouldBe(new ToolPaths(@"D:\Git\git.exe", null));
+    }
+
+    [Fact]
+    public async Task Current_SaveFails_ReturnsConfiguredPaths()
+    {
+        var store = CreateStore(new() { GitPath = @"C:\Git\git.exe", SevenZipPath = @"C:\7z\7z.exe" });
+
+        await Should.ThrowAsync<ArgumentException>(
+            () => store.SaveAsync(new("git.exe", null), TestContext.Current.CancellationToken));
+
+        store.Current.ShouldBe(new ToolPaths(@"C:\Git\git.exe", @"C:\7z\7z.exe"));
+    }
+
+    [Fact]
     public async Task SaveAsync_BothPaths_WritesToolsSection()
     {
         await CreateStore().SaveAsync(new(@"D:\Git\git.exe", @"D:\Архив\7z.exe"), TestContext.Current.CancellationToken);

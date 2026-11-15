@@ -43,7 +43,12 @@ public sealed class ChangeDetector(
             request.OperationProgress?.Report(BackupProgressStage.Cloning);
             sync = await telemetry.TraceOperationAsync(
                 BackupTelemetry.CloneOperation,
-                () => gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken),
+                async activity =>
+                {
+                    var cloned = await gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken);
+                    BackupTelemetry.SetSyncResult(activity, cloned);
+                    return cloned;
+                },
                 request.RemoteMayBeMissing);
         }
         else
@@ -62,7 +67,12 @@ public sealed class ChangeDetector(
             request.OperationProgress?.Report(BackupProgressStage.Fetching);
             sync = await telemetry.TraceOperationAsync(
                 BackupTelemetry.FetchOperation,
-                () => UpdateAsync(request, check, cancellationToken),
+                async activity =>
+                {
+                    var updated = await UpdateAsync(request, check, cancellationToken);
+                    BackupTelemetry.SetSyncResult(activity, updated);
+                    return updated;
+                },
                 request.RemoteMayBeMissing);
         }
 
@@ -80,8 +90,7 @@ public sealed class ChangeDetector(
             if (request.CheckRemoteWithoutClone)
             {
                 request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
-                refs = await telemetry.TraceOperationAsync(
-                    BackupTelemetry.LsRemoteOperation,
+                refs = await telemetry.TraceRemoteRefsAsync(
                     () => gitClient.GetRemoteRefsAsync(request.Git, request.RemoteUrl, cancellationToken),
                     request.RemoteMayBeMissing);
             }
@@ -235,26 +244,24 @@ public sealed class ChangeDetector(
     }
 
     /// <summary>
-    /// Reads the refs of the server inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
+    /// Reads the refs of the server inside a <see cref="BackupTelemetry.LsRemoteRefsSpanName"/> span.
     /// </summary>
     /// <param name="request">The request with the clone whose server is asked.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The branches and tags of the server.</returns>
     private Task<RefSnapshot> GetRemoteRefsAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
-        telemetry.TraceOperationAsync(
-            BackupTelemetry.LsRemoteOperation,
+        telemetry.TraceRemoteRefsAsync(
             () => gitClient.GetRemoteRefsAsync(request.Git, cancellationToken),
             request.RemoteMayBeMissing);
 
     /// <summary>
-    /// Asks the server for its default branch inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
+    /// Asks the server for its default branch inside a <see cref="BackupTelemetry.LsRemoteDefaultBranchSpanName"/> span.
     /// </summary>
     /// <param name="request">The request with the clone whose server is asked.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The default branch, or <see langword="null"/> when the server's <c>HEAD</c> names no branch.</returns>
     private Task<string?> GetDefaultBranchAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
-        telemetry.TraceOperationAsync(
-            BackupTelemetry.LsRemoteOperation,
+        telemetry.TraceDefaultBranchAsync(
             () => gitClient.GetDefaultBranchAsync(request.Git, cancellationToken),
             request.RemoteMayBeMissing);
 

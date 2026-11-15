@@ -9,6 +9,11 @@
     <IsTestingPlatformApplication>false</IsTestingPlatformApplication>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- The marshalling code that LibraryImport generates for the monitor query of Monitors is unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.App\GitHubBackup.App.csproj" />
     <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />

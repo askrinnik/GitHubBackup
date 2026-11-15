@@ -6,7 +6,10 @@ namespace GitHubBackup.Core.Telemetry;
 /// <remarks>The written settings take effect the next time the application starts.</remarks>
 public interface ITelemetrySettingsStore
 {
-    /// <summary>Gets the telemetry settings the running application uses.</summary>
+    /// <summary>
+    /// Gets the telemetry settings the last save of this run wrote, or the settings the running application uses before
+    /// the first save, so that the settings editor shows what the next start uses.
+    /// </summary>
     TelemetrySettings Current { get; }
 
     /// <summary>

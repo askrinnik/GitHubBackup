@@ -19,8 +19,13 @@ namespace GitHubBackup.Infrastructure.Configuration;
 /// <param name="file">The user settings file.</param>
 internal sealed class JsonToolPathsStore(IOptions<ToolsOptions> options, UserSettingsFile file) : IToolPathsStore
 {
+    /// <summary>
+    /// The paths the last <see cref="SaveAsync"/> of this run wrote, or <see langword="null"/> before the first one.
+    /// </summary>
+    private ToolPaths? _saved;
+
     /// <inheritdoc />
-    public ToolPaths Current => new(options.Value.GitPath, options.Value.SevenZipPath);
+    public ToolPaths Current => _saved ?? new(options.Value.GitPath, options.Value.SevenZipPath);
 
     /// <inheritdoc />
     public IReadOnlyList<string> Validate(ToolPaths paths)
@@ -49,6 +54,7 @@ internal sealed class JsonToolPathsStore(IOptions<ToolsOptions> options, UserSet
                 json.WriteEndObject();
             },
             cancellationToken);
+        _saved = normalized;
     }
 
     /// <summary>
