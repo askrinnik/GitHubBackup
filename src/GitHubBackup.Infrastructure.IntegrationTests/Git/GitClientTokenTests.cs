@@ -21,6 +21,7 @@ public sealed class GitClientTokenTests : GitClientTestBase
         await CreateClient().UpdateAsync(Request(branch: "missing", token: _token), CancellationToken);
         await CreateClient().GetRemoteRefsAsync(Request(token: _token), CancellationToken);
         await CreateClient().GetDefaultBranchAsync(Request(token: _token), CancellationToken);
+        await CreateClient().GetRemoteRefsAsync(Request(token: _token), top.Url, CancellationToken);
         Records(_runnerLogger, _processStartingEventId).ShouldContain(record => record.GetStructuredStateValue("CommandLine")!.Contains("ls-remote"));
 
         var configs = Directory.EnumerateFiles(Path.Combine(_clonePath, ".git", "modules"), "config", SearchOption.AllDirectories)

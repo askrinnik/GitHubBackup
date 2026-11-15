@@ -25,6 +25,47 @@ public sealed class GitClientRefSnapshotTests : GitClientTestBase
     }
 
     [Fact]
+    public async Task GetRemoteRefsAsync_UrlWithoutClone_ReadsBranchesAndTagsAndCreatesNothing()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await remote.CreateTagAsync("v1", null, annotated: false, force: false, CancellationToken);
+
+        var refs = await CreateClient().GetRemoteRefsAsync(Request(), remote.Url, CancellationToken);
+
+        refs.Refs.Keys.ShouldBe(["heads/develop", "heads/main", "tags/v1"], ignoreOrder: true);
+        Directory.Exists(Path.Combine(_sandbox.RootPath, "backup")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_UrlWithoutCloneInsideEnclosingRepository_IgnoresItsConfiguration()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        var enclosing = Path.Combine(_sandbox.RootPath, "enclosing");
+        var workingFolder = Path.Combine(enclosing, "sub");
+        Directory.CreateDirectory(workingFolder);
+        await GitAsync(enclosing, "init", "-b", "main");
+        var missing = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
+        await GitAsync(enclosing, "config", $"url.{missing}.insteadOf", remote.Url);
+        var request = Request() with { ClonePath = Path.Combine(workingFolder, "backup", "owner", "repo") };
+
+        var refs = await CreateClient().GetRemoteRefsAsync(request, remote.Url, CancellationToken);
+
+        refs.Refs.Keys.ShouldBe(["heads/main"]);
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_UrlWithoutRepository_ThrowsGitRepositoryNotFoundException()
+    {
+        var missing = new Uri(Path.Combine(_sandbox.RootPath, "remotes", "missing.git")).AbsoluteUri;
+
+        var exception = await Should.ThrowAsync<GitRepositoryNotFoundException>(
+            () => CreateClient().GetRemoteRefsAsync(Request(), missing, CancellationToken));
+
+        exception.Command.ShouldStartWith("git ls-remote");
+    }
+
+    [Fact]
     public async Task Snapshots_OneServerState_RemoteAndLocalMatch()
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);

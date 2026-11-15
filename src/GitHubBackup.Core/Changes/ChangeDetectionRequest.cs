@@ -22,6 +22,12 @@ public sealed record ChangeDetectionRequest
     public ArchiveRecord? LastArchive { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether <see cref="IChangeDetector.PreviewAsync"/> asks the server for the refs of a
+    /// target that has no clone, instead of reporting <see cref="ChangeDecision.CloneNeeded"/> without contacting it.
+    /// </summary>
+    public bool CheckRemoteWithoutClone { get; init; }
+
+    /// <summary>
     /// Gets the receiver of each git operation the detector starts: <see cref="BackupProgressStage.CheckingRemote"/>,
     /// <see cref="BackupProgressStage.Cloning"/> or <see cref="BackupProgressStage.Fetching"/>; <see langword="null"/>
     /// when nobody follows the progress.

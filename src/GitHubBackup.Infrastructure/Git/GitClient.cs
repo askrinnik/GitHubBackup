@@ -221,6 +221,59 @@ internal sealed class GitClient(
     }
 
     /// <inheritdoc />
+    public async Task<RefSnapshot> GetRemoteRefsAsync(
+        GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken)
+    {
+        ValidateClonePath(request);
+        if (string.IsNullOrWhiteSpace(remoteUrl))
+        {
+            throw new ArgumentException($"The remote URL for '{request.ClonePath}' must not be empty.", nameof(remoteUrl));
+        }
+
+        if (remoteUrl.StartsWith('-'))
+        {
+            throw new ArgumentException(
+                $"The remote URL for '{request.ClonePath}' must not start with '-'.", nameof(remoteUrl));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var workingDirectory = FindRepositoryFreeAncestor(request.ClonePath);
+        string[] arguments = ["ls-remote", "--refs", "--", remoteUrl];
+
+        // The working directory plays the clone folder of the environment, so the ceiling is its parent and git looks
+        // only at the working directory, which holds no repository, instead of walking up to an enclosing one.
+        var output = await RunGitAsync(
+            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken);
+        return ParseOutput(request, arguments, output, GitRefParser.ParseRemoteRefs);
+    }
+
+    /// <summary>
+    /// Finds the nearest existing folder above the clone folder that holds no <c>.git</c> entry, where a command that
+    /// needs no clone can run without git reading the configuration of an enclosing repository.
+    /// </summary>
+    /// <param name="clonePath">The fully qualified clone folder, which may not exist.</param>
+    /// <returns>The nearest existing ancestor folder without a <c>.git</c> file or folder.</returns>
+    /// <exception cref="ProcessStartException">No such folder above the clone folder exists.</exception>
+    private string FindRepositoryFreeAncestor(string clonePath)
+    {
+        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(clonePath));
+        for (var folder = Path.GetDirectoryName(fullPath); folder is not null; folder = Path.GetDirectoryName(folder))
+        {
+            var gitEntry = Path.Combine(folder, ".git");
+            if (fileSystem.Directory.Exists(folder)
+                && !fileSystem.Directory.Exists(gitEntry)
+                && !fileSystem.File.Exists(gitEntry))
+            {
+                return folder;
+            }
+        }
+
+        throw new ProcessStartException(
+            $"No folder above '{clonePath}' exists that is free of a git repository, so git cannot be started to read the server.");
+    }
+
+    /// <inheritdoc />
     public Task<RefSnapshot> GetLocalRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
     {
         ValidateClonePath(request);

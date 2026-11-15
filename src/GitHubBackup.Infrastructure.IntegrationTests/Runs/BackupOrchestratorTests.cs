@@ -196,6 +196,37 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_DryRunWikiEnabledWithoutRepositoryAndClone_SkipsWikiWithoutWouldClone()
+    {
+        await AddRemoteAsync("repo");
+        _wikiEnabled.Add("repo");
+        await SaveConfigAsync("repo");
+        var before = SnapshotTree();
+
+        var result = await RunAsync(dryRun: true);
+
+        result.Items.Select(item => (item.Repository, item.Status, item.Target)).ShouldBe(
+            [("owner/repo", BackupItemStatus.WouldClone, BackupTarget.Repository)]);
+        SnapshotTree().ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWikiOnServerWithoutClone_ReportsWouldClone()
+    {
+        await AddRemoteAsync("repo");
+        await AddWikiAsync("repo");
+        await SaveConfigAsync("repo");
+
+        var result = await RunAsync(dryRun: true);
+
+        result.Items.Select(item => (item.Repository, item.Status, item.Target)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.WouldClone, BackupTarget.Repository),
+            ("owner/repo.wiki", BackupItemStatus.WouldClone, BackupTarget.Wiki),
+        ]);
+    }
+
+    [Fact]
     public async Task RunAsync_WikiDeletedAfterArchive_SkipsAndKeepsCloneAndArchive()
     {
         await AddRemoteAsync("repo");

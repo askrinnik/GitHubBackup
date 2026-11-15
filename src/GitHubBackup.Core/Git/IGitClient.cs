@@ -114,6 +114,23 @@ public interface IGitClient
     Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Reads the branches and tags of the repository at <paramref name="remoteUrl"/> from the server without a clone.
+    /// </summary>
+    /// <remarks>
+    /// The command runs in the nearest existing folder above the clone folder and creates nothing.
+    /// </remarks>
+    /// <param name="request">The git executable, the clone folder that would hold the clone and the token; the branch is ignored.</param>
+    /// <param name="remoteUrl">The URL of the repository on the server, without credentials.</param>
+    /// <param name="cancellationToken">Cancels the command and kills the running git process.</param>
+    /// <returns>The server's branches and tags; other server refs, such as pull requests, are left out.</returns>
+    /// <exception cref="ArgumentException">The clone path is not fully qualified or the URL is empty or starts with <c>-</c>.</exception>
+    /// <exception cref="GitRepositoryNotFoundException">The server has no repository at <paramref name="remoteUrl"/>.</exception>
+    /// <exception cref="GitCommandException">The git command exits with a non-zero code or lists refs that cannot be read.</exception>
+    /// <exception cref="ProcessStartException">git cannot be started or no folder above the clone folder exists.</exception>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, string remoteUrl, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Reads the remote-tracking branches of <c>origin</c> and the tags stored in the clone, without the network.
     /// </summary>
     /// <param name="request">The git executable and the existing clone folder; the branch and the token are ignored.</param>

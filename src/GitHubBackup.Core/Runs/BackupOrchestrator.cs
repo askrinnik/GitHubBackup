@@ -1188,6 +1188,7 @@ public sealed class BackupOrchestrator(
             ArchiveFolder = item.ArchiveFolder,
             LastArchive = state.GetLastArchive(source.Target),
             OperationProgress = stages,
+            CheckRemoteWithoutClone = source.Target == BackupTarget.Wiki,
         };
         var detection = settings.DryRun
             ? await changeDetector.PreviewAsync(request, cancellationToken)

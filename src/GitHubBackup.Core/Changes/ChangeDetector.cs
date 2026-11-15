@@ -73,9 +73,16 @@ public sealed class ChangeDetector(
 
         if (!await InspectCloneAsync(request, cancellationToken))
         {
-            return Log(
-                request,
-                new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, RefSnapshot.Empty));
+            var refs = RefSnapshot.Empty;
+            if (request.CheckRemoteWithoutClone)
+            {
+                request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
+                refs = await telemetry.TraceOperationAsync(
+                    BackupTelemetry.LsRemoteOperation,
+                    () => gitClient.GetRemoteRefsAsync(request.Git, request.RemoteUrl, cancellationToken));
+            }
+
+            return Log(request, new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, refs));
         }
 
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
