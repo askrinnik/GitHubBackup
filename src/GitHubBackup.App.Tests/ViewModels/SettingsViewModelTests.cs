@@ -694,6 +694,23 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Save_EffectiveTokenCannotBeRead_SkipsAdviceAndNavigatesBack()
+    {
+        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>())
+            .ThrowsAsync(new TokenStoreException($"Cannot read {_typedToken} from the store."));
+        await LoadAsync();
+        _viewModel.Token = _typedToken;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _tokenStore.Received(1).WriteAsync(_typedToken, Arg.Any<CancellationToken>());
+        _dialogs.DidNotReceiveWithAnyArgs().ShowInformation(default!, default!);
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
+        _logger.Collector.GetSnapshot().ShouldAllBe(entry => entry.Exception == null && !entry.Message.Contains(_typedToken));
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
     public async Task Save_WhitespaceToken_ShowsFieldErrorAndWritesNothing()
     {
         await LoadAsync();

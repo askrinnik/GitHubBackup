@@ -441,16 +441,40 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
         if (token is not null)
         {
-            var effective = await _tokenProvider.GetTokenAsync(cancellationToken);
-            if (effective.Value != token)
-            {
-                _dialogs.ShowInformation(
-                    ShadowedTokenTitle,
-                    $"The token from {effective.SourceName} takes priority over {_tokenStore.Location}, so the application does not use the saved token.");
-            }
+            await ReportShadowedTokenAsync(token, cancellationToken);
         }
 
         _navigation.NavigateTo<RepositoriesViewModel>();
+    }
+
+    /// <summary>
+    /// Tells the user when another token source takes priority over the token just saved in the token store.
+    /// </summary>
+    /// <remarks>
+    /// The token is already saved, so a failure to read the effective token only skips this advice; its message is not
+    /// logged, because the store may put details of the stored credential into it.
+    /// </remarks>
+    /// <param name="token">The saved token.</param>
+    /// <param name="cancellationToken">Cancels the lookup of the effective token.</param>
+    /// <returns>A task that completes when the advice is shown or skipped.</returns>
+    private async Task ReportShadowedTokenAsync(string token, CancellationToken cancellationToken)
+    {
+        GitHubToken effective;
+        try
+        {
+            effective = await _tokenProvider.GetTokenAsync(cancellationToken);
+        }
+        catch (TokenStoreException)
+        {
+            return;
+        }
+
+        if (effective.Value != token)
+        {
+            _dialogs.ShowInformation(
+                ShadowedTokenTitle,
+                $"The token from {effective.SourceName} takes priority over {_tokenStore.Location}, so the application does not use the saved token.");
+        }
     }
 
     /// <summary>
