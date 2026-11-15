@@ -4,8 +4,11 @@
              xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
              xmlns:views="clr-namespace:GitHubBackup.App.Views"
              xmlns:converters="clr-namespace:GitHubBackup.App.Converters"
-             ShutdownMode="OnExplicitShutdown">
-    <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes. -->
+             ShutdownMode="OnExplicitShutdown"
+             ThemeMode="System">
+    <!-- The application shuts down explicitly, after the host has stopped asynchronously when the main window closes.
+         The Fluent theme is loaded before the resources below, so their BasedOn finds the Fluent styles; the theme
+         service then switches the mode chosen by the user. -->
     <Application.Resources>
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <converters:PixelGridLengthConverter x:Key="PixelGridLengthConverter" />
@@ -22,9 +25,23 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- A style of a control extends the Fluent style of that control: a style without BasedOn replaces it and
+             falls back to the classic template, which stays light in the dark theme. -->
+        <!-- A row of a list that shows one line of text per item keeps the height of that line. -->
+        <Style x:Key="CompactListBoxItemStyle" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
+        <!-- A list view with a grid view takes its row style from the grid view key, not from the ListViewItem type. -->
+        <Style x:Key="CompactListViewItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource {x:Static GridView.GridViewItemContainerStyleKey}}">
+            <Setter Property="Padding" Value="4,1" />
+            <Setter Property="Margin" Value="0" />
+            <Setter Property="MinHeight" Value="0" />
+        </Style>
         <!-- A text box of a form shows its validation errors below itself; the larger bottom margin keeps the error
              text from covering the next field. -->
-        <Style x:Key="FormTextBoxStyle" TargetType="TextBox">
+        <Style x:Key="FormTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
             <Setter Property="Margin" Value="0,0,0,6" />
             <Setter Property="Validation.ErrorTemplate">
                 <Setter.Value>

@@ -58,6 +58,21 @@ public sealed class ThemeTests : IDisposable
     }
 
     [Fact]
+    public void SelectTheme_DarkThenLight_SettingsTextBoxFollowsTheme()
+    {
+        var session = Start();
+        var themes = OpenSettings(session);
+
+        themes.Select("Dark");
+        AppSession.WaitUntil(
+            () => MeanBrightness(session.WaitFor("BackupRootBox")) < _darkThreshold, "a dark text box in the dark theme");
+        session.WaitFor("ThemeComboBox").AsComboBox().Select("Light");
+
+        AppSession.WaitUntil(
+            () => MeanBrightness(session.WaitFor("BackupRootBox")) > _lightThreshold, "a light text box in the light theme");
+    }
+
+    [Fact]
     public void Cancel_AfterThemeChange_ReturnsToTreeWithoutDiscardQuestion()
     {
         var session = Start();

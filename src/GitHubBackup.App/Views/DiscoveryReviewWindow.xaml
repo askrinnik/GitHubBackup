@@ -112,7 +112,7 @@
                                                  ToolTip="{Binding BranchError, Mode=OneWay}"
                                                  AutomationProperties.AutomationId="NewRepositoryBranch">
                                             <TextBox.Style>
-                                                <Style TargetType="TextBox">
+                                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding HasBranchError, Mode=OneWay}" Value="True">
                                                             <Setter Property="BorderBrush" Value="Red" />
@@ -142,7 +142,7 @@
                                                  ToolTip="{Binding PathError, Mode=OneWay}"
                                                  AutomationProperties.AutomationId="NewRepositoryPath">
                                             <TextBox.Style>
-                                                <Style TargetType="TextBox">
+                                                <Style TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
                                                     <Style.Triggers>
                                                         <DataTrigger Binding="{Binding HasPathError, Mode=OneWay}" Value="True">
                                                             <Setter Property="BorderBrush" Value="Red" />
