@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
@@ -87,6 +88,26 @@ public sealed class BackupTelemetryTests : IDisposable
         span.Status.ShouldBe(ActivityStatusCode.Error);
         span.StatusDescription.ShouldBeNull();
         span.GetTagItem(BackupTelemetry.ErrorTypeTag).ShouldBe(typeof(IOException).FullName);
+    }
+
+    [Theory]
+    [InlineData(false, false, ActivityStatusCode.Error)]
+    [InlineData(true, false, ActivityStatusCode.Unset)]
+    [InlineData(true, true, ActivityStatusCode.Error)]
+    public async Task TraceOperationAsync_RemoteMayBeMissing_MarksOnlyOtherFailuresAsError(
+        bool remoteMayBeMissing, bool otherFailure, ActivityStatusCode expected)
+    {
+        using var test = _capture.StartTest();
+        Exception failure = otherFailure
+            ? new IOException("disk full")
+            : new GitRepositoryNotFoundException("Repository not found.", "git clone", 128);
+
+        await Should.ThrowAsync(
+            Telemetry.TraceOperationAsync<int>(
+                BackupTelemetry.CloneOperation, () => throw failure, remoteMayBeMissing),
+            failure.GetType());
+
+        _capture.Spans.ShouldHaveSingleItem().Status.ShouldBe(expected);
     }
 
     [Fact]

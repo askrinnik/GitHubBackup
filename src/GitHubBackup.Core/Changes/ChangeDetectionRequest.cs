@@ -28,6 +28,13 @@ public sealed record ChangeDetectionRequest
     public bool CheckRemoteWithoutClone { get; init; }
 
     /// <summary>
+    /// Gets a value indicating whether the server may have no repository at <see cref="RemoteUrl"/>, as for a wiki
+    /// that is enabled but was never written; the caller handles <see cref="GitRepositoryNotFoundException"/>, so
+    /// the operation spans are not marked failed for it.
+    /// </summary>
+    public bool RemoteMayBeMissing { get; init; }
+
+    /// <summary>
     /// Gets the receiver of each git operation the detector starts: <see cref="BackupProgressStage.CheckingRemote"/>,
     /// <see cref="BackupProgressStage.Cloning"/> or <see cref="BackupProgressStage.Fetching"/>; <see langword="null"/>
     /// when nobody follows the progress.

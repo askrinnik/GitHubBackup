@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.Metrics;
+using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 
@@ -157,15 +158,20 @@ public sealed class BackupTelemetry : IDisposable
     /// <typeparam name="T">The result of the operation.</typeparam>
     /// <param name="operation">The operation, one of the <c>*Operation</c> constants.</param>
     /// <param name="action">The operation.</param>
+    /// <param name="remoteMayBeMissing">
+    /// Whether the server may have no repository at all; a <see cref="GitRepositoryNotFoundException"/> is then an
+    /// answer the caller handles, and the span is not marked failed.
+    /// </param>
     /// <returns>The result of <paramref name="action"/>.</returns>
-    public async Task<T> TraceOperationAsync<T>(string operation, Func<Task<T>> action)
+    public async Task<T> TraceOperationAsync<T>(string operation, Func<Task<T>> action, bool remoteMayBeMissing = false)
     {
         using var activity = StartOperation(operation);
         try
         {
             return await action();
         }
-        catch (Exception exception) when (exception is not OperationCanceledException)
+        catch (Exception exception) when (exception is not OperationCanceledException
+            && !(remoteMayBeMissing && exception is GitRepositoryNotFoundException))
         {
             SetError(activity, exception);
             throw;

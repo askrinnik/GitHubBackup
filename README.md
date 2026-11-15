@@ -652,6 +652,7 @@ backup.run                      githubbackup.dry_run, githubbackup.run.outcome
 
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
+- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote`, `clone` or `fetch` span ends without the status `Error`.
 - The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector with the variable `OTEL_EXPORTER_OTLP_HEADERS`, not in `OtlpEndpoint`.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 

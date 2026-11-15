@@ -929,6 +929,7 @@ public sealed class BackupOrchestratorTests : IDisposable
                 ArchiveFolder = @"C:\backup\owner\repo",
                 LastArchive = null,
                 CheckRemoteWithoutClone = true,
+                RemoteMayBeMissing = true,
             },
             CancellationToken);
         _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Wiki, _headCommit);

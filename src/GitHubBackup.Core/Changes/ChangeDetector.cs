@@ -43,7 +43,8 @@ public sealed class ChangeDetector(
             request.OperationProgress?.Report(BackupProgressStage.Cloning);
             sync = await telemetry.TraceOperationAsync(
                 BackupTelemetry.CloneOperation,
-                () => gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken));
+                () => gitClient.CloneAsync(request.Git, request.RemoteUrl, cancellationToken),
+                request.RemoteMayBeMissing);
         }
         else
         {
@@ -60,7 +61,9 @@ public sealed class ChangeDetector(
             var check = await EnsureNoLocalChangesAsync(request, remote, cancellationToken);
             request.OperationProgress?.Report(BackupProgressStage.Fetching);
             sync = await telemetry.TraceOperationAsync(
-                BackupTelemetry.FetchOperation, () => UpdateAsync(request, check, cancellationToken));
+                BackupTelemetry.FetchOperation,
+                () => UpdateAsync(request, check, cancellationToken),
+                request.RemoteMayBeMissing);
         }
 
         return Log(request, Decide(sync, last, archiveMissing));
@@ -79,17 +82,17 @@ public sealed class ChangeDetector(
                 request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
                 refs = await telemetry.TraceOperationAsync(
                     BackupTelemetry.LsRemoteOperation,
-                    () => gitClient.GetRemoteRefsAsync(request.Git, request.RemoteUrl, cancellationToken));
+                    () => gitClient.GetRemoteRefsAsync(request.Git, request.RemoteUrl, cancellationToken),
+                    request.RemoteMayBeMissing);
             }
 
             return Log(request, new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, refs));
         }
 
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
-        var git = request.Git;
-        var remote = await GetRemoteRefsAsync(git, cancellationToken);
+        var remote = await GetRemoteRefsAsync(request, cancellationToken);
         var sync = remote.HasBranches
-            ? await ChooseBranchAsync(git, remote, cancellationToken)
+            ? await ChooseBranchAsync(request, remote, cancellationToken)
             : new GitSyncResult(null, false, remote);
         var detection = Decide(sync, request.LastArchive, IsArchiveMissing(request));
 
@@ -196,15 +199,16 @@ public sealed class ChangeDetector(
     /// Chooses the branch an update would check out: the requested branch when the server has it, otherwise the
     /// server's default branch.
     /// </summary>
-    /// <param name="git">The clone and the requested branch.</param>
+    /// <param name="request">The request with the clone and the requested branch.</param>
     /// <param name="remote">The refs of the server, with at least one branch.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The state an update would leave the clone in.</returns>
     /// <exception cref="ArgumentException">The requested or the default branch is not a valid branch name.</exception>
     /// <exception cref="GitBranchNotFoundException">Neither the requested branch nor the default branch exists.</exception>
     private async Task<GitSyncResult> ChooseBranchAsync(
-        GitRepositoryRequest git, RefSnapshot remote, CancellationToken cancellationToken)
+        ChangeDetectionRequest request, RefSnapshot remote, CancellationToken cancellationToken)
     {
+        var git = request.Git;
         if (git.Branch is not null)
         {
             ValidateBranch(git.Branch, git);
@@ -215,7 +219,7 @@ public sealed class ChangeDetector(
             return new(git.Branch, false, remote);
         }
 
-        var defaultBranch = await GetDefaultBranchAsync(git, cancellationToken);
+        var defaultBranch = await GetDefaultBranchAsync(request, cancellationToken);
         if (defaultBranch is null || !remote.ContainsBranch(defaultBranch))
         {
             var requested = git.Branch is null ? "No branch was requested" : $"Branch '{git.Branch}' does not exist";
@@ -233,22 +237,26 @@ public sealed class ChangeDetector(
     /// <summary>
     /// Reads the refs of the server inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
     /// </summary>
-    /// <param name="git">The clone whose server is asked.</param>
+    /// <param name="request">The request with the clone whose server is asked.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The branches and tags of the server.</returns>
-    private Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest git, CancellationToken cancellationToken) =>
+    private Task<RefSnapshot> GetRemoteRefsAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
         telemetry.TraceOperationAsync(
-            BackupTelemetry.LsRemoteOperation, () => gitClient.GetRemoteRefsAsync(git, cancellationToken));
+            BackupTelemetry.LsRemoteOperation,
+            () => gitClient.GetRemoteRefsAsync(request.Git, cancellationToken),
+            request.RemoteMayBeMissing);
 
     /// <summary>
     /// Asks the server for its default branch inside a <see cref="BackupTelemetry.LsRemoteOperation"/> span.
     /// </summary>
-    /// <param name="git">The clone whose server is asked.</param>
+    /// <param name="request">The request with the clone whose server is asked.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
     /// <returns>The default branch, or <see langword="null"/> when the server's <c>HEAD</c> names no branch.</returns>
-    private Task<string?> GetDefaultBranchAsync(GitRepositoryRequest git, CancellationToken cancellationToken) =>
+    private Task<string?> GetDefaultBranchAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
         telemetry.TraceOperationAsync(
-            BackupTelemetry.LsRemoteOperation, () => gitClient.GetDefaultBranchAsync(git, cancellationToken));
+            BackupTelemetry.LsRemoteOperation,
+            () => gitClient.GetDefaultBranchAsync(request.Git, cancellationToken),
+            request.RemoteMayBeMissing);
 
     /// <summary>
     /// Rejects a branch name that an update would refuse, so a preview reports the same failure as a backup run.
@@ -307,7 +315,7 @@ public sealed class ChangeDetector(
     {
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
         var git = request.Git;
-        var remote = await GetRemoteRefsAsync(git, cancellationToken);
+        var remote = await GetRemoteRefsAsync(request, cancellationToken);
         if (!remote.Equals(last.Refs))
         {
             return (null, remote);
@@ -321,7 +329,7 @@ public sealed class ChangeDetector(
         }
         else
         {
-            branch = await GetDefaultBranchAsync(git, cancellationToken);
+            branch = await GetDefaultBranchAsync(request, cancellationToken);
             if (branch is null || !remote.ContainsBranch(branch))
             {
                 return (null, remote);

@@ -836,6 +836,39 @@ public sealed class ChangeDetectorTests : IDisposable
         span.TagObjects.ShouldAllBe(tag => !(tag.Value ?? string.Empty).ToString()!.Contains("secret-token"));
     }
 
+    [Theory]
+    [InlineData(false, ActivityStatusCode.Error)]
+    [InlineData(true, ActivityStatusCode.Unset)]
+    public async Task DetectAsync_CloneFindsNoRepository_MarksOperationFailedOnlyWhenRemoteMustExist(
+        bool remoteMayBeMissing, ActivityStatusCode expected)
+    {
+        _git.CloneAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken)
+            .ThrowsAsync(new GitRepositoryNotFoundException("Repository not found.", "git clone", 128));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<GitRepositoryNotFoundException>(() => CreateDetector().DetectAsync(
+            CreateRequest(last: null, "main") with { RemoteMayBeMissing = remoteMayBeMissing }, CancellationToken));
+
+        _capture.Spans.ShouldHaveSingleItem().Status.ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task DetectAsync_LsRemoteFindsNoRepositoryThatMayBeMissing_LeavesOperationStatusUnset()
+    {
+        AddClone();
+        AddArchiveFile();
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken)
+            .ThrowsAsync(new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128));
+        using var test = _capture.StartTest();
+
+        await Should.ThrowAsync<GitRepositoryNotFoundException>(() => CreateDetector().DetectAsync(
+            CreateRequest(Archive("main", BaseRefs), "main") with { RemoteMayBeMissing = true }, CancellationToken));
+
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.Status.ShouldBe(ActivityStatusCode.Unset);
+    }
+
     [Fact]
     public async Task DetectAsync_CloneCancelled_LeavesOperationStatusUnset()
     {
