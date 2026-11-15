@@ -250,10 +250,10 @@ internal sealed class CliApplication(
     /// Creates the masker of a start-up error over the configuration that <paramref name="configuration"/> returns.
     /// </summary>
     /// <remarks>
-    /// A failure to read the configuration gives a masker without a registered token, so that the report of the
+    /// A failure to read the configuration gives a masker without registered secrets, so that the report of the
     /// original failure is never replaced by an exception from the masker.
     /// </remarks>
-    /// <param name="configuration">Returns the configuration whose token is registered.</param>
+    /// <param name="configuration">Returns the configuration whose token and OTLP headers are registered.</param>
     /// <returns>The masker.</returns>
     private static ISecretMasker CreateMasker(Func<IConfiguration> configuration)
     {

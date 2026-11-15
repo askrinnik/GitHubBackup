@@ -163,6 +163,52 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
         store.Validate(new(true, "http://localhost:4317")).ShouldBeEmpty();
     }
 
+    [Fact]
+    public void Validate_HeadersConfiguredWithHttpRemoteEndpoint_ReturnsErrorWithoutValue()
+    {
+        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+
+        var errors = store.Validate(new(true, "http://collector.example:4317"));
+
+        var error = errors.ShouldHaveSingleItem();
+        error.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
+        error.ShouldContain("https");
+        error.ShouldNotContain("secret-value");
+    }
+
+    [Theory]
+    [InlineData(false, "http://collector.example:4317")]
+    [InlineData(true, "https://otlp.nr-data.net:4317")]
+    [InlineData(true, "http://localhost:4317")]
+    public void Validate_HeadersConfiguredWithHttpsLoopbackOrDisabled_ReturnsNoError(bool enabled, string endpoint)
+    {
+        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+
+        store.Validate(new(enabled, endpoint)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task SaveAsync_HeadersInOptions_NeverWritesThem()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            {
+              "OpenTelemetry": { "Enabled": false }
+            }
+            """));
+        var store = CreateStore(new() { Headers = "api-key=secret-value" });
+
+        await store.SaveAsync(new(true, "https://otlp.nr-data.net:4317"), TestContext.Current.CancellationToken);
+
+        _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
+            {
+              "OpenTelemetry": {
+                "Enabled": true,
+                "OtlpEndpoint": "https://otlp.nr-data.net:4317"
+              }
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n");
+    }
+
     /// <summary>
     /// Creates the subject over the mock file system and <paramref name="options"/>.
     /// </summary>

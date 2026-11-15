@@ -9,8 +9,8 @@ namespace GitHubBackup.Infrastructure.Configuration;
 /// section of <see cref="GitHubBackupHostBuilder.AppSettingsFileName"/>.
 /// </summary>
 /// <remarks>
-/// Only <c>Enabled</c> and <c>OtlpEndpoint</c> are written; an endpoint that is not set is written as <c>null</c>,
-/// which the configuration reads as not set.
+/// Only <c>Enabled</c> and <c>OtlpEndpoint</c> are written, so <c>Headers</c> keeps its value in the file; an
+/// endpoint that is not set is written as <c>null</c>, which the configuration reads as not set.
 /// </remarks>
 /// <param name="options">The telemetry options of the running application.</param>
 /// <param name="file">The settings file of the application.</param>
@@ -26,10 +26,14 @@ internal sealed class JsonTelemetrySettingsStore(IOptions<OpenTelemetryOptions> 
     public TelemetrySettings Current => _saved ?? new(options.Value.Enabled, options.Value.OtlpEndpoint);
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The headers come from the running configuration, since the editor neither shows nor writes them, so an endpoint
+    /// that would send them unencrypted is rejected here as it would be at start-up.
+    /// </remarks>
     public IReadOnlyList<string> Validate(TelemetrySettings settings)
     {
         var normalized = Normalize(settings);
-        return OpenTelemetryOptionsValidator.Validate(normalized.Enabled, normalized.OtlpEndpoint);
+        return OpenTelemetryOptionsValidator.Validate(normalized.Enabled, normalized.OtlpEndpoint, options.Value.Headers);
     }
 
     /// <inheritdoc />

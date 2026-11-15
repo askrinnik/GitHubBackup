@@ -1,6 +1,7 @@
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
@@ -50,5 +51,21 @@ public sealed class OpenTelemetryHostTests
         host.Services.GetService<TracerProvider>().ShouldBeNull();
         host.Services.GetService<MeterProvider>().ShouldBeNull();
         host.Services.GetService<LoggerProvider>().ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("http://collector.example:4317", "api-key=header-value-without-format", "OpenTelemetry:OtlpEndpoint must be an absolute https URI")]
+    [InlineData("https://otlp.nr-data.net:4317", "header-value-without-format", "OpenTelemetry:Headers must be a comma-separated list")]
+    public void BuildHost_HeadersWithRemoteHttpEndpointOrMalformed_FailsValidationWithoutValue(string endpoint, string headers, string expected)
+    {
+        using var contentRoot = new TemporaryContentRoot("{}");
+        using var host = contentRoot.BuildHost(
+            "--OpenTelemetry:Enabled=true", $"--OpenTelemetry:OtlpEndpoint={endpoint}", $"--OpenTelemetry:Headers={headers}");
+
+        var exception = Should.Throw<OptionsValidationException>(
+            () => host.Services.GetRequiredService<IStartupValidator>().Validate());
+
+        exception.Failures.ShouldHaveSingleItem().ShouldStartWith(expected);
+        exception.Message.ShouldNotContain("header-value-without-format");
     }
 }

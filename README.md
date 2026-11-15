@@ -146,7 +146,8 @@ The file is optional and is not published. Every key has a default in the progra
   },
   "OpenTelemetry": {
     "Enabled": false,
-    "OtlpEndpoint": "http://localhost:4317"
+    "OtlpEndpoint": "http://localhost:4317",
+    "Headers": null
   },
   "Serilog": {
     "MinimumLevel": {
@@ -168,11 +169,12 @@ The file is optional and is not published. Every key has a default in the progra
 | `Backup:VerifyArchive` | `true` | Test each archive with `7z t` before the program moves it to the archive folder. |
 | `History:DatabasePath` | `data\history.db` | Path to the history database. Must not be empty. |
 | `OpenTelemetry:Enabled` | `false` | Turns telemetry on (see [Telemetry](#telemetry-opentelemetry)). |
-| `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. |
+| `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. When `OpenTelemetry:Headers` is set, the scheme must be `https`, or `http` for a loopback address, so the key of the receiver never crosses the network unencrypted. |
+| `OpenTelemetry:Headers` | `null` | OTLP headers sent with every export, as `name=value` pairs separated by commas, for example `api-key=<license key>` for New Relic (see [Send telemetry to New Relic](#send-telemetry-to-new-relic)). The value is split from the name at the first `=`; spaces around names and values are dropped. Checked when telemetry is on: each pair needs a header name and a value, and an empty pair (`a=b,,c=d`, a trailing comma) is an error. The value is a secret and is masked as `***`. Prefer the variable `GitHubBackup__OpenTelemetry__Headers`: other processes can read the command line. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
 | `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. |
 
-If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the value of `GitHub:Token`.
+If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the values of `GitHub:Token` and `OpenTelemetry:Headers`.
 
 The program reads its configuration from these sources. A later source overrides an earlier one:
 
@@ -186,7 +188,7 @@ No other file next to the exe is part of the configuration: `ui-settings.json` b
 
 The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Production`.
 
-**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these four keys, adds the keys and sections that are missing and keeps every other key and section. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
+**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these four keys, adds the keys and sections that are missing and keeps every other key and section, `OpenTelemetry:Headers` included: the editor neither shows nor writes it. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
 
 ### ui-settings.json
 
@@ -430,7 +432,7 @@ If the cancel comes during discovery or the questions, there is no table. The ca
 |---|---|
 | `0` | No errors |
 | `1` | At least one repository ended with `Failed` |
-| `2` | Critical error: wrong arguments, `appsettings.json`, `backup-config.json`, missing tools, another run is active, or a GitHub API failure during discovery or `id` lookup (for example, the rate limit is exhausted or the token is rejected). The program processes no repositories and prints one line per error to stderr, then the log path. The same code means a run cancelled by the user (Ctrl+C). Any other unexpected failure while the program starts prints one line `Startup error: <message> (log: <log path>)` without a stack trace and with the token masked; the full error is in the log |
+| `2` | Critical error: wrong arguments, `appsettings.json`, `backup-config.json`, missing tools, another run is active, or a GitHub API failure during discovery or `id` lookup (for example, the rate limit is exhausted or the token is rejected). The program processes no repositories and prints one line per error to stderr, then the log path. The same code means a run cancelled by the user (Ctrl+C). Any other unexpected failure while the program starts prints one line `Startup error: <message> (log: <log path>)` without a stack trace and with the token and the value of `OpenTelemetry:Headers` masked; the full error is in the log |
 | `3` | No errors, but the run found new repositories (by the rule of `discoverAccessibleRepositories`), missing repositories or renamed repositories |
 
 When several conditions apply, the first one wins: `2`, then `1`, then `3`.
@@ -603,7 +605,7 @@ One button, **Save**, saves every group that you changed: the configuration, the
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the paths to git and 7-Zip go to `appsettings.json` (see [Who writes the file](#appsettingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file and keeps every other key and section of it. The editor shows the values you saved last; before your first save it shows the values the program uses now, including values you wrote into `appsettings.json` by hand. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+In the group **Tools**, the paths to git and 7-Zip go to `appsettings.json` (see [Who writes the file](#appsettingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file and keeps every other key and section of it. The editor neither shows nor writes `OpenTelemetry:Headers`; when the program uses headers and the checkbox is on, the endpoint must be `https`, or `http` for a loopback address, as at start. The editor shows the values you saved last; before your first save it shows the values the program uses now, including values you wrote into `appsettings.json` by hand. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 
@@ -621,7 +623,7 @@ The program writes one log per day to the folder `logs\` next to the exe:
 - `logs\githubbackup-YYYYMMDD.log`: readable text;
 - `logs\githubbackup-YYYYMMDD.json`: structured log (CLEF, one JSON line per event).
 
-Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
+Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token, the value of `OpenTelemetry:Headers` and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
 
 ### History
 
@@ -684,7 +686,7 @@ An attribute is absent when its value is unknown. A repository that is skipped o
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
 - A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`.
-- The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector with the variable `OTEL_EXPORTER_OTLP_HEADERS`, not in `OtlpEndpoint`.
+- The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector in `OpenTelemetry:Headers`, preferably with the variable `GitHubBackup__OpenTelemetry__Headers`, not in `OtlpEndpoint`. The standard variables `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` have no effect, also with the prefix `GitHubBackup__` or on the command line.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 
 Metrics (meter `GitHubBackup`):
@@ -700,7 +702,7 @@ Logs:
 
 - The program sends the same entries it writes to the log files (see [Logs](#logs)): the message, the level, the category and the properties of the entry as attributes, among them `RunId`, `Repository` and `Operation`.
 - The levels of `Serilog:MinimumLevel` apply to the sent entries too; there is no separate level for OTLP.
-- Secrets are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
+- Secrets, the token and the values of `OpenTelemetry:Headers` among them, are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
 - With telemetry off, the program registers no OpenTelemetry log provider; the log files and the live log of the desktop app are the same either way.
 
 #### View telemetry in the .NET Aspire Dashboard
@@ -749,6 +751,49 @@ Common problems:
 | The dashboard asks for a token | The token is in `docker compose logs aspire-dashboard` and changes with every start of the container. |
 | The resource is named `GitHubBackup-<suffix>` | Several processes sent telemetry, for example the console app and the desktop app; the dashboard tells them apart by the instance. Select any of them. |
 | The dashboard shows the warning `Endpoint is unsecured` | The OTLP endpoint accepts telemetry without a key. It listens on `127.0.0.1` only, so only programs on this computer can send to it. |
+
+#### Send telemetry to New Relic
+
+New Relic receives OTLP over gRPC and needs a license key in the header `api-key`. The program sends the key with every export from the setting `OpenTelemetry:Headers`.
+
+1. In New Relic, create an API key of the type **INGEST - LICENSE** (**API keys** in the user menu).
+2. Set the key in the variable `GitHubBackup__OpenTelemetry__Headers`, not in `appsettings.json` and not on the command line, which other processes can read:
+
+   ```
+   setx GitHubBackup__OpenTelemetry__Headers "api-key=<license key>"
+   ```
+
+   `setx` applies to programs started later: open a new console. It stores the key in plain text in your user environment, and every program you start afterwards inherits it; GitHubBackup itself removes `GitHubBackup__` variables from the environment of git and 7-Zip. For a narrower scope, set the variable only in the console session (`$env:GitHubBackup__OpenTelemetry__Headers = "api-key=<license key>"` in PowerShell) or only for the scheduled task that runs the backup. A key with a comma or a percent sign must be percent-encoded (`%2C`, `%25`), because the exporter decodes the value.
+3. Set the endpoint of your region and turn telemetry on, in `appsettings.json` or in the settings editor:
+
+   | Region | `OpenTelemetry:OtlpEndpoint` |
+   |---|---|
+   | US | `https://otlp.nr-data.net:4317` |
+   | EU | `https://otlp.eu01.nr-data.net:4317` |
+
+   With headers set, the program accepts only an `https` endpoint (or `http` for a loopback address) and exits with code `2` otherwise.
+4. Run a backup:
+
+   ```
+   GitHubBackup.Cli.exe backup --OpenTelemetry:Enabled=true --OpenTelemetry:OtlpEndpoint=https://otlp.nr-data.net:4317
+   ```
+
+5. In New Relic, open **APM & Services**, then **Services - OpenTelemetry**, then **GitHubBackup**:
+   - **Distributed tracing** lists the trace `backup.run` with the spans described above;
+   - **Logs** lists the entries of the run; filter by `RunId` to follow one run;
+   - **Query your data** shows the metrics, for example:
+
+     ```
+     FROM Metric SELECT sum(githubbackup.repositories) FACET githubbackup.status SINCE 1 hour ago
+     ```
+
+6. Check that the key does not appear in the files of the `logs` folder: the program writes `***` in its place.
+
+Data takes a minute or two to appear. If nothing arrives, check the key type (an **INGEST - LICENSE** key, not a user key), the region of the endpoint and the port `4317`.
+
+The program sends metrics with cumulative temporality. New Relic recommends delta temporality but accepts cumulative: it computes the difference between two exports itself. For the console app, which sends its metrics once when the run ends, the two give the same result.
+
+Do not keep a file `OTEL_DIAGNOSTICS.json` next to the exe or in the working folder while you use a real key. The file turns on the internal diagnostics of the OpenTelemetry SDK, which write to a separate log file that the program does not mask.
 
 ## Development
 

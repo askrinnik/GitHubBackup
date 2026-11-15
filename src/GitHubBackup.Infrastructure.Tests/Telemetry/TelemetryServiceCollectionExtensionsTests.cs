@@ -66,15 +66,72 @@ public sealed class TelemetryServiceCollectionExtensionsTests
             .ShouldBe(new Uri("http://localhost:4317"));
     }
 
+    [Fact]
+    public void AddGitHubBackupTelemetry_HeadersSet_ExporterReceivesHeaders()
+    {
+        var configuration = Configuration("true", "https://otlp.nr-data.net:4317", ("OpenTelemetry:Headers", "api-key=secret-value"));
+
+        using var provider = BuildProvider(configuration);
+
+        provider.GetRequiredService<IOptionsMonitor<OtlpExporterOptions>>().CurrentValue.Headers.ShouldBe("api-key=secret-value");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("  ")]
+    public void AddGitHubBackupTelemetry_HeadersNotSet_ExporterHasNoHeaders(string? headers)
+    {
+        var configuration = headers is null
+            ? Configuration("true", "http://localhost:4317")
+            : Configuration("true", "http://localhost:4317", ("OpenTelemetry:Headers", headers));
+
+        using var provider = BuildProvider(configuration);
+
+        provider.GetRequiredService<IOptionsMonitor<OtlpExporterOptions>>().CurrentValue.Headers.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AddGitHubBackupTelemetry_StandardOtelHeadersKey_IsIgnored()
+    {
+        var configuration = Configuration(
+            "true",
+            "http://localhost:4317",
+            ("OTEL_EXPORTER_OTLP_HEADERS", "api-key=standard-secret"),
+            ("OTEL_EXPORTER_OTLP_TRACES_HEADERS", "api-key=traces-secret"),
+            ("OTEL_EXPORTER_OTLP_METRICS_HEADERS", "api-key=metrics-secret"),
+            ("OTEL_EXPORTER_OTLP_LOGS_HEADERS", "api-key=logs-secret"));
+
+        using var provider = BuildProvider(configuration);
+
+        provider.GetRequiredService<IOptionsMonitor<OtlpExporterOptions>>().CurrentValue.Headers.ShouldBeNull();
+        provider.GetRequiredService<IOptionsFactory<OtlpExporterOptions>>().Create(Options.DefaultName).Headers.ShouldBeNull();
+    }
+
+    [Fact]
+    public void AddGitHubBackupTelemetry_StandardOtelHeadersKeyAndHeadersSet_ExporterReceivesOnlyHeaders()
+    {
+        var configuration = Configuration(
+            "true",
+            "http://localhost:4317",
+            ("OTEL_EXPORTER_OTLP_HEADERS", "api-key=standard-secret"),
+            ("OpenTelemetry:Headers", "api-key=secret-value"));
+
+        using var provider = BuildProvider(configuration);
+
+        provider.GetRequiredService<IOptionsMonitor<OtlpExporterOptions>>().CurrentValue.Headers.ShouldBe("api-key=secret-value");
+    }
+
     /// <summary>
     /// Creates a configuration with the <c>OpenTelemetry</c> section.
     /// </summary>
     /// <param name="enabled">The value of <c>OpenTelemetry:Enabled</c>, or <see langword="null"/> to leave it out.</param>
     /// <param name="otlpEndpoint">The value of <c>OpenTelemetry:OtlpEndpoint</c>, or <see langword="null"/> to leave it out.</param>
+    /// <param name="extra">Further keys and values.</param>
     /// <returns>The configuration.</returns>
-    private static IConfiguration Configuration(string? enabled, string? otlpEndpoint)
+    private static IConfiguration Configuration(string? enabled, string? otlpEndpoint, params (string Key, string Value)[] extra)
     {
-        var values = new Dictionary<string, string?>();
+        var values = extra.ToDictionary(pair => pair.Key, string? (pair) => pair.Value);
         if (enabled is not null)
         {
             values["OpenTelemetry:Enabled"] = enabled;
