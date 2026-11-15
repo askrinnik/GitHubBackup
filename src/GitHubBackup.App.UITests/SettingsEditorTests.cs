@@ -167,15 +167,15 @@ public sealed class SettingsEditorTests : IDisposable
     }
 
     [Fact]
-    public void SaveTools_AbsoluteGitPath_WritesUserSettingsInContentRoot()
+    public void Save_AbsoluteGitPath_WritesUserSettingsAndReturnsToTree()
     {
         OpenSettings();
         _session.SetText("GitPathBox", _git);
 
-        _session.Invoke("SaveToolsButton");
+        _session.Invoke("SaveSettingsButton");
 
-        AppSession.WaitUntil(
-            () => _session.WaitFor("ToolsStatus").Name == SettingsViewModel.ToolsSavedMessage, "the saved tool paths");
+        _session.WaitFor("RepositoryTree");
+        _session.WaitUntilGone("SaveSettingsButton");
         ReadText(_installation.UserSettingsPath).ShouldBe(
             $$"""
             {
@@ -197,21 +197,31 @@ public sealed class SettingsEditorTests : IDisposable
         telemetry.Name.ShouldBe("Telemetry");
         AppSession.WaitFor(telemetry, "TelemetryEnabledCheckBox");
         AppSession.WaitFor(telemetry, "OtlpEndpointBox");
-        AppSession.WaitFor(telemetry, "SaveTelemetryButton");
     }
 
     [Fact]
-    public void SaveTelemetry_EnabledWithEndpoint_WritesOpenTelemetrySection()
+    public void Open_ShowsOneSaveButtonWithoutGroupSaveButtons()
+    {
+        OpenSettings();
+
+        _session.WaitFor("SaveSettingsButton").Name.ShouldBe("Save");
+        foreach (var removed in new[] { "SaveToolsButton", "SaveTelemetryButton", "SaveTokenButton" })
+        {
+            _session.MainWindow.FindFirstDescendant(condition => condition.ByAutomationId(removed)).ShouldBeNull();
+        }
+    }
+
+    [Fact]
+    public void Save_TelemetryEnabledWithEndpoint_WritesOpenTelemetrySection()
     {
         OpenSettings();
         _session.WaitFor("TelemetryEnabledCheckBox").Patterns.Toggle.Pattern.Toggle();
         _session.SetText("OtlpEndpointBox", "http://localhost:4318");
 
-        _session.Invoke("SaveTelemetryButton");
+        _session.Invoke("SaveSettingsButton");
 
-        AppSession.WaitUntil(
-            () => _session.WaitFor("TelemetryStatus").Name == SettingsViewModel.TelemetrySavedMessage,
-            "the saved telemetry settings");
+        _session.WaitFor("RepositoryTree");
+        _session.WaitUntilGone("SaveSettingsButton");
         using var document = JsonDocument.Parse(File.ReadAllText(_installation.UserSettingsPath));
         var section = document.RootElement.GetProperty("OpenTelemetry");
         section.GetProperty("Enabled").GetBoolean().ShouldBeTrue();

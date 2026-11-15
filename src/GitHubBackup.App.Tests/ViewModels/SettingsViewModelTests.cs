@@ -175,7 +175,7 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public async Task Load_ConfigError_ShowsMaskedErrorsAndCannotSave()
+    public async Task Load_ConfigError_ShowsMaskedErrorsAndKeepsSaveAvailable()
     {
         _masker.Register(_token);
         _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(
@@ -186,7 +186,7 @@ public sealed class SettingsViewModelTests
         _viewModel.IsLoaded.ShouldBeFalse();
         _viewModel.HasLoadError.ShouldBeTrue();
         _viewModel.LoadError.ShouldBe($"backupRoot must be set.{Environment.NewLine}bad ***");
-        _viewModel.SaveCommand.CanExecute(null).ShouldBeFalse();
+        _viewModel.SaveCommand.CanExecute(null).ShouldBeTrue();
         _viewModel.IsNewConfig.ShouldBeFalse();
     }
 
@@ -401,6 +401,7 @@ public sealed class SettingsViewModelTests
         config.SchemaVersion = 2;
         _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
         await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
 
         await _viewModel.SaveCommand.ExecuteAsync(null);
 
@@ -575,43 +576,6 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public async Task SaveTools_ValidPaths_SavesAndShowsRestartHint()
-    {
-        _viewModel.GitPath = @" C:\Git\git.exe ";
-        _viewModel.SevenZipPath = "";
-
-        await _viewModel.SaveToolsCommand.ExecuteAsync(null);
-
-        await _toolPathsStore.Received(1).SaveAsync(new ToolPaths(@"C:\Git\git.exe", null), Arg.Any<CancellationToken>());
-        _viewModel.ToolsStatus.ShouldBe(SettingsViewModel.ToolsSavedMessage);
-        _viewModel.HasUnsavedChanges.ShouldBeFalse();
-    }
-
-    [Fact]
-    public async Task SaveTools_InvalidPath_ShowsErrorAtFieldAndWritesNothing()
-    {
-        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools:GitPath must be an absolute path when set."]);
-        _viewModel.GitPath = "git.exe";
-
-        await _viewModel.SaveToolsCommand.ExecuteAsync(null);
-
-        ErrorsOf(_viewModel, nameof(SettingsViewModel.GitPath)).ShouldBe(["Tools:GitPath must be an absolute path when set."]);
-        await _toolPathsStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, TestContext.Current.CancellationToken);
-    }
-
-    [Fact]
-    public async Task SaveTools_WriteFails_ShowsDialogAndKeepsChanges()
-    {
-        _viewModel.GitPath = @"C:\Git\git.exe";
-        _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("Locked"));
-
-        await _viewModel.SaveToolsCommand.ExecuteAsync(null);
-
-        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Locked");
-        _viewModel.HasUnsavedChanges.ShouldBeTrue();
-    }
-
-    [Fact]
     public void Constructor_TelemetrySettings_FillsFieldsWithoutChanges()
     {
         _viewModel.TelemetryEnabled.ShouldBeTrue();
@@ -620,111 +584,326 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
-    public async Task SaveTelemetry_ValidSettings_SavesAndShowsRestartHint()
+    public async Task Save_ToolsChanged_WritesOnlyToolsAndNavigatesBack()
     {
-        _viewModel.TelemetryEnabled = false;
-        _viewModel.OtlpEndpoint = " http://otel:4317 ";
-        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+        await LoadAsync();
+        _viewModel.GitPath = @" C:\Git\git.exe ";
+        _viewModel.SevenZipPath = "";
 
-        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
+        await _viewModel.SaveCommand.ExecuteAsync(null);
 
-        await _telemetryStore.Received(1).SaveAsync(
-            new TelemetrySettings(false, "http://otel:4317"), Arg.Any<CancellationToken>());
-        _viewModel.TelemetryStatus.ShouldBe(SettingsViewModel.TelemetrySavedMessage);
+        await _toolPathsStore.Received(1).SaveAsync(new ToolPaths(@"C:\Git\git.exe", null), Arg.Any<CancellationToken>());
+        await AssertOnlyWrittenAsync(tools: true);
         _viewModel.HasUnsavedChanges.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
     }
 
     [Fact]
-    public async Task SaveTelemetry_BlankEndpoint_SavesNull()
+    public async Task Save_TelemetryChanged_WritesOnlyTelemetryAndNavigatesBack()
     {
+        await LoadAsync();
+        _viewModel.TelemetryEnabled = false;
+        _viewModel.OtlpEndpoint = " http://otel:4317 ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(false, "http://otel:4317"), Arg.Any<CancellationToken>());
+        await AssertOnlyWrittenAsync(telemetry: true);
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_BlankEndpoint_WritesNull()
+    {
+        await LoadAsync();
         _viewModel.OtlpEndpoint = "  ";
 
-        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
+        await _viewModel.SaveCommand.ExecuteAsync(null);
 
         await _telemetryStore.Received(1).SaveAsync(new TelemetrySettings(true, null), Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task SaveTelemetry_InvalidEndpoint_ShowsErrorAtFieldAndWritesNothing()
-    {
-        const string error = "OpenTelemetry:OtlpEndpoint must be an absolute URI when OpenTelemetry:Enabled is true.";
-        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([error]);
-        _viewModel.OtlpEndpoint = "localhost";
-
-        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
-
-        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldBe([error]);
-        _viewModel.TelemetryStatus.ShouldBeNull();
-        await _telemetryStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, TestContext.Current.CancellationToken);
-    }
-
-    [Fact]
-    public async Task SaveTelemetry_WriteFails_ShowsDialogAndKeepsChanges()
-    {
-        _viewModel.OtlpEndpoint = "http://otel:4317";
-        _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("Locked"));
-
-        await _viewModel.SaveTelemetryCommand.ExecuteAsync(null);
-
-        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Locked");
-        _viewModel.HasUnsavedChanges.ShouldBeTrue();
-    }
-
-    [Theory]
-    [InlineData("")]
-    [InlineData("   ")]
-    public async Task SaveToken_Blank_ShowsFieldErrorAndWritesNothing(string token)
-    {
-        _viewModel.Token = token;
-
-        await _viewModel.SaveTokenCommand.ExecuteAsync(null);
-
-        _viewModel.TokenError.ShouldBe(SettingsViewModel.BlankTokenMessage);
-        await _tokenStore.DidNotReceiveWithAnyArgs().WriteAsync(default!, TestContext.Current.CancellationToken);
-    }
-
-    [Fact]
-    public async Task SaveToken_Valid_WritesTrimmedTokenClearsFieldAndShowsSavedStatus()
+    public async Task Save_TokenTyped_WritesTrimmedTokenAndClearsField()
     {
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_typedToken, _storeLocation));
+        await LoadAsync();
         _viewModel.Token = $"  {_typedToken} ";
 
-        await _viewModel.SaveTokenCommand.ExecuteAsync(null);
+        await _viewModel.SaveCommand.ExecuteAsync(null);
 
         await _tokenStore.Received(1).WriteAsync(_typedToken, Arg.Any<CancellationToken>());
+        await AssertOnlyWrittenAsync(token: true);
         _viewModel.Token.ShouldBeEmpty();
         _viewModel.TokenError.ShouldBeNull();
-        _viewModel.TokenStatus.ShouldBe($"Token saved to {_storeLocation}.");
-        _viewModel.TokenWarning.ShouldBeNull();
+        _dialogs.DidNotReceiveWithAnyArgs().ShowInformation(default!, default!);
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
         _masker.Mask(_typedToken).ShouldBe("***");
     }
 
     [Fact]
-    public async Task SaveToken_ConfigurationTokenTakesPriority_ShowsWarning()
+    public async Task Save_AllGroupsChanged_WritesConfigurationToolsTelemetryAndTokenInOrder()
     {
-        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _configurationSource));
+        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_typedToken, _storeLocation));
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        _viewModel.GitPath = @"C:\Git\git.exe";
+        _viewModel.OtlpEndpoint = "http://otel:4317";
         _viewModel.Token = _typedToken;
 
-        await _viewModel.SaveTokenCommand.ExecuteAsync(null);
+        await _viewModel.SaveCommand.ExecuteAsync(null);
 
-        _viewModel.TokenWarning.ShouldNotBeNull();
-        _viewModel.TokenWarning.ShouldContain(_configurationSource);
-        _viewModel.TokenWarning.ShouldNotContain(_token);
-        _viewModel.TokenWarning.ShouldNotContain(_typedToken);
+        Received.InOrder(() =>
+        {
+            _ = _configStore.SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>());
+            _ = _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>());
+            _ = _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>());
+            _ = _tokenStore.WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        });
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
     }
 
     [Fact]
-    public async Task SaveToken_StoreFails_ShowsMaskedErrorAtTokenField()
+    public async Task Save_NothingChanged_WritesNothingAndNavigatesBack()
+    {
+        await LoadAsync();
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await AssertOnlyWrittenAsync();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+        _dialogs.DidNotReceiveWithAnyArgs().Confirm(default!, default!);
+    }
+
+    [Fact]
+    public async Task Save_ConfigurationTokenTakesPriority_ShowsInformationWithSourceName()
+    {
+        _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _configurationSource));
+        await LoadAsync();
+        _viewModel.Token = _typedToken;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowInformation(
+            SettingsViewModel.ShadowedTokenTitle,
+            Arg.Is<string>(text => text.Contains(_configurationSource) && !text.Contains(_token) && !text.Contains(_typedToken)));
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_WhitespaceToken_ShowsFieldErrorAndWritesNothing()
+    {
+        await LoadAsync();
+        _viewModel.Token = "   ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.TokenError.ShouldBe(SettingsViewModel.BlankTokenMessage);
+        await AssertOnlyWrittenAsync();
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_InvalidTools_ShowsErrorAtFieldAndWritesNothing()
+    {
+        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools:GitPath must be an absolute path when set."]);
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        _viewModel.GitPath = "git.exe";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.GitPath)).ShouldBe(["Tools:GitPath must be an absolute path when set."]);
+        await AssertOnlyWrittenAsync();
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_InvalidTelemetry_ShowsErrorAtFieldAndWritesNothing()
+    {
+        const string error = "OpenTelemetry:OtlpEndpoint must be an absolute URI when OpenTelemetry:Enabled is true.";
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([error]);
+        await LoadAsync();
+        _viewModel.OtlpEndpoint = "localhost";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldBe([error]);
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Save_InvalidConfigurationAndValidTools_WritesNothing()
+    {
+        await LoadAsync();
+        _viewModel.BackupRoot = "relative";
+        _viewModel.GitPath = @"C:\Git\git.exe";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.BackupRoot)).ShouldNotBeEmpty();
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Save_ErrorsInSeveralGroups_ShowsAllOfThem()
+    {
+        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools:GitPath must be an absolute path when set."]);
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns(["OpenTelemetry:OtlpEndpoint must be an absolute URI."]);
+        await LoadAsync();
+        _viewModel.GitPath = "git.exe";
+        _viewModel.OtlpEndpoint = "localhost";
+        _viewModel.Token = "   ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.GitPath)).ShouldHaveSingleItem();
+        ErrorsOf(_viewModel, nameof(SettingsViewModel.OtlpEndpoint)).ShouldHaveSingleItem();
+        _viewModel.TokenError.ShouldBe(SettingsViewModel.BlankTokenMessage);
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Fact]
+    public async Task Save_UnchangedGroupIsInvalid_DoesNotValidateIt()
+    {
+        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools:GitPath must be an absolute path when set."]);
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns(["OpenTelemetry:OtlpEndpoint must be an absolute URI."]);
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await AssertOnlyWrittenAsync(config: true);
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_ToolsAndTelemetryErrorsWithoutField_ShowsGeneralErrors()
+    {
+        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools: unknown problem."]);
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns(["OpenTelemetry: other problem."]);
+        await LoadAsync();
+        _viewModel.GitPath = @"C:\Git\git.exe";
+        _viewModel.TelemetryEnabled = false;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.GeneralErrors.ShouldBe(["Tools: unknown problem.", "OpenTelemetry: other problem."]);
+        await AssertOnlyWrittenAsync();
+    }
+
+    [Theory]
+    [InlineData("config")]
+    [InlineData("tools")]
+    [InlineData("telemetry")]
+    public async Task Save_WriteFails_ShowsDialogKeepsEditorOpenAndFields(string group)
+    {
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        _viewModel.GitPath = @"C:\Git\git.exe";
+        _viewModel.OtlpEndpoint = "http://otel:4317";
+        var failure = new IOException("Locked");
+        switch (group)
+        {
+            case "config":
+                _configStore.SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
+                break;
+            case "tools":
+                _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
+                break;
+            default:
+                _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>()).ThrowsAsync(failure);
+                break;
+        }
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Locked");
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+        _viewModel.BackupRoot.ShouldBe(@"D:\NewBackups");
+        _viewModel.GitPath.ShouldBe(@"C:\Git\git.exe");
+        _viewModel.OtlpEndpoint.ShouldBe("http://otel:4317");
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Save_TokenStoreFails_ShowsMaskedDialogKeepsTokenAndDoesNotLogIt()
     {
         _tokenStore.WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new TokenStoreException($"Cannot write {_typedToken} to the store."));
+        await LoadAsync();
         _viewModel.Token = _typedToken;
 
-        await _viewModel.SaveTokenCommand.ExecuteAsync(null);
+        await _viewModel.SaveCommand.ExecuteAsync(null);
 
-        _viewModel.TokenError.ShouldBe("Cannot write *** to the store.");
-        _viewModel.TokenStatus.ShouldBeNull();
+        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "Cannot write *** to the store.");
         _viewModel.Token.ShouldBe(_typedToken);
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Save_RetryAfterPartialFailure_WritesOnlyTheGroupsStillUnsaved()
+    {
+        await LoadAsync();
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        _viewModel.GitPath = @"C:\Git\git.exe";
+        _viewModel.OtlpEndpoint = "http://otel:4317";
+        _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>()).ThrowsAsync(new IOException("Locked"));
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+        _toolPathsStore.SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>()).Returns(Task.CompletedTask);
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _configStore.Received(1).SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>());
+        await _toolPathsStore.Received(2).SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>());
+        await _telemetryStore.Received(1).SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>());
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_ConfigNotReadable_IsAvailableAndWritesOnlyChangedOtherGroups()
+    {
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(
+            new BackupConfigException(_configPath, ["backupRoot must be set."]));
+        await LoadAsync();
+        _viewModel.SaveCommand.CanExecute(null).ShouldBeTrue();
+        _viewModel.GitPath = @"C:\Git\git.exe";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await AssertOnlyWrittenAsync(tools: true);
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public void Save_BeforeLoad_CannotExecute() =>
+        _viewModel.SaveCommand.CanExecute(null).ShouldBeFalse();
+
+    [Fact]
+    public async Task Cancel_UnsavedTelemetry_Asks()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryEnabled = false;
+
+        _viewModel.CancelCommand.Execute(null);
+
+        _dialogs.Received(1).Confirm(SettingsViewModel.DiscardTitle, SettingsViewModel.DiscardMessage);
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
+    /// <summary>
+    /// Asserts that exactly the given groups were written and the others never were.
+    /// </summary>
+    private async Task AssertOnlyWrittenAsync(bool config = false, bool tools = false, bool telemetry = false, bool token = false)
+    {
+        await _configStore.Received(config ? 1 : 0).SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>());
+        await _toolPathsStore.Received(tools ? 1 : 0).SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>());
+        await _telemetryStore.Received(telemetry ? 1 : 0).SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>());
+        await _tokenStore.Received(token ? 1 : 0).WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

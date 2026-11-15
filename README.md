@@ -96,14 +96,14 @@ The GitHub documentation describes the details: [Managing your personal access t
 Save the token in the Windows Credential Manager. The token then does not appear in any file or command line.
 
 - Console: run `GitHubBackup.Cli.exe set-token`. The program asks for the token with hidden input and stores it as the credential `GitHubBackup:https://github.com`. The token is never accepted as an argument.
-- Desktop app: open **Settings**, paste the token into the token field and select **Save token** (see [Desktop app](#settings-editor)).
+- Desktop app: open **Settings**, paste the token into the token field and select **Save** (see [Desktop app](#settings-editor)).
 
 ### Where the program looks for the token
 
 The program takes the first token it finds in this order:
 
 1. The configuration key `GitHub:Token`, for example the environment variable `GitHubBackup__GitHub__Token` or `appsettings.json`.
-2. The Windows Credential Manager entry `GitHubBackup:https://github.com`, which `set-token` or **Save token** writes.
+2. The Windows Credential Manager entry `GitHubBackup:https://github.com`, which `set-token` or **Save** in the settings editor writes.
 3. GitHub CLI: `gh auth token --hostname github.com`, when `gh.exe` is in `PATH` and you are signed in.
 
 The log names only the source, never the value. If no source has a token, the program works anonymously: it sees only public repositories, and the GitHub API allows 60 requests per hour.
@@ -184,7 +184,7 @@ The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Producti
 
 ### user-settings.json
 
-The desktop app writes this optional file: the settings editor when you select **Save tool paths** or **Save telemetry settings**, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save tool paths** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
+The desktop app writes this optional file: the settings editor when you select **Save** after changing tool paths or telemetry settings, or choose a theme, and the main window when it closes. Each write replaces the file atomically and keeps the keys of the other section that the program reads; any other key is dropped. The previous version stays in `user-settings.json.bak`. If the file exists but cannot be read or is not valid JSON, the app reads defaults but never overwrites it: **Save** shows the error, and a theme or window placement that cannot be saved goes to the log. You can also create the file by hand:
 
 ```json
 {
@@ -356,7 +356,7 @@ An archive name is `<owner>_<repo>_<yyyyMMdd-HHmmss>_<shortHash>.zip`. The time 
 Follow these steps once. Each step builds on the previous one.
 
 1. **Install** the application folder (see [Installation](#installation)).
-2. **Save the token.** Run `GitHubBackup.Cli.exe set-token`, or paste it into **Settings** in `GitHubBackup.exe` and select **Save token**.
+2. **Save the token.** Run `GitHubBackup.Cli.exe set-token`, or paste it into **Settings** in `GitHubBackup.exe` and select **Save**.
 3. **Create `backup-config.json`.** You have two ways:
    - Desktop app: start `GitHubBackup.exe`. Without the file, the main window shows `No settings yet. Open the settings editor to create backup-config.json.` and a button **Open settings**; the backup buttons are disabled. The editor opens with an empty configuration and a note that the file does not exist yet and that **Save** creates it. Fill in at least the archive folder (`backupRoot`) and one account, then select **Save**. **Save** checks the fields; without `backupRoot` the file is not created and the error appears at the field. After a successful save, the main window shows the repository tree at once, without a restart. **Cancel** does not create a file.
    - By hand: copy the minimal example from [backup-config.json](#backup-configjson), edit the values and save it as `backup-config.json` next to the exe files.
@@ -596,7 +596,7 @@ When the main window closes, the app saves its position and size, whether it is 
 
 The button **Settings** on the main screen opens the settings editor in place of the repository tree. While a backup run is active, the button is disabled: the run also writes `backup-config.json`.
 
-The editor shows four groups: **General**, **Accounts and repositories**, **Tools** and **GitHub token**. The groups **General** and **Accounts and repositories** change `backup-config.json`:
+The editor shows five groups: **General**, **Accounts and repositories**, **Tools**, **Telemetry** and **GitHub token**. The groups **General** and **Accounts and repositories** change `backup-config.json`:
 
 - the archive root (`backupRoot`), the clone root (`sourcesRoot`; an empty field means the folder `sources` next to the exe) and the global exclusions (masks, comma separated);
 - the switch `discoverAccessibleRepositories` (the group **General** also holds the theme, see [Theme and window placement](#theme-and-window-placement));
@@ -605,15 +605,17 @@ The editor shows four groups: **General**, **Accounts and repositories**, **Tool
 
 Before it writes, the editor runs the same validation as the load of the file. Errors appear at the fields; errors without a field of their own appear under the form. While errors exist, the editor writes no file. The warning about clones inside the archive tree appears as a banner while you edit and does not block saving. The fields the editor does not show (`id`, `status`, repository names of an account, `schemaVersion`) stay as they were. The write is atomic, and the previous version stays in `backup-config.json.bak`. If the write fails, the editor shows the error, keeps the fields filled and leaves the file unchanged.
 
+One button, **Save**, saves every group that you changed: the configuration, the tool paths, the telemetry settings and the entered token. It first validates all changed groups; while any error exists, it writes nothing. It then writes the changed groups in this order: configuration, tool paths, telemetry, token. Groups you did not change are not written. After a successful save, the editor returns to the tree without a question. If a write fails, the editor shows the error in a dialog and stays open with your input; groups already written stay written, and a second **Save** writes only the rest. If `backup-config.json` cannot be read, **Save** still writes the changed tool paths, telemetry settings and token.
+
 **Cancel** returns to the tree and writes nothing. If there are unsaved changes, the editor first asks for confirmation; it asks the same when you close the window.
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the group **Tools**, the button **Save tool paths** saves the paths to git and 7-Zip to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save telemetry settings** writes them to the same file. The editor shows the values the program uses now, and a saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+In the group **Tools**, the paths to git and 7-Zip go to the optional file `user-settings.json` (see [user-settings.json](#user-settingsjson)). In the group **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`; **Save** writes them to the same file. The editor shows the values the program uses now, and a saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The group **GitHub token**:
 
-- **Save token** stores the entered token in the Windows Credential Manager, like `set-token`. An empty token is not saved: the field shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor warns you: that source ranks above the Credential Manager, and the saved token will not be used.
+- **Save** stores an entered token in the Windows Credential Manager, like `set-token`. An empty field means the token stays as it is; a token of spaces only shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor shows a dialog: that source ranks above the Credential Manager, and the saved token will not be used.
 - **Check token** checks the token in the field, or, if the field is empty, the token that the source chain found, and names its source. It shows the login, the scopes (a fine-grained token has none, and the editor says so), the remaining and total request limit and the reset time. Without a token, it shows only the limit for anonymous access. An invalid or expired token (401) and other API errors appear on a separate line. **Cancel check** stops the check. The request goes only to the configured `GitHub:ApiBaseUrl`.
 
 The token value never reaches the log, the error messages or any file.

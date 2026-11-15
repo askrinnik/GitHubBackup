@@ -18,14 +18,14 @@ using Microsoft.Extensions.Logging;
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// Backs the settings editor: edits <c>backup-config.json</c>, the tool paths and the token saved in the token store,
-/// checks a token against the GitHub API and switches the theme.
+/// Backs the settings editor: edits <c>backup-config.json</c>, the tool paths, the telemetry settings and the token
+/// saved in the token store with one Save, checks a token against the GitHub API and switches the theme.
 /// </summary>
 /// <remarks>
 /// <para>
-/// The configuration is checked by <see cref="IBackupConfigStore.Validate"/> before it is written, so the editor
-/// applies the rules of every read and write; errors appear at their fields and nothing is written while there are
-/// any. The warnings of the validator are shown while the user edits and never block saving.
+/// Every changed group is checked before anything is written, by the validators the stores apply on every read and
+/// write; errors appear at their fields and nothing is written while there are any. The warnings of the validator
+/// are shown while the user edits and never block saving.
 /// </para>
 /// <para>
 /// The editor writes back every value it does not show, such as the id and status of a repository entry, as it was
@@ -46,11 +46,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The error shown at the token field when it is empty; the same text as the console command.</summary>
     public const string BlankTokenMessage = "The token cannot be empty.";
 
-    /// <summary>The message shown after the tool paths are saved.</summary>
-    public const string ToolsSavedMessage = "Tool paths saved. They take effect after the application restarts.";
-
-    /// <summary>The message shown after the telemetry settings are saved.</summary>
-    public const string TelemetrySavedMessage = "Telemetry settings saved. They take effect after the application restarts.";
+    /// <summary>The title of the dialog that tells the saved token is shadowed by another source.</summary>
+    public const string ShadowedTokenTitle = "Token saved";
 
     /// <summary>The source shown when the check uses the token typed in the field.</summary>
     public const string TypedTokenSource = "the token field";
@@ -126,10 +123,6 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateOptionalPath))]
     private string _sevenZipPath;
 
-    /// <summary>The outcome of saving the tool paths, or <see langword="null"/>.</summary>
-    [ObservableProperty]
-    private string? _toolsStatus;
-
     /// <summary>Whether traces and metrics are exported over OTLP.</summary>
     [ObservableProperty]
     private bool _telemetryEnabled;
@@ -140,10 +133,6 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
     private string _otlpEndpoint;
 
-    /// <summary>The outcome of saving the telemetry settings, or <see langword="null"/>.</summary>
-    [ObservableProperty]
-    private string? _telemetryStatus;
-
     /// <summary>The token typed by the user; cleared after it is saved.</summary>
     [ObservableProperty]
     private string _token = string.Empty;
@@ -151,14 +140,6 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>The error shown at the token field, or <see langword="null"/>.</summary>
     [ObservableProperty]
     private string? _tokenError;
-
-    /// <summary>The outcome of saving the token, or <see langword="null"/>.</summary>
-    [ObservableProperty]
-    private string? _tokenStatus;
-
-    /// <summary>The warning that another source shadows the saved token, or <see langword="null"/>.</summary>
-    [ObservableProperty]
-    private string? _tokenWarning;
 
     /// <summary>The lines that describe the outcome of the last successful token check.</summary>
     [ObservableProperty]
@@ -188,6 +169,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Why <c>backup-config.json</c> cannot be read, or <see langword="null"/>.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    [NotifyCanExecuteChangedFor(nameof(SaveCommand))]
     private string? _loadError;
 
     /// <summary>
@@ -298,6 +280,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     public Task<bool> CanCloseAsync() => Task.FromResult(ConfirmLeave());
 
     /// <summary>
+    /// Gets whether Save is available: the configuration is read, or it cannot be read and only the other groups are
+    /// saved.
+    /// </summary>
+    private bool CanSave => IsLoaded || HasLoadError;
+
+    /// <summary>
     /// Returns the note the editor shows above the fields while <c>backup-config.json</c> does not exist.
     /// </summary>
     /// <param name="configPath">The path of the missing configuration file.</param>
@@ -343,33 +331,105 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     }
 
     /// <summary>
-    /// Validates the configuration in the fields and writes it, then returns to the repository tree.
+    /// Validates every changed group, writes the changed groups and returns to the repository tree.
     /// </summary>
     /// <remarks>
-    /// Errors are shown at their fields and nothing is written. A failure to write the file is shown in a dialog and
-    /// keeps the fields, so the user can retry; the file is left as it was.
+    /// The changed groups are the configuration, the tool paths, the telemetry settings and a typed token. All of them
+    /// are validated first; errors are shown at their fields and nothing is written while there are any. The groups are
+    /// then written in that order and each one that is written stops counting as changed. A failure to write stops the
+    /// save, is shown in a dialog and keeps the editor open with the fields as they are, so a retry writes only the
+    /// groups that are still unsaved.
     /// </remarks>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>A task that completes when the configuration is written or the errors are shown.</returns>
-    [RelayCommand(CanExecute = nameof(IsLoaded))]
+    /// <param name="cancellationToken">Cancels the writes.</param>
+    /// <returns>A task that completes when the groups are written or the errors are shown.</returns>
+    [RelayCommand(CanExecute = nameof(CanSave))]
     private async Task SaveAsync(CancellationToken cancellationToken)
     {
-        var config = BuildConfig();
-        var result = _configStore.Validate(config);
-        Warnings = result.Warnings;
-        ShowConfigErrors(result.Errors);
-        if (!result.IsValid)
+        List<string> general = [];
+        var valid = true;
+
+        BackupConfig? config = null;
+        if (IsLoaded && (IsDirty || IsNewConfig))
+        {
+            config = BuildConfig();
+            var result = _configStore.Validate(config);
+            Warnings = result.Warnings;
+            general.AddRange(ShowConfigErrors(result.Errors));
+            valid &= result.IsValid;
+        }
+
+        ToolPaths? tools = null;
+        if (_toolsDirty)
+        {
+            tools = new ToolPaths(NullIfBlank(GitPath), NullIfBlank(SevenZipPath));
+            valid &= ValidateTools(tools, general);
+        }
+
+        TelemetrySettings? telemetry = null;
+        if (_telemetryDirty)
+        {
+            telemetry = new TelemetrySettings(TelemetryEnabled, NullIfBlank(OtlpEndpoint));
+            valid &= ValidateTelemetry(telemetry, general);
+        }
+
+        string? token = null;
+        if (!string.IsNullOrEmpty(Token))
+        {
+            if (string.IsNullOrWhiteSpace(Token))
+            {
+                TokenError = BlankTokenMessage;
+                valid = false;
+            }
+            else
+            {
+                token = Token.Trim();
+            }
+        }
+
+        GeneralErrors = [.. general.Select(_secretMasker.Mask)];
+        if (!valid)
         {
             return;
         }
 
         try
         {
-            await _configStore.SaveAsync(config, cancellationToken);
+            if (config is not null)
+            {
+                await _configStore.SaveAsync(config, cancellationToken);
+                _loaded = config;
+                IsDirty = false;
+                NewConfigMessage = null;
+            }
+
+            if (tools is not null)
+            {
+                await _toolPathsStore.SaveAsync(tools, cancellationToken);
+                _toolsDirty = false;
+            }
+
+            if (telemetry is not null)
+            {
+                await _telemetrySettingsStore.SaveAsync(telemetry, cancellationToken);
+                _telemetryDirty = false;
+            }
+
+            if (token is not null)
+            {
+                _secretMasker.Register(token);
+                await _tokenStore.WriteAsync(token, cancellationToken);
+                TokenError = null;
+                Token = string.Empty;
+            }
         }
         catch (BackupConfigException exception)
         {
             GeneralErrors = [.. exception.Errors.Select(_secretMasker.Mask)];
+            return;
+        }
+        catch (TokenStoreException exception)
+        {
+            _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
             return;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -379,13 +439,18 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             return;
         }
 
-        _loaded = config;
-        IsDirty = false;
-        NewConfigMessage = null;
-        if (ConfirmLeave())
+        if (token is not null)
         {
-            _navigation.NavigateTo<RepositoriesViewModel>();
+            var effective = await _tokenProvider.GetTokenAsync(cancellationToken);
+            if (effective.Value != token)
+            {
+                _dialogs.ShowInformation(
+                    ShadowedTokenTitle,
+                    $"The token from {effective.SourceName} takes priority over {_tokenStore.Location}, so the application does not use the saved token.");
+            }
         }
+
+        _navigation.NavigateTo<RepositoriesViewModel>();
     }
 
     /// <summary>
@@ -444,145 +509,6 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         if (repository is not null && Repositories.Remove(repository))
         {
             OnConfigEdited();
-        }
-    }
-
-    /// <summary>
-    /// Validates the tool paths and writes them; they take effect after a restart.
-    /// </summary>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>A task that completes when the paths are written or the errors are shown.</returns>
-    [RelayCommand]
-    private async Task SaveToolsAsync(CancellationToken cancellationToken)
-    {
-        var paths = new ToolPaths(NullIfBlank(GitPath), NullIfBlank(SevenZipPath));
-        var errors = _toolPathsStore.Validate(paths);
-        ClearReportedError(nameof(GitPath));
-        ClearReportedError(nameof(SevenZipPath));
-        List<string> other = [];
-        foreach (var error in errors)
-        {
-            if (error.StartsWith(ToolPaths.GitPathKey, StringComparison.Ordinal))
-            {
-                ReportError(nameof(GitPath), error);
-            }
-            else if (error.StartsWith(ToolPaths.SevenZipPathKey, StringComparison.Ordinal))
-            {
-                ReportError(nameof(SevenZipPath), error);
-            }
-            else
-            {
-                other.Add(error);
-            }
-        }
-
-        RefreshError(nameof(GitPath));
-        RefreshError(nameof(SevenZipPath));
-        ToolsStatus = other.Count > 0 ? string.Join(" ", other) : null;
-        if (errors.Count > 0)
-        {
-            return;
-        }
-
-        try
-        {
-            await _toolPathsStore.SaveAsync(paths, cancellationToken);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            AppLog.SettingsSaveFailed(_logger, exception);
-            _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
-            return;
-        }
-
-        _toolsDirty = false;
-        ToolsStatus = ToolsSavedMessage;
-    }
-
-    /// <summary>
-    /// Validates the telemetry settings and writes them; they take effect after a restart.
-    /// </summary>
-    /// <param name="cancellationToken">Cancels the write.</param>
-    /// <returns>A task that completes when the settings are written or the errors are shown.</returns>
-    [RelayCommand]
-    private async Task SaveTelemetryAsync(CancellationToken cancellationToken)
-    {
-        var settings = new TelemetrySettings(TelemetryEnabled, NullIfBlank(OtlpEndpoint));
-        var errors = _telemetrySettingsStore.Validate(settings);
-        ClearReportedError(nameof(OtlpEndpoint));
-        List<string> other = [];
-        foreach (var error in errors)
-        {
-            if (error.StartsWith(TelemetrySettings.OtlpEndpointKey, StringComparison.Ordinal))
-            {
-                ReportError(nameof(OtlpEndpoint), error);
-            }
-            else
-            {
-                other.Add(error);
-            }
-        }
-
-        RefreshError(nameof(OtlpEndpoint));
-        TelemetryStatus = other.Count > 0 ? string.Join(" ", other) : null;
-        if (errors.Count > 0)
-        {
-            return;
-        }
-
-        try
-        {
-            await _telemetrySettingsStore.SaveAsync(settings, cancellationToken);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            AppLog.SettingsSaveFailed(_logger, exception);
-            _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
-            return;
-        }
-
-        _telemetryDirty = false;
-        TelemetryStatus = TelemetrySavedMessage;
-    }
-
-    /// <summary>
-    /// Saves the typed token in the token store, clears the field and warns when a source of higher priority keeps
-    /// the saved token from being used.
-    /// </summary>
-    /// <param name="cancellationToken">Cancels the save.</param>
-    /// <returns>A task that completes when the token is saved or the error is shown.</returns>
-    [RelayCommand]
-    private async Task SaveTokenAsync(CancellationToken cancellationToken)
-    {
-        TokenStatus = null;
-        TokenWarning = null;
-        if (string.IsNullOrWhiteSpace(Token))
-        {
-            TokenError = BlankTokenMessage;
-            return;
-        }
-
-        var token = Token.Trim();
-        _secretMasker.Register(token);
-        try
-        {
-            await _tokenStore.WriteAsync(token, cancellationToken);
-        }
-        catch (TokenStoreException exception)
-        {
-            TokenError = _secretMasker.Mask(exception.Message);
-            return;
-        }
-
-        TokenError = null;
-        Token = string.Empty;
-        TokenStatus = $"Token saved to {_tokenStore.Location}.";
-
-        var effective = await _tokenProvider.GetTokenAsync(cancellationToken);
-        if (effective.Value != token)
-        {
-            TokenWarning =
-                $"The token from {effective.SourceName} takes priority over {_tokenStore.Location}, so the application does not use the saved token.";
         }
     }
 
@@ -729,7 +655,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// Shows each validation error at its field and the rest as general errors, replacing the errors shown before.
     /// </summary>
     /// <param name="errors">The validation errors.</param>
-    private void ShowConfigErrors(IReadOnlyList<string> errors)
+    /// <returns>The errors that belong to no field.</returns>
+    private List<string> ShowConfigErrors(IReadOnlyList<string> errors)
     {
         var fields = CollectFields();
         foreach (var form in fields.Values.Select(field => field.Form).Distinct())
@@ -774,7 +701,65 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             }
         }
 
-        GeneralErrors = general;
+        return general;
+    }
+
+    /// <summary>
+    /// Validates the tool paths and shows each error at its field.
+    /// </summary>
+    /// <param name="paths">The tool paths in the fields.</param>
+    /// <param name="general">Receives the errors that belong to no field.</param>
+    /// <returns><see langword="true"/> when the paths are valid.</returns>
+    private bool ValidateTools(ToolPaths paths, List<string> general)
+    {
+        var errors = _toolPathsStore.Validate(paths);
+        ClearReportedError(nameof(GitPath));
+        ClearReportedError(nameof(SevenZipPath));
+        foreach (var error in errors)
+        {
+            if (error.StartsWith(ToolPaths.GitPathKey, StringComparison.Ordinal))
+            {
+                ReportError(nameof(GitPath), error);
+            }
+            else if (error.StartsWith(ToolPaths.SevenZipPathKey, StringComparison.Ordinal))
+            {
+                ReportError(nameof(SevenZipPath), error);
+            }
+            else
+            {
+                general.Add(error);
+            }
+        }
+
+        RefreshError(nameof(GitPath));
+        RefreshError(nameof(SevenZipPath));
+        return errors.Count == 0;
+    }
+
+    /// <summary>
+    /// Validates the telemetry settings and shows each error at its field.
+    /// </summary>
+    /// <param name="settings">The telemetry settings in the fields.</param>
+    /// <param name="general">Receives the errors that belong to no field.</param>
+    /// <returns><see langword="true"/> when the settings are valid.</returns>
+    private bool ValidateTelemetry(TelemetrySettings settings, List<string> general)
+    {
+        var errors = _telemetrySettingsStore.Validate(settings);
+        ClearReportedError(nameof(OtlpEndpoint));
+        foreach (var error in errors)
+        {
+            if (error.StartsWith(TelemetrySettings.OtlpEndpointKey, StringComparison.Ordinal))
+            {
+                ReportError(nameof(OtlpEndpoint), error);
+            }
+            else
+            {
+                general.Add(error);
+            }
+        }
+
+        RefreshError(nameof(OtlpEndpoint));
+        return errors.Count == 0;
     }
 
     /// <summary>
@@ -852,35 +837,19 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Marks the tool paths as changed.</summary>
     /// <param name="value">The new path.</param>
-    partial void OnGitPathChanged(string value)
-    {
-        _toolsDirty = true;
-        ToolsStatus = null;
-    }
+    partial void OnGitPathChanged(string value) => _toolsDirty = true;
 
     /// <summary>Marks the tool paths as changed.</summary>
     /// <param name="value">The new path.</param>
-    partial void OnSevenZipPathChanged(string value)
-    {
-        _toolsDirty = true;
-        ToolsStatus = null;
-    }
+    partial void OnSevenZipPathChanged(string value) => _toolsDirty = true;
 
     /// <summary>Marks the telemetry settings as changed.</summary>
     /// <param name="value">The new value.</param>
-    partial void OnTelemetryEnabledChanged(bool value)
-    {
-        _telemetryDirty = true;
-        TelemetryStatus = null;
-    }
+    partial void OnTelemetryEnabledChanged(bool value) => _telemetryDirty = true;
 
     /// <summary>Marks the telemetry settings as changed.</summary>
     /// <param name="value">The new endpoint.</param>
-    partial void OnOtlpEndpointChanged(string value)
-    {
-        _telemetryDirty = true;
-        TelemetryStatus = null;
-    }
+    partial void OnOtlpEndpointChanged(string value) => _telemetryDirty = true;
 
     /// <summary>Applies and saves the chosen theme.</summary>
     /// <param name="value">The chosen entry.</param>
