@@ -147,7 +147,10 @@ The published folder contains this file with these defaults. The program needs t
     "OtlpEndpoint": "http://localhost:4317"
   },
   "Serilog": {
-    "MinimumLevel": { "Default": "Information" }
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": { "Microsoft.Hosting.Lifetime": "Warning" }
+    }
   }
 }
 ```
@@ -165,7 +168,7 @@ The published folder contains this file with these defaults. The program needs t
 | `OpenTelemetry:Enabled` | `false` | Turns telemetry on (see [Telemetry](#telemetry-opentelemetry)). |
 | `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
-| `Serilog:MinimumLevel:Override:<SourceContext>` | not set | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. |
+| `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The shipped value keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; remove it to log them again. |
 
 If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the value of `GitHub:Token`.
 

@@ -206,8 +206,7 @@ public sealed class MaskingTextFormatterTests
     /// Creates the text formatter with the layout of the text log.
     /// </summary>
     /// <returns>The formatter.</returns>
-    private static MessageTemplateTextFormatter TextFormatter() =>
-        new(FileLoggingServiceCollectionExtensions.TextOutputTemplate, CultureInfo.InvariantCulture);
+    private static TextLogFormatter TextFormatter() => new();
 
     /// <summary>
     /// Formats <paramref name="logEvent"/> with <paramref name="inner"/> without masking.
@@ -215,7 +214,7 @@ public sealed class MaskingTextFormatterTests
     /// <param name="inner">The formatter.</param>
     /// <param name="logEvent">The entry.</param>
     /// <returns>The rendered entry.</returns>
-    private static string FormatUnmasked(MessageTemplateTextFormatter inner, Serilog.Events.LogEvent logEvent)
+    private static string FormatUnmasked(TextLogFormatter inner, Serilog.Events.LogEvent logEvent)
     {
         using var output = new StringWriter(CultureInfo.InvariantCulture);
         inner.Format(logEvent, output);

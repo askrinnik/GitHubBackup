@@ -1,4 +1,3 @@
-using System.Globalization;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
@@ -10,7 +9,6 @@ using Microsoft.Extensions.Options;
 using Serilog;
 using Serilog.Formatting;
 using Serilog.Formatting.Compact;
-using Serilog.Formatting.Display;
 
 namespace GitHubBackup.Infrastructure.Logging;
 
@@ -20,14 +18,6 @@ namespace GitHubBackup.Infrastructure.Logging;
 /// </summary>
 public static class FileLoggingServiceCollectionExtensions
 {
-    /// <summary>The layout of one entry in the text log.</summary>
-    /// <remarks>
-    /// <c>{Properties:j}</c> renders the properties that neither the message nor the layout shows, such as
-    /// <c>Repository</c> and <c>Operation</c> from a scope.
-    /// </remarks>
-    internal const string TextOutputTemplate =
-        "{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz} [{Level:u3}] {RunId} {SourceContext}: {Message:lj} {Properties:j}{NewLine}{Exception}";
-
     /// <param name="services">The service collection of the host.</param>
     extension(IServiceCollection services)
     {
@@ -90,7 +80,7 @@ public static class FileLoggingServiceCollectionExtensions
     {
         WriteToDailyFile(
             configuration,
-            new MessageTemplateTextFormatter(TextOutputTemplate, CultureInfo.InvariantCulture),
+            new TextLogFormatter(),
             masker,
             LogFiles.GetPathTemplate(contentRootPath, LogFiles.TextExtension));
         WriteToDailyFile(

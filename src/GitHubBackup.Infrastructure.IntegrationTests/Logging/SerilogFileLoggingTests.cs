@@ -17,6 +17,13 @@ public sealed class SerilogFileLoggingTests
     /// <summary>A settings file that sets only the default level.</summary>
     private const string _informationAppSettings = """{ "Serilog": { "MinimumLevel": { "Default": "Information" } } }""";
 
+    /// <summary>A settings file that raises the level of the host lifetime messages as the shipped file does.</summary>
+    private const string _lifetimeWarningAppSettings =
+        """{ "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Warning" } } } }""";
+
+    /// <summary>The source of the status messages that the host writes on start and stop.</summary>
+    private const string _hostLifetimeSource = "Microsoft.Hosting.Lifetime";
+
     /// <summary>A token registered through configuration; it has no recognisable format.</summary>
     private const string _configuredToken = "configured-token-without-format";
 
@@ -101,6 +108,33 @@ public sealed class SerilogFileLoggingTests
         var text = contentRoot.ReadTextLog();
         text.ShouldContain("\"Repository\":\"octocat/hello-world\"");
         text.ShouldContain("\"Operation\":\"clone\"");
+    }
+
+    [Fact]
+    public void Log_EntryWithoutRemainingProperties_WritesTextLineWithoutEmptyProperties()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+
+        WriteEntry(contentRoot, logger => logger.Log(LogLevel.Information, default, "Entry", null, (state, _) => state));
+
+        var line = contentRoot.ReadTextLog().TrimEnd();
+        line.ShouldEndWith($"{typeof(SerilogFileLoggingTests).FullName}: Entry");
+        line.ShouldNotContain("{}");
+    }
+
+    [Theory]
+    [InlineData(_informationAppSettings, true)]
+    [InlineData(_lifetimeWarningAppSettings, false)]
+    public async Task StartAndStop_HostLifetimeOverride_DecidesWhetherLifetimeMessagesAreLogged(string appSettings, bool expected)
+    {
+        using var contentRoot = new TemporaryContentRoot(appSettings);
+        using (var host = contentRoot.BuildHost())
+        {
+            await host.StartAsync(TestContext.Current.CancellationToken);
+            await host.StopAsync(TestContext.Current.CancellationToken);
+        }
+
+        contentRoot.ReadTextLog().Contains(_hostLifetimeSource, StringComparison.Ordinal).ShouldBe(expected);
     }
 
     [Fact]
