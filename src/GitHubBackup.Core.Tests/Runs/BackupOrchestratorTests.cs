@@ -928,6 +928,7 @@ public sealed class BackupOrchestratorTests : IDisposable
                 RemoteUrl = _wikiUrl,
                 ArchiveFolder = @"C:\backup\owner\repo",
                 LastArchive = null,
+                CheckRemoteWithoutClone = true,
             },
             CancellationToken);
         _nameBuilder.Received(1).Build("owner", "repo", BackupTarget.Wiki, _headCommit);
@@ -1630,6 +1631,37 @@ public sealed class BackupOrchestratorTests : IDisposable
             }),
         ]);
         await _detector.Received(1).PreviewAsync(WikiRequest(), CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWikiNotFoundOnServer_SkipsWikiAndKeepsRepositoryResult()
+    {
+        SetupWiki(hasWiki: true);
+        SetupPreview(ChangeDecision.CloneNeeded);
+        _detector.PreviewAsync(WikiRequest(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128));
+
+        var result = await DryRunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+            [("owner/repo", BackupItemStatus.WouldClone)]);
+        SingleRecord(_wikiNotFoundEventId).Level.ShouldBe(LogLevel.Information);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRun_ChecksServerWithoutCloneOnlyForWiki()
+    {
+        SetupWiki(hasWiki: true);
+        SetupPreview(ChangeDecision.CloneNeeded);
+
+        await DryRunAsync();
+
+        await _detector.Received(1).PreviewAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _wikiUrl && request.CheckRemoteWithoutClone),
+            Arg.Any<CancellationToken>());
+        await _detector.Received(1).PreviewAsync(
+            Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl != _wikiUrl && !request.CheckRemoteWithoutClone),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

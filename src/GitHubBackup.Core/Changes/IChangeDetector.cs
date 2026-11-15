@@ -42,7 +42,8 @@ public interface IChangeDetector
     /// the clone.
     /// </summary>
     /// <remarks>
-    /// Without a clone the result is <see cref="ChangeDecision.CloneNeeded"/> and git is not called. The clone folder
+    /// Without a clone the result is <see cref="ChangeDecision.CloneNeeded"/> and git is not called, unless
+    /// <see cref="ChangeDetectionRequest.CheckRemoteWithoutClone"/> is set: then the server is asked for its refs. The clone folder
     /// and the clone are checked as <see cref="DetectAsync"/> checks them, so the same failure is reported. Otherwise the
     /// refs of the server stand in for the refs the clone would hold after an update, so
     /// <see cref="ChangeDetection.Refs"/> holds the server's branches and tags.
@@ -56,7 +57,10 @@ public interface IChangeDetector
     /// <exception cref="GitBranchNotFoundException">
     /// The server has branches, but neither the requested branch nor the default branch is among them.
     /// </exception>
-    /// <exception cref="GitRepositoryNotFoundException">The server has no repository at the remote URL.</exception>
+    /// <exception cref="GitRepositoryNotFoundException">
+    /// The server has no repository at the remote URL, also for a target without a clone when
+    /// <see cref="ChangeDetectionRequest.CheckRemoteWithoutClone"/> is set.
+    /// </exception>
     /// <exception cref="CloneFolderException">
     /// The clone folder is not empty and holds no git clone, or its <c>origin</c> does not point at the remote URL.
     /// </exception>

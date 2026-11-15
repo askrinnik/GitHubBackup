@@ -72,7 +72,7 @@ public sealed class GitClientTests
         /// <summary><see cref="IGitClient.UpdateAsync"/>.</summary>
         Update,
 
-        /// <summary><see cref="IGitClient.GetRemoteRefsAsync"/>.</summary>
+        /// <summary><see cref="IGitClient.GetRemoteRefsAsync(GitRepositoryRequest, CancellationToken)"/>.</summary>
         RemoteRefs,
 
         /// <summary><see cref="IGitClient.GetLocalRefsAsync"/>.</summary>

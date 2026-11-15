@@ -562,6 +562,29 @@ public sealed class ChangeDetectorTests : IDisposable
     }
 
     [Fact]
+    public async Task PreviewAsync_NoCloneAndCheckRemote_ReadsServerAndReturnsCloneNeeded()
+    {
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken).Returns(BaseRefs);
+
+        var result = await PreviewAsync(last: null, checkRemoteWithoutClone: true);
+
+        result.ShouldBe(new ChangeDetection(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, BaseRefs));
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken);
+        await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneAndCheckRemoteServerHasNoRepository_Throws()
+    {
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken)
+            .Returns(Task.FromException<RefSnapshot>(
+                new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128)));
+
+        await Should.ThrowAsync<GitRepositoryNotFoundException>(
+            () => PreviewAsync(last: null, checkRemoteWithoutClone: true));
+    }
+
+    [Fact]
     public async Task PreviewAsync_RefsUnchanged_ReturnsUpToDate()
     {
         AddClone();
@@ -928,9 +951,10 @@ public sealed class ChangeDetectorTests : IDisposable
         new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
             .DetectAsync(CreateRequest(last, branch), CancellationToken);
 
-    private Task<ChangeDetection> PreviewAsync(ArchiveRecord? last, string? branch = "main") =>
+    private Task<ChangeDetection> PreviewAsync(
+        ArchiveRecord? last, string? branch = "main", bool checkRemoteWithoutClone = false) =>
         new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
-            .PreviewAsync(CreateRequest(last, branch), CancellationToken);
+            .PreviewAsync(CreateRequest(last, branch) with { CheckRemoteWithoutClone = checkRemoteWithoutClone }, CancellationToken);
 
     private void AddClone() => _fileSystem.AddDirectory(Path.Combine(_clonePath, ".git"));
 
