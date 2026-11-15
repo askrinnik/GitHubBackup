@@ -1,10 +1,13 @@
+using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Telemetry;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -34,12 +37,14 @@ public sealed class TelemetryServiceCollectionExtensionsTests
     [Theory]
     [InlineData("true")]
     [InlineData("True")]
-    public void AddGitHubBackupTelemetry_Enabled_RegistersTracerAndMeterProvidersAndHostedService(string enabled)
+    public void AddGitHubBackupTelemetry_Enabled_RegistersTracerMeterAndLoggerProvidersAndHostedService(string enabled)
     {
         using var provider = BuildProvider(Configuration(enabled, "http://collector:4317"));
 
         provider.GetService<TracerProvider>().ShouldNotBeNull();
         provider.GetService<MeterProvider>().ShouldNotBeNull();
+        provider.GetService<LoggerProvider>().ShouldNotBeNull();
+        provider.GetServices<ILoggerProvider>().ShouldContain(logger => logger is OpenTelemetryLoggerProvider);
         provider.GetServices<IHostedService>().ShouldNotBeEmpty();
     }
 
@@ -84,8 +89,8 @@ public sealed class TelemetryServiceCollectionExtensionsTests
     }
 
     /// <summary>
-    /// Builds a provider with the configuration and the bound <see cref="OpenTelemetryOptions"/>, as the host
-    /// registers them, and the telemetry.
+    /// Builds a provider with the configuration, the secret masker and the bound <see cref="OpenTelemetryOptions"/>,
+    /// as the host registers them, and the telemetry.
     /// </summary>
     /// <param name="configuration">The configuration.</param>
     /// <returns>The provider; the caller disposes it.</returns>
@@ -93,6 +98,7 @@ public sealed class TelemetryServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         services.AddSingleton(configuration);
+        services.AddSingleton<ISecretMasker, SecretMasker>();
         services.Configure<OpenTelemetryOptions>(configuration.GetSection(OpenTelemetryOptions.SectionName));
         services.AddGitHubBackupTelemetry(configuration);
         return services.BuildServiceProvider();

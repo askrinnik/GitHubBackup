@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Media;
 using System.Windows.Threading;
 using GitHubBackup.App.ViewModels;
 
@@ -14,6 +15,9 @@ public sealed partial class RepositoriesView : UserControl
 {
     /// <summary>Whether a scroll of the live log to its newest entry is queued and has not run yet.</summary>
     private bool _scrollToNewestQueued;
+
+    /// <summary>The scroll viewer of the live log's template, found on the first scroll.</summary>
+    private ScrollViewer? _runLogScrollViewer;
 
     /// <summary>
     /// Initializes the view and loads its XAML-defined content.
@@ -70,14 +74,48 @@ public sealed partial class RepositoriesView : UserControl
     }
 
     /// <summary>
-    /// Scrolls the live log to its newest entry.
+    /// Scrolls the live log to its newest entry, vertically only.
     /// </summary>
+    /// <remarks>
+    /// <see cref="ListBox.ScrollIntoView(object)"/> would also scroll horizontally to the end of a long entry and hide
+    /// the start of every line; scrolling the viewer to its bottom keeps the horizontal position.
+    /// </remarks>
     private void ScrollToNewest()
     {
         _scrollToNewestQueued = false;
-        if (RunLogList.Items.Count > 0)
+        if (_runLogScrollViewer is null || !_runLogScrollViewer.IsDescendantOf(RunLogList))
         {
-            RunLogList.ScrollIntoView(RunLogList.Items[^1]);
+            _runLogScrollViewer = FindDescendant<ScrollViewer>(RunLogList);
         }
+
+        _runLogScrollViewer?.ScrollToBottom();
+    }
+
+    /// <summary>
+    /// Returns the first descendant of <paramref name="root"/> of type <typeparamref name="T"/>, searching the visual
+    /// tree breadth first.
+    /// </summary>
+    /// <typeparam name="T">The type of the element to find.</typeparam>
+    /// <param name="root">The element whose visual tree is searched.</param>
+    /// <returns>The element, or <see langword="null"/> when the template is not applied yet or holds none.</returns>
+    private static T? FindDescendant<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        var pending = new Queue<DependencyObject>([root]);
+        while (pending.TryDequeue(out var current))
+        {
+            for (var index = 0; index < VisualTreeHelper.GetChildrenCount(current); index++)
+            {
+                var child = VisualTreeHelper.GetChild(current, index);
+                if (child is T match)
+                {
+                    return match;
+                }
+
+                pending.Enqueue(child);
+            }
+        }
+
+        return null;
     }
 }

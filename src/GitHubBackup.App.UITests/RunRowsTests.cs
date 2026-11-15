@@ -7,7 +7,8 @@ namespace GitHubBackup.App.UITests;
 
 /// <summary>
 /// Runs a backup of one repository from the main window and checks that the rows of the live log and of the summary
-/// table keep the height of one line of text.
+/// table keep the height of one line of text, and that the live log shows its newest entry from the start of the
+/// line.
 /// </summary>
 /// <remarks>git and 7-Zip run for real against a local bare repository.</remarks>
 public sealed class RunRowsTests : IDisposable
@@ -46,6 +47,26 @@ public sealed class RunRowsTests : IDisposable
 
         ShouldBeOneLineHigh(FirstRow(session.WaitFor("RunLog"), ControlType.ListItem));
         ShouldBeOneLineHigh(FirstRow(session.WaitFor("RunSummaryTable"), ControlType.DataItem));
+    }
+
+    [Fact]
+    public async Task BackupAll_AfterRun_LogScrolledToBottomAndLeft()
+    {
+        await _sandbox.CreateRemoteAsync(_owner + "/" + _name, TestContext.Current.CancellationToken);
+        var session = _session = AppSession.Start(_installation);
+        session.WaitFor("RepositoryTree");
+
+        session.Invoke("BackupAllButton");
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+
+        var scroll = session.WaitFor("RunLog").Patterns.Scroll.Pattern;
+        AppSession.WaitUntil(
+            () => !scroll.VerticallyScrollable.Value || scroll.VerticalScrollPercent.Value >= 100,
+            "the live log scrolled to its bottom");
+        if (scroll.HorizontallyScrollable.Value)
+        {
+            scroll.HorizontalScrollPercent.Value.ShouldBe(0);
+        }
     }
 
     /// <summary>

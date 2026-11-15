@@ -627,7 +627,7 @@ The program writes one log per day to the folder `logs\` next to the exe:
 - `logs\githubbackup-YYYYMMDD.log`: readable text;
 - `logs\githubbackup-YYYYMMDD.json`: structured log (CLEF, one JSON line per event).
 
-Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call with secrets masked, every output line of the tools, and the exit code and duration. The token and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
+Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
 
 ### History
 
@@ -635,7 +635,7 @@ The history of runs and archives sits in the SQLite database `data\history.db` n
 
 ### Telemetry (OpenTelemetry)
 
-Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces and metrics over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
+Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces, metrics and logs over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
 
 Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the group **Telemetry** has a checkbox and the OTLP endpoint field, and the settings apply after you restart the program. The editor writes them to `user-settings.json` (see [user-settings.json](#user-settingsjson)); environment variables and the command line still override them. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
 
@@ -665,6 +665,13 @@ Metrics (meter `GitHubBackup`):
 | `githubbackup.run.duration` | Histogram, `s` | `githubbackup.run.outcome`, `githubbackup.dry_run` |
 | `githubbackup.archive.size` | Histogram, `By` | `githubbackup.target`; only created archives |
 
+Logs:
+
+- The program sends the same entries it writes to the log files (see [Logs](#logs)): the message, the level, the category and the properties of the entry as attributes, among them `RunId`, `Repository` and `Operation`.
+- The levels of `Serilog:MinimumLevel` apply to the sent entries too; there is no separate level for OTLP.
+- Secrets are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
+- With telemetry off, the program registers no OpenTelemetry log provider; the log files and the live log of the desktop app are the same either way.
+
 #### View telemetry in the .NET Aspire Dashboard
 
 The repository holds [compose.yaml](compose.yaml), which starts the standalone .NET Aspire Dashboard in Docker. The dashboard receives OTLP over gRPC on `http://localhost:4317`, the default `OpenTelemetry:OtlpEndpoint`, so the program needs no other setting. Both ports listen on `127.0.0.1` only, because the telemetry holds repository names. The dashboard keeps the data in memory: a restart clears it.
@@ -693,7 +700,8 @@ You need Docker Desktop (Linux containers) running.
    Add `--dry-run` to change nothing, or set `"Enabled": true` in the `OpenTelemetry` section of `appsettings.json` to send telemetry on every run.
 4. On the **Traces** page, open the trace `GitHubBackup: backup.run`. It shows the hierarchy above: `backup.discovery`, then one `backup.repository` per repository and wiki with its `ls-remote`, `clone`, `fetch` and `archive` spans. A failed step has a red mark. Select a span to see its tags.
 5. On the **Metrics** page, select the resource `GitHubBackup`: it lists the four `githubbackup.*` metrics. Use the **Table** view to read single values.
-6. Stop the dashboard:
+6. On the **Structured logs** page, select the resource `GitHubBackup`: it lists the log entries of the run with their level and message. Select an entry to see its attributes, or filter by `RunId`, `Repository` or `Operation` to follow one run, repository or step.
+7. Stop the dashboard:
 
    ```
    docker compose down

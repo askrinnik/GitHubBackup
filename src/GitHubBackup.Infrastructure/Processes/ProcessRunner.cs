@@ -16,7 +16,9 @@ namespace GitHubBackup.Infrastructure.Processes;
 /// The <c>Repository</c> property of the entries comes from the logging scope the caller opens; the runner does not
 /// know which repository it works for.
 /// </remarks>
-/// <param name="secretMasker">Masks the command line and the output lines before they are logged.</param>
+/// <param name="secretMasker">
+/// Masks the command line, the environment variables and the output lines before they are logged.
+/// </param>
 /// <param name="fileSystem">Checks that the executable and the working directory exist.</param>
 /// <param name="timeProvider">Measures the duration of the run.</param>
 /// <param name="logger">Writes the entries of the run.</param>
@@ -66,8 +68,8 @@ internal sealed class ProcessRunner(
         if (logger.IsEnabled(LogLevel.Information))
         {
             var commandLine = secretMasker.Mask(ProcessCommandLine.Format(request.FileName, request.Arguments));
-            var variableNames = string.Join(", ", request.EnvironmentVariables.Select(variable => variable.Name));
-            ProcessRunnerLog.Starting(logger, tool, commandLine, request.WorkingDirectory, variableNames);
+            var environment = secretMasker.Mask(ProcessEnvironmentFormat.Format(request.EnvironmentVariables));
+            ProcessRunnerLog.Starting(logger, tool, commandLine, request.WorkingDirectory, environment);
         }
 
         using var process = new Process();

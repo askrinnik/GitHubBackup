@@ -29,8 +29,10 @@ public static class FileLoggingServiceCollectionExtensions
         /// The logger is created when the host is built, so an invalid level fails <c>Build()</c> with an
         /// <see cref="OptionsValidationException"/>. The logger belongs to the service provider and is disposed, with
         /// the files flushed and closed, when the host is disposed; the static <see cref="Log.Logger"/> is left
-        /// untouched. Requires <see cref="IHostEnvironment"/>, <see cref="IRunContext"/> and
-        /// <see cref="ISecretMasker"/> to be registered.
+        /// untouched. Every <see cref="Microsoft.Extensions.Logging.ILoggerProvider"/> registered in the container
+        /// receives the entries that pass the levels of <see cref="SerilogOptions"/>, with the run identifier and the
+        /// scope properties; Serilog does not mask them, so such a provider masks secrets itself. Requires
+        /// <see cref="IHostEnvironment"/>, <see cref="IRunContext"/> and <see cref="ISecretMasker"/> to be registered.
         /// </remarks>
         /// <param name="configuration">The application configuration.</param>
         /// <returns>The same service collection, for chaining.</returns>
@@ -40,7 +42,7 @@ public static class FileLoggingServiceCollectionExtensions
             services.AddOptions<SerilogOptions>().BindSection(configuration, SerilogOptions.SectionName).ValidateOnStart();
             services.TryAddSingleton<LiveLogSink>();
             services.TryAddSingleton<ILiveLogFeed>(provider => provider.GetRequiredService<LiveLogSink>());
-            services.AddSerilog(ConfigureLogger, preserveStaticLogger: true);
+            services.AddSerilog(ConfigureLogger, preserveStaticLogger: true, writeToProviders: true);
 
             return services;
         }
