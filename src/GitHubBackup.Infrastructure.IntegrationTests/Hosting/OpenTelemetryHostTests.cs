@@ -1,6 +1,7 @@
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Trace;
 
@@ -23,6 +24,7 @@ public sealed class OpenTelemetryHostTests
 
         (host.Services.GetService<TracerProvider>() is not null).ShouldBe(registered);
         (host.Services.GetService<MeterProvider>() is not null).ShouldBe(registered);
+        (host.Services.GetService<LoggerProvider>() is not null).ShouldBe(registered);
     }
 
     [Fact]
@@ -37,6 +39,7 @@ public sealed class OpenTelemetryHostTests
 
         host.Services.GetService<TracerProvider>().ShouldNotBeNull();
         host.Services.GetService<MeterProvider>().ShouldNotBeNull();
+        host.Services.GetService<LoggerProvider>().ShouldNotBeNull();
     }
 
     [Fact]
@@ -48,5 +51,6 @@ public sealed class OpenTelemetryHostTests
 
         host.Services.GetService<TracerProvider>().ShouldBeNull();
         host.Services.GetService<MeterProvider>().ShouldBeNull();
+        host.Services.GetService<LoggerProvider>().ShouldBeNull();
     }
 }

@@ -1,9 +1,11 @@
+using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using OpenTelemetry.Exporter;
+using OpenTelemetry.Logs;
 using OpenTelemetry.Metrics;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -11,7 +13,8 @@ using OpenTelemetry.Trace;
 namespace GitHubBackup.Infrastructure.Telemetry;
 
 /// <summary>
-/// Registers the OpenTelemetry SDK that exports the spans and metrics of <see cref="BackupTelemetry"/> over OTLP.
+/// Registers the OpenTelemetry SDK that exports the spans and metrics of <see cref="BackupTelemetry"/> and the log
+/// entries over OTLP.
 /// </summary>
 public static class TelemetryServiceCollectionExtensions
 {
@@ -25,11 +28,14 @@ public static class TelemetryServiceCollectionExtensions
     extension(IServiceCollection services)
     {
         /// <summary>
-        /// Adds the OpenTelemetry SDK with tracing and metrics for <see cref="BackupTelemetry.SourceName"/> and an OTLP
-        /// exporter for each, sending to <see cref="OpenTelemetryOptions.OtlpEndpoint"/>, when
-        /// <see cref="OpenTelemetryOptions.Enabled"/> is <see langword="true"/>; otherwise adds nothing.
+        /// Adds the OpenTelemetry SDK with tracing and metrics for <see cref="BackupTelemetry.SourceName"/>, a logger
+        /// provider with secrets masked, and an OTLP exporter for each, sending to
+        /// <see cref="OpenTelemetryOptions.OtlpEndpoint"/>, when <see cref="OpenTelemetryOptions.Enabled"/> is
+        /// <see langword="true"/>; otherwise adds nothing.
         /// </summary>
         /// <remarks>
+        /// The logger provider receives the entries that Serilog lets through its levels; it requires
+        /// <see cref="ISecretMasker"/> to be registered.
         /// The switch is read from <paramref name="configuration"/> because registration happens before the options
         /// exist. A value that is not a boolean registers nothing here and is reported by the validation of
         /// <see cref="OpenTelemetryOptions"/> when the host starts. The endpoint is read from the validated options
@@ -47,7 +53,12 @@ public static class TelemetryServiceCollectionExtensions
             services.AddOpenTelemetry()
                 .ConfigureResource(resource => resource.AddService(ServiceName))
                 .WithTracing(tracing => tracing.AddSource(BackupTelemetry.SourceName).AddOtlpExporter())
-                .WithMetrics(metrics => metrics.AddMeter(BackupTelemetry.SourceName).AddOtlpExporter());
+                .WithMetrics(metrics => metrics.AddMeter(BackupTelemetry.SourceName).AddOtlpExporter())
+                .WithLogging(
+                    logging => logging
+                        .AddProcessor(provider => new SecretMaskingLogRecordProcessor(provider.GetRequiredService<ISecretMasker>()))
+                        .AddOtlpExporter(),
+                    ConfigureLogging);
 
             services.AddOptions<OtlpExporterOptions>()
                 .Configure<IOptions<OpenTelemetryOptions>>((exporter, options) =>
@@ -60,5 +71,20 @@ public static class TelemetryServiceCollectionExtensions
 
             return services;
         }
+    }
+
+    /// <summary>
+    /// Sets what an exported log record carries: the rendered message and the properties of the entry as attributes.
+    /// </summary>
+    /// <remarks>
+    /// Scopes stay out: the scope properties already reach the record as properties of the Serilog entry, and scope
+    /// values would bypass <see cref="SecretMaskingLogRecordProcessor"/>.
+    /// </remarks>
+    /// <param name="options">The options of the OpenTelemetry logger provider.</param>
+    private static void ConfigureLogging(OpenTelemetryLoggerOptions options)
+    {
+        options.IncludeFormattedMessage = true;
+        options.IncludeScopes = false;
+        options.ParseStateValues = true;
     }
 }

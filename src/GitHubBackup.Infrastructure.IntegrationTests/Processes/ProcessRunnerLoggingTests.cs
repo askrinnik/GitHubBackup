@@ -5,6 +5,7 @@ using System.Text.Json;
 using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
@@ -26,8 +27,11 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     /// <summary>A secret without a recognisable format, so only its registration can mask it.</summary>
     private const string _secretValue = "opaque-secret-value-0123";
 
-    /// <summary>A value that is not secret but must not reach the log either.</summary>
+    /// <summary>A value that is not secret, so the log shows it.</summary>
     private const string _plainValue = "plain-value-4567";
+
+    /// <summary>A fake token in the documented GitHub format, so the masker recognises it without registration.</summary>
+    private const string _token = "ghp_0123456789abcdefghijklmnopqrstuvwxyzAB";
 
     private const string _secretName = "GITHUBBACKUP_TEST_SECRET";
     private const string _plainName = "GITHUBBACKUP_TEST_PLAIN";
@@ -63,11 +67,47 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
         })
         {
             content.ShouldNotContain(_secretValue);
-            content.ShouldNotContain(_plainValue);
             content.ShouldContain("out ***");
             content.ShouldContain("err ***");
-            content.ShouldContain($"{_secretName}, {_plainName}");
+            content.ShouldContain($"{_secretName}=***, {_plainName}={_plainValue}");
         }
+    }
+
+    [Fact]
+    public async Task RunAsync_GitEnvironmentWithToken_LogsNameValuePairsWithoutToken()
+    {
+        var environment = GitEnvironment.Create(
+            _token, [], ceilingDirectory: null, hooksPath: @"C:\missing-hooks", skipLfsSmudge: false);
+        var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 0"]) with
+        {
+            EnvironmentVariables = environment,
+        };
+        var headerIndex = environment.Count(variable => variable.Name.StartsWith("GIT_CONFIG_KEY_", StringComparison.Ordinal)) - 1;
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var starting = _logger.Collector.GetSnapshot().Single(record => record.Id.Id == _startingEventId);
+        var variables = starting.GetStructuredStateValue("EnvironmentVariables").ShouldNotBeNull();
+        variables.ShouldContain("GIT_CONFIG_KEY_0=core.longpaths");
+        variables.ShouldContain($"GIT_CONFIG_KEY_{headerIndex}={GitEnvironment.ExtraHeaderKey}");
+        variables.ShouldContain($"GIT_CONFIG_VALUE_{headerIndex}=***");
+        ShouldNotContainAnywhere(starting, _token);
+        ShouldNotContainAnywhere(starting, GitEnvironment.EncodeCredentials(_token));
+    }
+
+    [Fact]
+    public async Task RunAsync_TokenInPlainVariable_IsMasked()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 0"]) with
+        {
+            EnvironmentVariables = [new(_plainName, $"prefix {_token} suffix")],
+        };
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var starting = _logger.Collector.GetSnapshot().Single(record => record.Id.Id == _startingEventId);
+        starting.GetStructuredStateValue("EnvironmentVariables").ShouldBe($"{_plainName}=prefix *** suffix");
+        ShouldNotContainAnywhere(starting, _token);
     }
 
     [Fact]
@@ -79,14 +119,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
         records.ShouldNotBeEmpty();
         foreach (var record in records)
         {
-            record.Message.ShouldNotContain(_secretValue);
-            record.Message.ShouldNotContain(_plainValue);
-            foreach (var pair in record.StructuredState ?? [])
-            {
-                var text = pair.Value ?? string.Empty;
-                text.ShouldNotContain(_secretValue);
-                text.ShouldNotContain(_plainValue);
-            }
+            ShouldNotContainAnywhere(record, _secretValue);
         }
 
         records.ShouldContain(record => record.Id.Id == _outputLineEventId && record.GetStructuredStateValue("Line") == "out ***");
@@ -239,6 +272,21 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
         {
             EnvironmentVariables = [new(_secretName, _secretValue, IsSecret: true), new(_plainName, _plainValue)],
         };
+
+    /// <summary>
+    /// Asserts that neither the formatted message nor any structured value of <paramref name="record"/> contains
+    /// <paramref name="secret"/>.
+    /// </summary>
+    /// <param name="record">The log record.</param>
+    /// <param name="secret">The text that must be absent.</param>
+    private static void ShouldNotContainAnywhere(FakeLogRecord record, string secret)
+    {
+        record.Message.ShouldNotContain(secret);
+        foreach (var pair in record.StructuredState ?? [])
+        {
+            (pair.Value ?? string.Empty).ShouldNotContain(secret);
+        }
+    }
 
     /// <summary>
     /// Returns the string value of the property <paramref name="name"/> of a structured log entry.

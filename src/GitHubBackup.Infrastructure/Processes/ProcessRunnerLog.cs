@@ -14,7 +14,9 @@ internal static partial class ProcessRunnerLog
     /// <param name="tool">The name of the tool.</param>
     /// <param name="commandLine">The command line, with secrets masked.</param>
     /// <param name="workingDirectory">The folder the process runs in.</param>
-    /// <param name="environmentVariables">The names of the environment variables set for the process.</param>
+    /// <param name="environmentVariables">
+    /// The environment variables set for the process as <c>NAME=value</c> pairs, with secrets masked.
+    /// </param>
     [LoggerMessage(
         EventId = 1,
         Level = LogLevel.Information,
