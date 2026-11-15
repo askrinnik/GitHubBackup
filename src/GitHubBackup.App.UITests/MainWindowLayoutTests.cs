@@ -135,9 +135,7 @@ public sealed class MainWindowLayoutTests : IDisposable
         session.WaitFor("RepositoryTree");
 
         var bounds = session.MainWindow.BoundingRectangle;
-        bounds.Left.ShouldBeGreaterThan(-100);
-        bounds.Top.ShouldBeGreaterThan(-100);
-        session.MainWindow.Patterns.Window.Pattern.WindowVisualState.Value.ShouldBe(WindowVisualState.Normal);
+        Monitors.Overlap(bounds).ShouldBeTrue($"the window bounds {bounds} overlap no connected monitor"); session.MainWindow.Patterns.Window.Pattern.WindowVisualState.Value.ShouldBe(WindowVisualState.Normal);
     }
 
     [Fact]
