@@ -12,11 +12,15 @@
             <Setter Property="VerticalAlignment" Value="Center" />
             <Setter Property="Margin" Value="0,0,4,0" />
         </Style>
-        <Style x:Key="FilterControlStyle" TargetType="Control">
+        <Style x:Key="FilterDatePickerStyle" TargetType="DatePicker" BasedOn="{StaticResource {x:Type DatePicker}}">
             <Setter Property="Margin" Value="0,0,12,4" />
             <Setter Property="MinWidth" Value="110" />
         </Style>
-        <Style x:Key="HistoryGridStyle" TargetType="DataGrid">
+        <Style x:Key="FilterComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="Margin" Value="0,0,12,4" />
+            <Setter Property="MinWidth" Value="110" />
+        </Style>
+        <Style x:Key="HistoryGridStyle" TargetType="DataGrid" BasedOn="{StaticResource {x:Type DataGrid}}">
             <Setter Property="AutoGenerateColumns" Value="False" />
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="SelectionMode" Value="Single" />
@@ -45,29 +49,29 @@
                     <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
                         <TextBlock Text="From" Style="{StaticResource FilterLabelStyle}" />
                         <DatePicker SelectedDate="{Binding FromDate, Mode=TwoWay}"
-                                    Style="{StaticResource FilterControlStyle}"
+                                    Style="{StaticResource FilterDatePickerStyle}"
                                     AutomationProperties.AutomationId="HistoryFromDate" />
                         <TextBlock Text="To" Style="{StaticResource FilterLabelStyle}" />
                         <DatePicker SelectedDate="{Binding ToDate, Mode=TwoWay}"
-                                    Style="{StaticResource FilterControlStyle}"
+                                    Style="{StaticResource FilterDatePickerStyle}"
                                     AutomationProperties.AutomationId="HistoryToDate" />
                         <TextBlock Text="Status" Style="{StaticResource FilterLabelStyle}" />
                         <ComboBox ItemsSource="{x:Static vm:RunHistoryViewModel.StatusOptions}"
                                   SelectedItem="{Binding SelectedStatus, Mode=TwoWay}"
                                   DisplayMemberPath="Label"
-                                  Style="{StaticResource FilterControlStyle}"
+                                  Style="{StaticResource FilterComboBoxStyle}"
                                   AutomationProperties.AutomationId="HistoryStatusFilter" />
                         <TextBlock Text="Mode" Style="{StaticResource FilterLabelStyle}" />
                         <ComboBox ItemsSource="{x:Static vm:RunHistoryViewModel.ModeOptions}"
                                   SelectedItem="{Binding SelectedMode, Mode=TwoWay}"
                                   DisplayMemberPath="Label"
-                                  Style="{StaticResource FilterControlStyle}"
+                                  Style="{StaticResource FilterComboBoxStyle}"
                                   AutomationProperties.AutomationId="HistoryModeFilter" />
                         <TextBlock Text="Dry run" Style="{StaticResource FilterLabelStyle}" />
                         <ComboBox ItemsSource="{x:Static vm:RunHistoryViewModel.DryRunOptions}"
                                   SelectedItem="{Binding SelectedDryRun, Mode=TwoWay}"
                                   DisplayMemberPath="Label"
-                                  Style="{StaticResource FilterControlStyle}"
+                                  Style="{StaticResource FilterComboBoxStyle}"
                                   AutomationProperties.AutomationId="HistoryDryRunFilter" />
                         <Button Content="Refresh"
                                 Command="{Binding RefreshCommand, Mode=OneWay}"
@@ -217,7 +221,7 @@
                               AutomationProperties.AutomationId="ArchiveHistoryList">
                         <DataGrid.RowStyle>
                             <!-- An archive whose file is gone stays listed, so the gap in the history is visible. -->
-                            <Style TargetType="DataGridRow">
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMissing, Mode=OneWay}" Value="True">
                                         <Setter Property="Foreground" Value="Firebrick" />

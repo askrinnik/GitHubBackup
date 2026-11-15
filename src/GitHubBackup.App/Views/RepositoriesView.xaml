@@ -135,7 +135,7 @@
                           VirtualizingPanel.VirtualizationMode="Recycling"
                           AutomationProperties.AutomationId="RepositoryTree">
                     <TreeView.ItemContainerStyle>
-                        <Style TargetType="TreeViewItem">
+                        <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                             <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                             <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                             <Setter Property="AutomationProperties.Name" Value="{Binding DisplayName, Mode=OneWay}" />
@@ -212,6 +212,7 @@
                      VirtualizingPanel.IsVirtualizing="True"
                      VirtualizingPanel.VirtualizationMode="Recycling"
                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ItemContainerStyle="{StaticResource CompactListBoxItemStyle}"
                      AutomationProperties.AutomationId="RunLog">
                 <ListBox.ItemTemplate>
                     <DataTemplate>
@@ -282,6 +283,7 @@
                               MaxHeight="160"
                               VirtualizingPanel.IsVirtualizing="True"
                               VirtualizingPanel.VirtualizationMode="Recycling"
+                              ItemContainerStyle="{StaticResource CompactListViewItemStyle}"
                               AutomationProperties.AutomationId="RunSummaryTable">
                         <ListView.View>
                             <GridView>
