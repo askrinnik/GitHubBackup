@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Spectre.Console.Testing;
 
 namespace GitHubBackup.Cli.Tests;
@@ -45,6 +46,22 @@ public sealed class CliApplicationTests : IDisposable
     /// <summary>A token value that must never reach the console or the log.</summary>
     internal const string Token = "ghp_TestTokenValue0123456789abcdefABCDEF";
 
+    /// <summary>A token without a recognisable format, masked only because the configuration sets it.</summary>
+    private const string _opaqueToken = "opaque-token-without-format";
+
+    /// <summary>The stage in which creating the host builder fails.</summary>
+    private const string _createBuilderStage = "CreateBuilder";
+
+    /// <summary>The stage in which <c>Build()</c> of the host fails.</summary>
+    private const string _buildStage = "Build";
+
+    /// <summary>The stage in which starting the host fails.</summary>
+    private const string _startStage = "Start";
+
+    /// <summary>The event identifier of <c>CliLog.StartupFailed</c>.</summary>
+    private const int _startupFailedEventId = 3;
+
+    private readonly FakeTimeProvider _timeProvider = CreateTimeProvider();
     private readonly StringWriter _standardError = new();
     private readonly TestConsole _output = TestCliConsole.CreateOutput();
     private readonly TemporaryContentRoot _contentRoot = new();
@@ -556,6 +573,155 @@ public sealed class CliApplicationTests : IDisposable
         host.Services.GetRequiredService<IHostEnvironment>().EnvironmentName.ShouldBe(Environments.Production);
     }
 
+    [Theory]
+    [InlineData(_createBuilderStage)]
+    [InlineData(_buildStage)]
+    [InlineData(_startStage)]
+    public async Task RunAsync_UnexpectedExceptionWhileBuildingHost_WritesOneStartupErrorLineAndReturnsCritical(string stage)
+    {
+        var exitCode = await RunFailingAsync(stage, new InvalidOperationException("The host broke."));
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([$"{CliApplication.StartupErrorPrefix}The host broke. (log: {ExpectedLogPath})"]);
+        _standardError.ToString().ShouldNotContain(" at ");
+        File.ReadAllText(LogFilePath(LogFiles.TextExtension)).ShouldContain("GitHubBackup.Cli failed to start");
+    }
+
+    [Theory]
+    [InlineData(_createBuilderStage)]
+    [InlineData(_buildStage)]
+    [InlineData(_startStage)]
+    public async Task RunAsync_TokenInExceptionMessage_NeverWritesTokenToErrorOutput(string stage)
+    {
+        var exitCode = await RunFailingAsync(
+            stage, new InvalidOperationException($"Rejected {_opaqueToken} and {Token}."), $"--GitHub:Token={_opaqueToken}");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var line = ErrorLines().ShouldHaveSingleItem();
+        line.ShouldStartWith($"{CliApplication.StartupErrorPrefix}Rejected *** and ***.");
+        line.ShouldNotContain(_opaqueToken);
+        line.ShouldNotContain(Token);
+    }
+
+    [Theory]
+    [InlineData(_createBuilderStage)]
+    [InlineData(_buildStage)]
+    [InlineData(_startStage)]
+    public async Task RunAsync_UnexpectedStartupException_WritesMaskedExceptionToBothLogFiles(string stage)
+    {
+        var exitCode = await RunFailingAsync(
+            stage, new InvalidOperationException($"Rejected {_opaqueToken} and {Token}."), $"--GitHub:Token={_opaqueToken}");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var textLog = File.ReadAllText(LogFilePath(LogFiles.TextExtension));
+        textLog.ShouldContain("System.InvalidOperationException: Rejected *** and ***.");
+        foreach (var content in new[] { textLog, File.ReadAllText(LogFilePath(LogFiles.JsonExtension)) })
+        {
+            content.ShouldNotContain(_opaqueToken);
+            content.ShouldNotContain(Token);
+        }
+
+        var entry = ReadJsonEntries().Where(IsStartupFailedEntry).ShouldHaveSingleItem();
+        entry.GetProperty("@x").GetString().ShouldNotBeNull().ShouldStartWith("System.InvalidOperationException: Rejected *** and ***.");
+    }
+
+    [Theory]
+    [InlineData(_createBuilderStage)]
+    [InlineData(_buildStage)]
+    [InlineData(_startStage)]
+    public async Task RunAsync_UnexpectedStartupException_LogEntryHasRunId(string stage)
+    {
+        await RunFailingAsync(stage, new InvalidOperationException("The host broke."));
+
+        var entry = ReadJsonEntries().Where(IsStartupFailedEntry).ShouldHaveSingleItem();
+        var runId = entry.GetProperty(LogProperties.RunId).GetString().ShouldNotBeNull();
+        Guid.TryParseExact(runId, "D", out _).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RunAsync_MultiLineExceptionMessage_WritesOneLine()
+    {
+        var exitCode = await RunFailingAsync(
+            _createBuilderStage, new InvalidOperationException("First line.\r\nSecond line.\nThird line."));
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(
+            [$"{CliApplication.StartupErrorPrefix}First line. Second line. Third line. (log: {ExpectedLogPath})"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_EmptyExceptionMessage_WritesExceptionTypeName()
+    {
+        var exitCode = await RunFailingAsync(_createBuilderStage, new InvalidOperationException(""));
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe(
+            [$"{CliApplication.StartupErrorPrefix}{nameof(InvalidOperationException)} (log: {ExpectedLogPath})"]);
+    }
+
+    [Fact]
+    public async Task RunAsync_InvalidHistoryPath_WritesStartupError()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "--History:DatabasePath=C:\\data\0\\history.db");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldHaveSingleItem().ShouldStartWith(CliApplication.StartupErrorPrefix);
+    }
+
+    [Fact]
+    public async Task RunAsync_InvalidHistoryPathAndInvalidSetting_WritesOneStartupErrorLine()
+    {
+        var exitCode = await RunAsync(
+            ValidAppSettings, "--History:DatabasePath=C:\\data\0\\history.db", "--Backup:ShortHashLength=2");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldHaveSingleItem().ShouldStartWith(CliApplication.StartupErrorPrefix);
+    }
+
+    [Fact]
+    public async Task RunAsync_AggregateOfValidationAndOtherException_WritesOneStartupErrorLineAndLogsAll()
+    {
+        var exception = new AggregateException(
+            new OptionsValidationException("", typeof(BackupOptions), ["Backup:ShortHashLength must be between 4 and 40."]),
+            new InvalidOperationException("The host broke."));
+
+        var exitCode = await RunFailingAsync(_startStage, exception);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([$"{CliApplication.StartupErrorPrefix}The host broke. (log: {ExpectedLogPath})"]);
+        var textLog = File.ReadAllText(LogFilePath(LogFiles.TextExtension));
+        textLog.ShouldContain("Backup:ShortHashLength must be between 4 and 40.");
+        textLog.ShouldContain("System.InvalidOperationException: The host broke.");
+    }
+
+    [Theory]
+    [InlineData(_createBuilderStage)]
+    [InlineData(_buildStage)]
+    [InlineData(_startStage)]
+    public async Task RunAsync_LogFolderUnavailable_StillWritesOneLineAndReturnsCritical(string stage)
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_contentRoot.FolderPath, LogFiles.FolderName), "A file where the log folder belongs.", TestContext.Current.CancellationToken);
+
+        var exitCode = await RunFailingAsync(stage, new InvalidOperationException("The host broke."));
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldHaveSingleItem().ShouldStartWith($"{CliApplication.StartupErrorPrefix}The host broke.");
+    }
+
+    [Fact]
+    public async Task RunAsync_OperationCanceledDuringStartWithCancelledToken_Propagates()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        var exception = await Should.ThrowAsync<Exception>(() => CreateFailingApplication(_startStage, exception: null).RunAsync(
+            [], CreateSettings(_contentRoot.FolderPath, ValidAppSettings), cancellation.Token));
+
+        exception.ShouldBeAssignableTo<OperationCanceledException>();
+        _standardError.ToString().ShouldBeEmpty();
+    }
+
     /// <summary>
     /// Disposes the outputs and deletes the content root.
     /// </summary>
@@ -612,8 +778,77 @@ public sealed class CliApplicationTests : IDisposable
         return document.RootElement.Clone();
     }
 
+    /// <summary>
+    /// Creates the clock of the start-up error tests, pinned to a fixed local instant.
+    /// </summary>
+    /// <returns>The clock.</returns>
+    private static FakeTimeProvider CreateTimeProvider()
+    {
+        var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 10, 7, 12, 0, 0, TimeSpan.Zero));
+        timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
+        return timeProvider;
+    }
+
+    /// <summary>
+    /// Returns whether a structured log entry is the start-up failure of the console application.
+    /// </summary>
+    /// <param name="entry">The entry.</param>
+    /// <returns><see langword="true"/> when the entry has the event identifier of <c>CliLog.StartupFailed</c>.</returns>
+    private static bool IsStartupFailedEntry(JsonElement entry) =>
+        entry.TryGetProperty("EventId", out var eventId) && eventId.GetProperty("Id").GetInt32() == _startupFailedEventId;
+
     /// <summary>Gets the log folder of the content root.</summary>
     private string LogsPath => Path.Combine(_contentRoot.FolderPath, LogFiles.FolderName);
+
+    /// <summary>Gets the text log path that a start-up error names for the date of <see cref="_timeProvider"/>.</summary>
+    private string ExpectedLogPath => LogFiles.GetTextLogPath(_contentRoot.FolderPath, _timeProvider);
+
+    /// <summary>
+    /// Runs the application over <see cref="ValidAppSettings"/> with a host that throws <paramref name="exception"/>
+    /// in <paramref name="stage"/>.
+    /// </summary>
+    /// <param name="stage">The stage that fails.</param>
+    /// <param name="exception">The exception the stage throws.</param>
+    /// <param name="args">The command-line arguments.</param>
+    /// <returns>The exit code.</returns>
+    private Task<ExitCode> RunFailingAsync(string stage, Exception exception, params string[] args) =>
+        CreateFailingApplication(stage, exception).RunAsync(
+            args,
+            CreateSettings(_contentRoot.FolderPath, ValidAppSettings),
+            TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// Creates the application over the test outputs with a host builder that fails in <paramref name="stage"/>.
+    /// </summary>
+    /// <param name="stage">
+    /// <see cref="_createBuilderStage"/>, <see cref="_buildStage"/> or <see cref="_startStage"/>.
+    /// </param>
+    /// <param name="exception">
+    /// The exception the stage throws; <see langword="null"/> lets only a cancelled token fail the start.
+    /// </param>
+    /// <returns>The application.</returns>
+    private CliApplication CreateFailingApplication(string stage, Exception? exception)
+    {
+        Func<GitHubBackupHostSettings, HostApplicationBuilder> createHostBuilder = stage switch
+        {
+            _createBuilderStage => _ => throw exception!,
+            _buildStage => settings =>
+            {
+                var builder = GitHubBackupHostBuilder.Create(settings);
+                builder.ConfigureContainer(new ThrowingServiceProviderFactory(exception!));
+                return builder;
+            }
+            ,
+            _ => settings =>
+            {
+                var builder = GitHubBackupHostBuilder.Create(settings);
+                builder.Services.AddHostedService(_ => new ThrowingHostedService(exception));
+                return builder;
+            }
+            ,
+        };
+        return new(new CliConsole(_output, _standardError, _isInputRedirected), _timeProvider, createHostBuilder);
+    }
 
     /// <summary>
     /// Runs the application over <paramref name="appSettings"/> and <paramref name="args"/>.

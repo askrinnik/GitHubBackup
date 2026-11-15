@@ -1,6 +1,9 @@
 using System.CommandLine;
 using GitHubBackup.Core;
+using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Hosting;
+using GitHubBackup.Infrastructure.Logging;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -12,7 +15,12 @@ namespace GitHubBackup.Cli;
 /// failures to an exit code.
 /// </summary>
 /// <param name="console">The outputs of the console application.</param>
-internal sealed class CliApplication(CliConsole console)
+/// <param name="timeProvider">Supplies the local date that names the log file in a start-up error.</param>
+/// <param name="createHostBuilder">Creates the host builder for the settings of the run.</param>
+internal sealed class CliApplication(
+    CliConsole console,
+    TimeProvider timeProvider,
+    Func<GitHubBackupHostSettings, HostApplicationBuilder> createHostBuilder)
 {
     /// <summary>The prefix of every line that reports a configuration error.</summary>
     public const string ConfigurationErrorPrefix = "Configuration error: ";
@@ -20,11 +28,23 @@ internal sealed class CliApplication(CliConsole console)
     /// <summary>The prefix of every line that reports an error in the command line.</summary>
     public const string CommandLineErrorPrefix = "Command-line error: ";
 
+    /// <summary>The prefix of the line that reports an unexpected failure to build or start the host.</summary>
+    public const string StartupErrorPrefix = "Startup error: ";
+
     /// <summary>The error written when a command other than <c>backup</c> is cancelled.</summary>
     public const string CancelledMessage = "The operation was cancelled.";
 
     /// <summary>The version of the executable, written to the log when a run starts.</summary>
     private static readonly string? _version = typeof(CliApplication).Assembly.GetName().Version?.ToString();
+
+    /// <summary>
+    /// Creates the application over the system clock and the shared host builder.
+    /// </summary>
+    /// <param name="console">The outputs of the console application.</param>
+    public CliApplication(CliConsole console)
+        : this(console, TimeProvider.System, GitHubBackupHostBuilder.Create)
+    {
+    }
 
     /// <summary>
     /// Parses the command line, builds the host, validates the configuration by starting it, runs the command, logs
@@ -34,8 +54,9 @@ internal sealed class CliApplication(CliConsole console)
     /// <c>--help</c> and <c>--version</c> are answered, and an invalid command line is reported, before the host is
     /// built. Invalid configuration or an invalid command line produces one line per error on the error output and
     /// <see cref="ExitCode.Critical"/>; no stack trace is written, because the console shows results and the details
-    /// belong in the log. The start entry is written as soon as the host has started, so both log files of the day
-    /// exist from then on.
+    /// belong in the log. Any other failure to create the builder, build the host or start it, except a cancellation
+    /// through <paramref name="cancellationToken"/>, is reported by <see cref="ReportStartupErrorAsync"/>. The start
+    /// entry is written as soon as the host has started, so both log files of the day exist from then on.
     /// </remarks>
     /// <param name="args">The command-line arguments of the process.</param>
     /// <param name="settings">The process the host is built for; the command line adds its configuration keys and the path of <c>backup-config.json</c>.</param>
@@ -58,20 +79,41 @@ internal sealed class CliApplication(CliConsole console)
             return ExitCode.Success;
         }
 
-        IHost host;
+        var hostSettings = settings with
+        {
+            BackupConfigPath = arguments.BackupConfigPath,
+            ConfigurationArguments = arguments.ConfigurationArguments,
+        };
+
+        HostApplicationBuilder builder;
         try
         {
-            host = BuildHost(
-                settings with
-                {
-                    BackupConfigPath = arguments.BackupConfigPath,
-                    ConfigurationArguments = arguments.ConfigurationArguments,
-                },
-                console);
+            builder = createHostBuilder(hostSettings);
         }
         catch (Exception exception) when (ConfigurationErrorMessages.TryGet(exception, out var messages))
         {
             return await ReportAsync(ConfigurationErrorPrefix, messages);
+        }
+        catch (Exception exception) when (!IsCancellation(exception, cancellationToken))
+        {
+            return await ReportStartupErrorAsync(
+                exception, hostSettings.ContentRootPath, CreateMaskerWithoutFiles(hostSettings), hostServices: null);
+        }
+
+        IHost host;
+        try
+        {
+            builder.Services.AddGitHubBackupCli(console);
+            host = builder.Build();
+        }
+        catch (Exception exception) when (ConfigurationErrorMessages.TryGet(exception, out var messages))
+        {
+            return await ReportAsync(ConfigurationErrorPrefix, messages);
+        }
+        catch (Exception exception) when (!IsCancellation(exception, cancellationToken))
+        {
+            return await ReportStartupErrorAsync(
+                exception, hostSettings.ContentRootPath, CreateMasker(() => builder.Configuration), hostServices: null);
         }
 
         using (host)
@@ -83,6 +125,11 @@ internal sealed class CliApplication(CliConsole console)
             catch (Exception exception) when (ConfigurationErrorMessages.TryGet(exception, out var messages))
             {
                 return await ReportAsync(ConfigurationErrorPrefix, messages);
+            }
+            catch (Exception exception) when (!IsCancellation(exception, cancellationToken))
+            {
+                return await ReportStartupErrorAsync(
+                    exception, hostSettings.ContentRootPath, host.Services.GetRequiredService<ISecretMasker>(), host.Services);
             }
 
             var logger = host.Services.GetRequiredService<ILogger<CliApplication>>();
@@ -112,6 +159,28 @@ internal sealed class CliApplication(CliConsole console)
         var builder = GitHubBackupHostBuilder.Create(settings);
         builder.Services.AddGitHubBackupCli(console);
         return builder.Build();
+    }
+
+    /// <summary>
+    /// Returns the message of an unexpected start-up failure as one line.
+    /// </summary>
+    /// <remarks>
+    /// An <see cref="AggregateException"/> is represented by its first inner exception that is not a configuration
+    /// error, because that is the one that makes the failure unexpected. Line breaks become spaces, and an empty
+    /// message is replaced by the name of the exception type.
+    /// </remarks>
+    /// <param name="exception">The exception that stopped the start.</param>
+    /// <returns>The message, not yet masked.</returns>
+    internal static string GetStartupErrorMessage(Exception exception)
+    {
+        var reported = exception is AggregateException aggregate
+            ? aggregate.Flatten().InnerExceptions.FirstOrDefault(inner => !ConfigurationErrorMessages.TryGet(inner, out _))
+                ?? exception
+            : exception;
+        var message = string.Join(
+            ' ',
+            reported.Message.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        return message.Length == 0 ? reported.GetType().Name : message;
     }
 
     /// <summary>
@@ -160,6 +229,99 @@ internal sealed class CliApplication(CliConsole console)
             CliCommand.SetToken => await services.GetRequiredService<SetTokenCommandHandler>().RunAsync(cancellationToken),
             _ => ExitCode.Success,
         };
+
+    /// <summary>
+    /// Creates the masker for a failure to create the host builder, when the configuration of the host does not exist.
+    /// </summary>
+    /// <remarks>
+    /// Only the environment variables with <see cref="GitHubBackupHostBuilder.EnvironmentVariablePrefix"/> and the
+    /// configuration keys of the command line are read: the settings files may be the cause of the failure. A token
+    /// set only in a file is still masked when it has a recognisable format.
+    /// </remarks>
+    /// <param name="settings">The process the host was to be built for.</param>
+    /// <returns>The masker.</returns>
+    private static ISecretMasker CreateMaskerWithoutFiles(GitHubBackupHostSettings settings) =>
+        CreateMasker(() => new ConfigurationBuilder()
+            .AddEnvironmentVariables(GitHubBackupHostBuilder.EnvironmentVariablePrefix)
+            .AddCommandLine([.. settings.ConfigurationArguments])
+            .Build());
+
+    /// <summary>
+    /// Creates the masker of a start-up error over the configuration that <paramref name="configuration"/> returns.
+    /// </summary>
+    /// <remarks>
+    /// A failure to read the configuration gives a masker without a registered token, so that the report of the
+    /// original failure is never replaced by an exception from the masker.
+    /// </remarks>
+    /// <param name="configuration">Returns the configuration whose token is registered.</param>
+    /// <returns>The masker.</returns>
+    private static ISecretMasker CreateMasker(Func<IConfiguration> configuration)
+    {
+        try
+        {
+            return HostSecretMasker.Create(configuration());
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            return new SecretMasker();
+        }
+    }
+
+    /// <summary>
+    /// Returns whether <paramref name="exception"/> is the cancellation requested through
+    /// <paramref name="cancellationToken"/>, which propagates instead of being reported as a start-up error.
+    /// </summary>
+    /// <param name="exception">The exception thrown while the host is built or started.</param>
+    /// <param name="cancellationToken">The token of the run.</param>
+    /// <returns><see langword="true"/> for an <see cref="OperationCanceledException"/> after the token was cancelled.</returns>
+    private static bool IsCancellation(Exception exception, CancellationToken cancellationToken) =>
+        exception is OperationCanceledException && cancellationToken.IsCancellationRequested;
+
+    /// <summary>
+    /// Writes the one line of an unexpected start-up failure to the error output and the full exception to the log.
+    /// </summary>
+    /// <remarks>
+    /// The line carries the message of the exception, never its stack trace, and the path of the day's text log once
+    /// the entry is written. A failure to write the log leaves the path out rather than hiding the original error, so
+    /// no exception escapes. The whole line passes through <paramref name="masker"/>, because an exception message can
+    /// quote a configuration value such as the token.
+    /// </remarks>
+    /// <param name="exception">The exception that stopped the start.</param>
+    /// <param name="contentRootPath">The folder of the executable, which holds the log folder.</param>
+    /// <param name="masker">Masks the token of the configuration and recognisable secrets.</param>
+    /// <param name="hostServices">
+    /// The services of the built host, whose logger writes the entry, or <see langword="null"/> when there is no host
+    /// and a logger of <see cref="StartupLogging"/> writes it.
+    /// </param>
+    /// <returns><see cref="ExitCode.Critical"/>.</returns>
+    private async Task<ExitCode> ReportStartupErrorAsync(
+        Exception exception, string contentRootPath, ISecretMasker masker, IServiceProvider? hostServices)
+    {
+        var line = StartupErrorPrefix + GetStartupErrorMessage(exception);
+        try
+        {
+            if (hostServices is null)
+            {
+                using var loggerFactory = StartupLogging.CreateLoggerFactory(contentRootPath, masker);
+                var startupLogger = loggerFactory.CreateLogger<CliApplication>();
+                CliLog.StartupFailed(startupLogger, exception);
+            }
+            else
+            {
+                var hostLogger = hostServices.GetRequiredService<ILogger<CliApplication>>();
+                CliLog.StartupFailed(hostLogger, exception);
+            }
+
+            line += $" (log: {LogFiles.GetTextLogPath(contentRootPath, timeProvider)})";
+        }
+        catch (Exception logException) when (logException is not OutOfMemoryException)
+        {
+            // The console line is the only report left, so the failure to log is not reported on top of it.
+        }
+
+        await console.Error.WriteLineAsync(masker.Mask(line));
+        return ExitCode.Critical;
+    }
 
     /// <summary>
     /// Writes one line per error to the error output.
