@@ -1,3 +1,5 @@
+using System.Diagnostics.CodeAnalysis;
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.History;
@@ -173,10 +175,62 @@ public sealed class ArchiveCleanupPlannerTests
             CreateEntry(BackupTarget.Repository, "OLD.ZIP", 0, exists: true, isInState: true, 10),
         ]);
 
-        var plan = ArchiveCleanupPlanner.Plan(state, history);
+        var plan = ArchiveCleanupPlanner.Plan(state, history, new FakeNameBuilder(), "octo/tool");
 
         plan.FilesToRecycle.ShouldHaveSingleItem().File.ShouldBe("old.zip");
         plan.RecordsWithoutFiles.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(".backup-state.json")]
+    [InlineData(".backup-state.json.bak")]
+    [InlineData("notes.txt")]
+    public void Plan_RecordNamesNonArchiveFile_NeitherRecyclesFileNorDropsRecord(string file)
+    {
+        Record(file, exists: true);
+        Record("last.zip", exists: true);
+
+        Plan().IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Plan_LastRecordNamesNonArchiveFile_KeepsNewestArchiveOnDisk()
+    {
+        Record("old.zip", exists: true);
+        Record("newest.zip", exists: true);
+        Record("notes.txt", exists: true);
+
+        var plan = Plan();
+
+        plan.FilesToRecycle.ShouldHaveSingleItem().File.ShouldBe("old.zip");
+        plan.RecordsWithoutFiles.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Plan_OnlyNonArchiveRecordOnDisk_LeavesUnrecordedFilesAlone()
+    {
+        Record("notes.txt", exists: true);
+        Unrecorded("orphan.zip");
+
+        Plan().IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Plan_RecordNamesArchiveOfOtherTarget_DoesNotRecycleFile()
+    {
+        Record("repo-old.zip", exists: true, target: BackupTarget.Wiki);
+        Record("wiki-last.zip", exists: true, target: BackupTarget.Wiki);
+
+        Plan().IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Plan_RecordNamesMissingNonArchiveFile_DropsRecord()
+    {
+        Record(".backup-state.json", exists: false);
+        Record("last.zip", exists: true);
+
+        Plan().RecordsWithoutFiles.ShouldBe([new(BackupTarget.Repository, ".backup-state.json")]);
     }
 
     [Fact]
@@ -248,7 +302,33 @@ public sealed class ArchiveCleanupPlannerTests
 
         entries.AddRange(_unrecorded.Select(file =>
             CreateEntry(file.Target, file.File, 100, exists: true, isInState: false, file.Size)));
-        return ArchiveCleanupPlanner.Plan(state, new(_folder, true, [.. entries.OrderByDescending(entry => entry.CreatedAt)]));
+        return ArchiveCleanupPlanner.Plan(
+            state,
+            new(_folder, true, [.. entries.OrderByDescending(entry => entry.CreatedAt)]),
+            new FakeNameBuilder(),
+            "octo/tool");
+    }
+
+    /// <summary>
+    /// Accepts every <c>.zip</c> name; a name starting with <c>wiki</c> belongs to the wiki, any other to the repository.
+    /// </summary>
+    private sealed class FakeNameBuilder : IArchiveNameBuilder
+    {
+        /// <inheritdoc />
+        public ArchiveName Build(string owner, string repository, BackupTarget target, string headCommit) =>
+            throw new NotSupportedException();
+
+        /// <inheritdoc />
+        public bool TryParse(
+            string fileName, string owner, string repository, [NotNullWhen(true)] out ParsedArchiveName? parsed)
+        {
+            var isArchive = fileName.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
+            parsed = isArchive
+                ? new(fileName.StartsWith("wiki", StringComparison.Ordinal) ? BackupTarget.Wiki : BackupTarget.Repository,
+                    _firstCreatedAt, "abcdef0123")
+                : null;
+            return isArchive;
+        }
     }
 
     /// <summary>

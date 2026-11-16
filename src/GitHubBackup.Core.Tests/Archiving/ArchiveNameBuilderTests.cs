@@ -139,6 +139,22 @@ public sealed class ArchiveNameBuilderTests
     }
 
     [Theory]
+    [InlineData(3, "octo_tool_00010101-000000_0123456789.zip")]
+    [InlineData(-3, "octo_tool_99991231-235959_0123456789.zip")]
+    public void TryParse_DateOutsideUtcRange_ReturnsFalse(int offsetHours, string fileName)
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Edge", TimeSpan.FromHours(offsetHours), "Edge", "Edge");
+        var clock = new FakeTimeProvider(DateTimeOffset.UnixEpoch);
+        clock.SetLocalTimeZone(zone);
+        var builder = new ArchiveNameBuilder(clock, Options.Create(new BackupOptions { ShortHashLength = 10 }));
+
+        var matched = builder.TryParse(fileName, "octo", "tool", out var parsed);
+
+        matched.ShouldBeFalse();
+        parsed.ShouldBeNull();
+    }
+
+    [Theory]
     [InlineData("octo_tool_20261111-132030_0123456789.7z")]
     [InlineData("octo_tool_20261111-132030_0123456789.zip.tmp")]
     [InlineData("octo_tool_20261111-132030_0123456789.zipx")]

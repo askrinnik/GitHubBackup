@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.History;
@@ -51,7 +52,14 @@ public sealed class ArchiveSummaryProviderTests
             .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
         _runHistoryStore.GetLatestRepositoryRunsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
             .Returns(new Dictionary<string, LatestRepositoryRun>());
-        _provider = new(_overviewProvider, _historyProvider, _stateStore, _runHistoryStore, _logger);
+        var nameBuilder = Substitute.For<IArchiveNameBuilder>();
+        nameBuilder.TryParse(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), out Arg.Any<ParsedArchiveName?>())
+            .Returns(call =>
+            {
+                call[3] = new ParsedArchiveName(BackupTarget.Repository, DateTimeOffset.UnixEpoch, "abcdef0123");
+                return true;
+            });
+        _provider = new(_overviewProvider, _historyProvider, _stateStore, _runHistoryStore, nameBuilder, _logger);
     }
 
     [Fact]

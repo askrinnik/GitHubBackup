@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.State;
@@ -13,12 +14,14 @@ namespace GitHubBackup.Core.History;
 /// <param name="historyProvider">Reads the archives of one repository.</param>
 /// <param name="stateStore">Reads the record order of the state file for the cleanup plan.</param>
 /// <param name="runHistoryStore">Reads the latest run of every repository for the wiki status.</param>
+/// <param name="nameBuilder">Recognises the archive files of the repository by their names for the cleanup plan.</param>
 /// <param name="logger">The logger.</param>
 public sealed class ArchiveSummaryProvider(
     IRepositoryOverviewProvider overviewProvider,
     IArchiveHistoryProvider historyProvider,
     IBackupStateStore stateStore,
     IRunHistoryStore runHistoryStore,
+    IArchiveNameBuilder nameBuilder,
     ILogger<ArchiveSummaryProvider> logger) : IArchiveSummaryProvider
 {
     /// <inheritdoc />
@@ -77,7 +80,7 @@ public sealed class ArchiveSummaryProvider(
                 repository.ArchiveFolder, repository.RepositoryId, repository.FullName, cancellationToken);
             var state = await stateStore.LoadAsync(
                 repository.ArchiveFolder, repository.RepositoryId, repository.FullName, cancellationToken);
-            return new(repository, history, null, ArchiveCleanupPlanner.Plan(state, history));
+            return new(repository, history, null, ArchiveCleanupPlanner.Plan(state, history, nameBuilder, repository.FullName));
         }
         catch (Exception exception) when (exception is BackupStateException or IOException or UnauthorizedAccessException)
         {

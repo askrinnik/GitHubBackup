@@ -156,7 +156,14 @@ internal sealed partial class ShellRecycleBin(IFileSystem fileSystem) : IRecycle
         }
         finally
         {
-            operation.Unadvise(cookie);
+            try
+            {
+                operation.Unadvise(cookie);
+            }
+            catch (COMException)
+            {
+                // The deletion is decided; failing to detach the sink does not change what happened to the file.
+            }
         }
 
         if (sink.RefusedPermanentDeletion)
@@ -174,6 +181,11 @@ internal sealed partial class ShellRecycleBin(IFileSystem fileSystem) : IRecycle
             return RecycleOutcome.Failed(performResult < 0
                 ? $"The file cannot be moved to the Recycle Bin: {Describe(performResult)}"
                 : "The move to the Recycle Bin was cancelled.");
+        }
+
+        if (!sink.MovedToRecycleBin)
+        {
+            return RecycleOutcome.Failed($"'{path}' was deleted but not moved to the Recycle Bin.");
         }
 
         return fileSystem.File.Exists(path)

@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
@@ -48,6 +49,8 @@ public sealed class ArchiveCleanupServiceTests
 
     private readonly IDisposable _lockHandle = Substitute.For<IDisposable>();
 
+    private readonly IArchiveNameBuilder _nameBuilder = Substitute.For<IArchiveNameBuilder>();
+
     private readonly FakeLogger<ArchiveCleanupService> _logger = new();
 
     private readonly ArchiveCleanupService _service;
@@ -76,7 +79,29 @@ public sealed class ArchiveCleanupServiceTests
         ]));
         _recycleBin.RecycleAsync(Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(RecycleOutcome.Success);
         _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns(_lockHandle);
-        _service = new(_stateStore, _historyProvider, _recycleBin, _runLock, _logger);
+        _nameBuilder.TryParse(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(), out Arg.Any<ParsedArchiveName?>())
+            .Returns(call =>
+            {
+                call[3] = new ParsedArchiveName(BackupTarget.Repository, _createdAt, "abcdef0123");
+                return true;
+            });
+        _service = new(_stateStore, _historyProvider, _recycleBin, _runLock, _nameBuilder, _logger);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_RecycleThrowsForOneFile_ReportsItContinuesAndWritesStateOnce()
+    {
+        _recycleBin.RecycleAsync($@"{_folder}\old1.zip", Arg.Any<CancellationToken>())
+            .Returns<RecycleOutcome>(_ => throw new InvalidOperationException("The Shell failed."));
+
+        var result = await ExecuteAsync(await PrepareAsync());
+
+        result.RecycledFiles.Select(file => file.File).ShouldBe(["old2.zip", "extra.zip"]);
+        result.Errors.ShouldBe([$@"'{_folder}\old1.zip': The Shell failed."]);
+        await _stateStore.Received(1).ReplaceAsync(
+            _folder,
+            Arg.Is<BackupState>(state => HasRepositoryFiles(state, "old1.zip", "last.zip")),
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

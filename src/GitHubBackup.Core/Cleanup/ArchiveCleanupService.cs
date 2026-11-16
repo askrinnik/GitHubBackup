@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Files;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Runs;
@@ -13,12 +14,14 @@ namespace GitHubBackup.Core.Cleanup;
 /// <param name="historyProvider">Reads which archive files are on the disk.</param>
 /// <param name="recycleBin">Moves the archive files to the Recycle Bin.</param>
 /// <param name="runLock">The lock a backup run holds, so the cleanup and a run never change the archives together.</param>
+/// <param name="nameBuilder">Recognises the archive files of the repository by their names.</param>
 /// <param name="logger">Logs the repository, the moved files, the removed records and the errors.</param>
 public sealed class ArchiveCleanupService(
     IBackupStateStore stateStore,
     IArchiveHistoryProvider historyProvider,
     IRecycleBin recycleBin,
     IRunLock runLock,
+    IArchiveNameBuilder nameBuilder,
     ILogger<ArchiveCleanupService> logger) : IArchiveCleanupService
 {
     /// <inheritdoc />
@@ -27,7 +30,7 @@ public sealed class ArchiveCleanupService(
     {
         var state = await stateStore.LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken);
         var history = await historyProvider.LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken);
-        return ArchiveCleanupPlanner.Plan(state, history);
+        return ArchiveCleanupPlanner.Plan(state, history, nameBuilder, fullName);
     }
 
     /// <inheritdoc />
@@ -51,7 +54,7 @@ public sealed class ArchiveCleanupService(
 
         var state = await stateStore.LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken);
         var history = await historyProvider.LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken);
-        var plan = ArchiveCleanupPlanner.Plan(state, history);
+        var plan = ArchiveCleanupPlanner.Plan(state, history, nameBuilder, fullName);
         if (!plan.Equals(confirmedPlan))
         {
             ArchiveCleanupLog.PlanChanged(logger, fullName);
@@ -105,6 +108,12 @@ public sealed class ArchiveCleanupService(
                 // The moved files still need their records removed, so the state file is written before the
                 // cancellation reaches the caller.
                 return (recycled, true);
+            }
+            catch (Exception exception)
+            {
+                // One unexpected failure keeps its file and record; the remaining files and the single state write
+                // still happen.
+                outcome = RecycleOutcome.Failed(exception.Message);
             }
 
             if (outcome.Succeeded)

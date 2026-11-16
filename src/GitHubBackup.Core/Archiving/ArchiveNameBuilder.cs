@@ -116,6 +116,14 @@ public sealed class ArchiveNameBuilder(TimeProvider timeProvider, IOptions<Backu
         // The name holds the local wall-clock time without an offset; the offset the local time zone had at that time
         // restores the instant, as the time zone has not changed since the archive was created in the usual case.
         var offset = timeProvider.LocalTimeZone.GetUtcOffset(local);
+
+        // A time at the edge of the calendar has a UTC instant outside the representable range for a non-zero offset.
+        var utcTicks = local.Ticks - offset.Ticks;
+        if (utcTicks < DateTime.MinValue.Ticks || utcTicks > DateTime.MaxValue.Ticks)
+        {
+            return false;
+        }
+
         parsed = new(target, new DateTimeOffset(local, offset), hash.ToString().ToLowerInvariant());
         return true;
     }

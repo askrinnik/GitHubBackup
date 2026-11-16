@@ -53,8 +53,8 @@ public sealed class ArchiveHistoryTests : IDisposable
 
         RowTexts(table).ShouldBe(
         [
-            ["octo/tool", "octo", "2", "2", "1", "1", "2.0 KB", "2026-10-02 10:00:00"],
-            ["octo/app", "octo", "1", "1", "0", "0", "100 B", "2026-10-01 12:00:00"],
+            ["octo/tool", "octo", "2", "2", "1", "1", "2.0 KB", "2026-10-02 10:00:00", "—"],
+            ["octo/app", "octo", "1", "1", "0", "0", "100 B", "2026-10-01 12:00:00", "—"],
         ]);
     }
 

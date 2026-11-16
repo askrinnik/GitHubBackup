@@ -21,6 +21,9 @@ internal sealed partial class RecycleProgressSink : IFileOperationProgressSink
     /// <summary>Gets the result of the deletion, or <see langword="null"/> when the Shell did not report one.</summary>
     public int? DeleteResult { get; private set; }
 
+    /// <summary>Gets whether the Shell reported an item in the Recycle Bin for the deleted item.</summary>
+    public bool MovedToRecycleBin { get; private set; }
+
     /// <inheritdoc />
     public int StartOperations() => _ok;
 
@@ -62,9 +65,14 @@ internal sealed partial class RecycleProgressSink : IFileOperationProgressSink
     }
 
     /// <inheritdoc />
+    /// <remarks>
+    /// The Shell passes the item in the Recycle Bin as <paramref name="newItem"/>, and <c>null</c> when it deleted the
+    /// item without keeping it.
+    /// </remarks>
     public int PostDeleteItem(uint flags, nint item, int result, nint newItem)
     {
         DeleteResult = result;
+        MovedToRecycleBin = newItem != 0;
         return _ok;
     }
 
