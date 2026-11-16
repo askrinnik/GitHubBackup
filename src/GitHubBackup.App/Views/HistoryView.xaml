@@ -220,8 +220,10 @@
                               Style="{StaticResource HistoryGridStyle}"
                               AutomationProperties.AutomationId="ArchiveHistoryList">
                         <DataGrid.RowStyle>
-                            <!-- An archive whose file is gone stays listed, so the gap in the history is visible. -->
-                            <Style TargetType="DataGridRow" BasedOn="{StaticResource {x:Type DataGridRow}}">
+                            <!-- An archive whose file is gone stays listed, so the gap in the history is visible.
+                                 The Fluent theme gives a data grid row a keyed style rather than a style of the type,
+                                 so the row style extends that key; the type key resolves to the classic light row. -->
+                            <Style TargetType="DataGridRow" BasedOn="{StaticResource DefaultDataGridRowStyle}">
                                 <Style.Triggers>
                                     <DataTrigger Binding="{Binding IsMissing, Mode=OneWay}" Value="True">
                                         <Setter Property="Foreground" Value="Firebrick" />
