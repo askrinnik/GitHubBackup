@@ -14,12 +14,16 @@ namespace GitHubBackup.App.ViewModels;
 /// <param name="edited">Called after the user changes a field or removes a repository.</param>
 public sealed partial class AccountSettingsViewModel(AccountConfig source, Action edited) : SettingsFormViewModel
 {
+    /// <summary>The name shown in the list of accounts while the URL is empty.</summary>
+    public const string NewAccountName = "(new account)";
+
     /// <summary>The action that tells the editor about a change.</summary>
     private readonly Action _edited = edited;
 
     /// <summary>The account URL, <c>https://github.com/&lt;login&gt;</c>.</summary>
     [ObservableProperty]
     [NotifyDataErrorInfo]
+    [NotifyPropertyChangedFor(nameof(DisplayName))]
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
     private string _url = source.Url;
 
@@ -35,8 +39,26 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
     private string _exclude = FormatMasks(source.Exclude);
 
+    /// <summary>
+    /// Whether a field of the account or of one of its repositories shows an error, as of the last
+    /// <see cref="RefreshHasAnyErrors"/>.
+    /// </summary>
+    [ObservableProperty]
+    private bool _hasAnyErrors;
+
     /// <summary>Gets the confirmed repositories of the account, in file order.</summary>
     public ObservableCollection<AccountRepositorySettingsViewModel> Repositories { get; } = [.. source.Repositories.Select(repository => new AccountRepositorySettingsViewModel(repository, edited))];
+
+    /// <summary>Gets the repositories of the account whose name contains the filter of the table.</summary>
+    public FilteredItems<AccountRepositorySettingsViewModel> RepositoryView => field ??= new(Repositories, repository => repository.Name);
+
+    /// <summary>Gets the name shown in the list of accounts: the URL, or <see cref="NewAccountName"/> while it is empty.</summary>
+    public string DisplayName => string.IsNullOrWhiteSpace(Url) ? NewAccountName : Url.Trim();
+
+    /// <summary>
+    /// Updates <see cref="HasAnyErrors"/> from the errors shown at the fields of the account and its repositories.
+    /// </summary>
+    internal void RefreshHasAnyErrors() => HasAnyErrors = HasErrors || Repositories.Any(repository => repository.HasErrors);
 
     /// <summary>
     /// Creates the entry of the configuration that the row describes.

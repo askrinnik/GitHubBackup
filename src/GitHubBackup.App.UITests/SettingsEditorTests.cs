@@ -7,8 +7,8 @@ using GitHubBackup.TestUtilities;
 namespace GitHubBackup.App.UITests;
 
 /// <summary>
-/// Opens the settings editor from the main window and checks validation at the fields, saving and leaving with
-/// unsaved changes.
+/// Opens the settings editor from the main window and checks the navigation between its sections, validation at the
+/// fields, saving and leaving with unsaved changes.
 /// </summary>
 public sealed class SettingsEditorTests : IDisposable
 {
@@ -95,25 +95,49 @@ public sealed class SettingsEditorTests : IDisposable
     }
 
     [Fact]
-    public void Open_ShowsFourGroupsWithHeadersAndTheirFields()
+    public void Open_ShowsNavigationWithGeneralSelected()
     {
         OpenSettings();
 
+        var list = _session.WaitFor("SettingsSectionList");
+        var items = list.FindAllChildren(condition => condition.ByControlType(FlaUI.Core.Definitions.ControlType.ListItem));
+        items.Select(item => item.AutomationId).ShouldBe(
+        [
+            "SettingsSectionGeneral", "SettingsSectionAccounts", "SettingsSectionRepositories",
+            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionToken",
+        ]);
+        items.Select(item => item.Name).ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "GitHub token"]);
+        items[0].Patterns.SelectionItem.Pattern.IsSelected.Value.ShouldBeTrue();
         var general = _session.WaitFor("SettingsGeneralGroup");
-        var accounts = _session.WaitFor("SettingsAccountsGroup");
-        var tools = _session.WaitFor("SettingsToolsGroup");
-        var token = _session.WaitFor("SettingsTokenGroup");
         general.Name.ShouldBe("General");
-        accounts.Name.ShouldBe("Accounts and repositories");
-        tools.Name.ShouldBe("Tools");
-        token.Name.ShouldBe("GitHub token");
         AppSession.WaitFor(general, "BackupRootBox");
         AppSession.WaitFor(general, "DiscoverAccessibleRepositoriesCheckBox");
         AppSession.WaitFor(general, "ThemeComboBox").IsEnabled.ShouldBeTrue();
-        AppSession.WaitFor(accounts, "AccountsList");
-        AppSession.WaitFor(accounts, "RepositoriesList");
-        AppSession.WaitFor(tools, "GitPathBox");
-        AppSession.WaitFor(token, "TokenBox");
+        foreach (var hidden in new[] { "SettingsAccountsGroup", "SettingsRepositoriesGroup", "SettingsToolsGroup", "SettingsTelemetryGroup", "SettingsTokenGroup" })
+        {
+            _session.MainWindow.FindFirstDescendant(condition => condition.ByAutomationId(hidden)).ShouldBeNull();
+        }
+    }
+
+    [Theory]
+    [InlineData(SettingsSection.Accounts, "SettingsAccountsGroup", "Accounts", "AccountsList", "AccountUrlBox", "AccountRepositoriesList")]
+    [InlineData(SettingsSection.Repositories, "SettingsRepositoriesGroup", "Repositories", "RepositoriesList", "RepositoryFilterBox", "AddRepositoryButton")]
+    [InlineData(SettingsSection.Tools, "SettingsToolsGroup", "Tools", "GitPathBox", "SevenZipPathBox", "GitPathBox")]
+    [InlineData(SettingsSection.Telemetry, "SettingsTelemetryGroup", "Telemetry", "TelemetryEnabledCheckBox", "OtlpEndpointBox", "TelemetryHeadersBox")]
+    [InlineData(SettingsSection.Token, "SettingsTokenGroup", "GitHub token", "TokenBox", "CheckTokenButton", "TokenBox")]
+    public void SelectSection_ShowsOnlyThatSectionWithItsFields(
+        SettingsSection section, string groupId, string header, string field1, string field2, string field3)
+    {
+        OpenSettings();
+
+        SelectSection(section);
+
+        var group = _session.WaitFor(groupId);
+        group.Name.ShouldBe(header);
+        AppSession.WaitFor(group, field1);
+        AppSession.WaitFor(group, field2);
+        AppSession.WaitFor(group, field3);
+        _session.WaitUntilGone("SettingsGeneralGroup");
     }
 
     [Fact]
@@ -133,6 +157,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void Save_InvalidAccountUrl_ShowsErrorAndWritesNothing()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Accounts);
         var accountUrl = _session.WaitFor("AccountUrlBox");
         AppSession.SetText(accountUrl, "https://example.com/acme");
 
@@ -182,6 +207,7 @@ public sealed class SettingsEditorTests : IDisposable
     {
         var before = File.ReadAllText(_installation.AppSettingsPath);
         OpenSettings();
+        SelectSection(SettingsSection.Tools);
         _session.SetText("GitPathBox", _git);
 
         _session.Invoke("SaveSettingsButton");
@@ -206,6 +232,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void Open_ShowsTelemetryGroupWithItsFields()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
 
         var telemetry = _session.WaitFor("SettingsTelemetryGroup");
 
@@ -222,6 +249,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void Save_TelemetryHeadersTyped_WritesHeadersToAppSettings()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
         _session.SetText("TelemetryHeadersBox", " api-key=ui-test-secret ");
 
         _session.Invoke("SaveSettingsButton");
@@ -237,6 +265,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void ShowToggle_RevealsAndHidesValue()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
         _session.SetText("TelemetryHeadersBox", _headersValue);
 
         _session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
@@ -255,6 +284,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void TelemetryHeadersFields_AutomationNamesNeverContainValue()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
         _session.SetText("TelemetryHeadersBox", _headersValue);
         var telemetry = _session.WaitFor("SettingsTelemetryGroup");
 
@@ -288,6 +318,7 @@ public sealed class SettingsEditorTests : IDisposable
         session.Invoke("SettingsButton");
         var save = session.WaitFor("SaveSettingsButton");
         AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionTelemetry");
 
         session.WaitFor("TelemetryHeadersOverriddenNote").Name.ShouldBe(SettingsViewModel.HeadersOverriddenMessage);
         session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
@@ -311,6 +342,7 @@ public sealed class SettingsEditorTests : IDisposable
     public void Save_TelemetryEnabledWithEndpoint_WritesOpenTelemetrySection()
     {
         OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
         _session.WaitFor("TelemetryEnabledCheckBox").Patterns.Toggle.Pattern.Toggle();
         _session.SetText("OtlpEndpointBox", "http://localhost:4318");
 
@@ -322,6 +354,113 @@ public sealed class SettingsEditorTests : IDisposable
         var section = document.RootElement.GetProperty("OpenTelemetry");
         section.GetProperty("Enabled").GetBoolean().ShouldBeTrue();
         section.GetProperty("OtlpEndpoint").GetString().ShouldBe("http://localhost:4318");
+    }
+
+    [Fact]
+    public void Save_AccountErrorFromGeneral_OpensAccountsAndMarksSectionAndAccount()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Accounts);
+        _session.SetText("AccountUrlBox", "https://example.com/acme");
+        SelectSection(SettingsSection.General);
+
+        _session.Invoke("SaveSettingsButton");
+
+        var accountsEntry = _session.WaitFor("SettingsSectionAccounts");
+        AppSession.WaitUntil(() => accountsEntry.Patterns.SelectionItem.Pattern.IsSelected.Value, "the accounts section to open");
+        AppSession.WaitFor(accountsEntry, "SettingsSectionErrorIcon").Name.ShouldBe("Has errors");
+        AppSession.WaitFor(_session.WaitFor("AccountsList"), "AccountErrorIcon");
+        _session.WaitFor("SettingsSectionGeneral").FindFirstDescendant(condition => condition.ByAutomationId("SettingsSectionErrorIcon"))
+            .ShouldBeNull();
+        _installation.ReadBackupConfig().ShouldBe(_originalConfig);
+    }
+
+    [Fact]
+    public void AddAndRemoveAccount_UpdatesListAndDetails()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Accounts);
+        var list = _session.WaitFor("AccountsList");
+
+        _session.Invoke("AddAccountButton");
+
+        AppSession.WaitUntil(() => AccountItems(list).Length == 2, "the new account in the list");
+        var added = AccountItems(list)[1];
+        added.Name.ShouldBe(AccountSettingsViewModel.NewAccountName);
+        AppSession.WaitUntil(() => added.Patterns.SelectionItem.Pattern.IsSelected.Value, "the new account to be selected");
+        _session.WaitFor("AccountUrlBox").Patterns.Value.Pattern.Value.Value.ShouldBeEmpty();
+
+        _session.Invoke("RemoveAccountButton");
+        AppSession.WaitUntil(() => AccountItems(list).Length == 1, "the account to be removed");
+        _session.WaitFor("AccountUrlBox").Patterns.Value.Pattern.Value.Value.ShouldBe("https://github.com/acme");
+
+        _session.Invoke("RemoveAccountButton");
+        AppSession.WaitUntil(() => AccountItems(list).Length == 0, "the last account to be removed");
+        _session.WaitFor("NoAccountsMessage").Name.ShouldBe("No accounts. Add an account.");
+        _session.WaitUntilGone("RemoveAccountButton");
+    }
+
+    [Fact]
+    public void RepositoryFilter_NoMatchThenCleared_ShowsMessageThenRows()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Repositories);
+
+        _session.SetText("RepositoryFilterBox", "zzz");
+
+        _session.WaitFor("RepositoriesNoMatch").Name.ShouldBe("No repositories match the filter.");
+        _session.WaitUntilGone("RepositoryUrlBox");
+
+        _session.SetText("RepositoryFilterBox", "ALPHA");
+
+        _session.WaitFor("RepositoryUrlBox").Patterns.Value.Pattern.Value.Value.ShouldBe("https://github.com/octo/alpha");
+        _session.WaitUntilGone("RepositoriesNoMatch");
+    }
+
+    [Fact]
+    public void AccountRepositoryFilter_NoMatch_ShowsMessage()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Accounts);
+
+        _session.SetText("AccountRepositoryFilterBox", "zzz");
+
+        _session.WaitFor("AccountRepositoriesNoMatch");
+        _session.WaitUntilGone("AccountRepositoryBranchBox");
+    }
+
+    [Fact]
+    public void AddRepository_FilterActive_ClearsFilterAndShowsNewRow()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Repositories);
+        _session.SetText("RepositoryFilterBox", "zzz");
+        _session.WaitFor("RepositoriesNoMatch");
+
+        _session.Invoke("AddRepositoryButton");
+
+        AppSession.WaitUntil(
+            () => _session.WaitFor("RepositoryFilterBox").Patterns.Value.Pattern.Value.Value.Length == 0,
+            "the filter to be cleared");
+        var list = _session.WaitFor("RepositoriesList");
+        AppSession.WaitUntil(
+            () => list.FindAllDescendants(condition => condition.ByAutomationId("RepositoryUrlBox")).Length == 2,
+            "the existing and the new row");
+        _session.WaitUntilGone("RepositoriesNoMatch");
+    }
+
+    [Fact]
+    public void SwitchSection_TypedHeaders_KeepsValue()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Telemetry);
+        _session.SetText("TelemetryHeadersBox", _headersValue);
+
+        SelectSection(SettingsSection.Tools);
+        SelectSection(SettingsSection.Telemetry);
+        _session.WaitFor("ShowTelemetryHeadersToggle").Patterns.Toggle.Pattern.Toggle();
+
+        _session.WaitFor("TelemetryHeadersTextBox").Patterns.Value.Pattern.Value.Value.ShouldBe(_headersValue);
     }
 
     /// <summary>
@@ -344,6 +483,20 @@ public sealed class SettingsEditorTests : IDisposable
         var save = _session.WaitFor("SaveSettingsButton");
         AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
     }
+
+    /// <summary>
+    /// Opens a section of the editor through its entry in the navigation.
+    /// </summary>
+    /// <param name="section">The section.</param>
+    private void SelectSection(SettingsSection section) => _session.Select($"SettingsSection{section}");
+
+    /// <summary>
+    /// Returns the entries of the list of accounts.
+    /// </summary>
+    /// <param name="list">The list of accounts.</param>
+    /// <returns>The entries, in order.</returns>
+    private static AutomationElement[] AccountItems(AutomationElement list) =>
+        list.FindAllChildren(condition => condition.ByControlType(FlaUI.Core.Definitions.ControlType.ListItem));
 
     /// <summary>
     /// Asserts that no element below <paramref name="root"/> has <paramref name="secret"/> in its name or help text.

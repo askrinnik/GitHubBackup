@@ -179,6 +179,19 @@ internal sealed class AppSession : IDisposable
     }
 
     /// <summary>
+    /// Selects an item of a list of the main window through its selection item pattern and waits until it is selected.
+    /// </summary>
+    /// <param name="automationId">The automation id of the list item.</param>
+    public void Select(string automationId)
+    {
+        var item = WaitFor(automationId);
+        WaitUntil(() => item.IsEnabled, $"'{automationId}' to be enabled");
+        var pattern = item.Patterns.SelectionItem.Pattern;
+        pattern.Select();
+        WaitUntil(() => pattern.IsSelected.Value, $"'{automationId}' to be selected");
+    }
+
+    /// <summary>
     /// Replaces the text of a text box of the main window through its value pattern.
     /// </summary>
     /// <param name="automationId">The automation id of the text box.</param>

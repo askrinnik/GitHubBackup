@@ -109,7 +109,8 @@ public sealed class AppSettingsFileTests : IDisposable
     }
 
     /// <summary>
-    /// Starts the application and opens the settings editor once it has read the settings.
+    /// Starts the application, opens the settings editor once it has read the settings and selects the section of the
+    /// tool paths.
     /// </summary>
     /// <param name="installation">The installation to start.</param>
     /// <returns>The session, disposed with the test.</returns>
@@ -120,6 +121,7 @@ public sealed class AppSettingsFileTests : IDisposable
         session.Invoke("SettingsButton");
         var save = session.WaitFor("SaveSettingsButton");
         AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionTools");
         return session;
     }
 }
