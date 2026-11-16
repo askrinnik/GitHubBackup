@@ -50,6 +50,32 @@ public sealed class BackupSummaryRendererTests : IDisposable
     }
 
     [Fact]
+    public async Task RenderAsync_EmptyWiki_WritesSkippedRowWithReason()
+    {
+        var result = new BackupRunResult(
+            [
+                new("octocat/hello", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(1), null),
+                new("octocat/hello.wiki", BackupItemStatus.Skipped, null, TimeSpan.Zero, BackupOrchestrator.WikiNoPagesMessage),
+            ],
+            [],
+            []);
+
+        await Render(result);
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            ┌────────────────────┬──────────┬─────────┬──────────┬───────────────────┐
+            │ Repository         │ Status   │ Archive │ Duration │ Error             │
+            ├────────────────────┼──────────┼─────────┼──────────┼───────────────────┤
+            │ octocat/hello      │ UpToDate │         │ 0:01.0   │                   │
+            │ octocat/hello.wiki │ Skipped  │         │ 0:00.0   │ Wiki has no pages │
+            └────────────────────┴──────────┴─────────┴──────────┴───────────────────┘
+            Archived: 0, UpToDate: 1, Warning: 0, Failed: 0, Skipped: 1
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
+    [Fact]
     public async Task RenderAsync_DryRun_WritesHeaderTableDiscoveryAndTotals()
     {
         var result = new BackupRunResult(

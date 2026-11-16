@@ -229,7 +229,9 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IBackupConfigStore>())
             .AddSingleton(Substitute.For<IBackupStateStore>())
             .AddSingleton(Substitute.For<IRepositoryPathResolver>())
+            .AddSingleton(Substitute.For<IRunHistoryStore>())
             .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddLogging()
             .AddGitHubBackupCore()
             .BuildServiceProvider();
 

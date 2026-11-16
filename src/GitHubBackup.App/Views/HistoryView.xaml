@@ -225,6 +225,15 @@
                                 <DataGridTextColumn Header="Last archive"
                                                     Binding="{Binding LastArchive, Mode=OneWay}"
                                                     SortMemberPath="LastArchiveAt" />
+                                <DataGridTextColumn Header="Wiki"
+                                                    Binding="{Binding WikiText, Mode=OneWay}"
+                                                    SortMemberPath="WikiText">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <Style TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
+                                            <Setter Property="ToolTip" Value="{Binding WikiToolTip, Mode=OneWay}" />
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
                             </DataGrid.Columns>
                         </DataGrid>
                         <GridSplitter Grid.Row="1"

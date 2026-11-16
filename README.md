@@ -502,7 +502,7 @@ A non-empty folder without `.git` and a clone whose `origin` points to another r
 - `Failed`: the check failed (for example, `ls-remote` returned an error). The other repositories are processed.
 - `Skipped`: the repository is marked `Unavailable` or disappeared from GitHub (a normal run would mark it `Unavailable`).
 
-The wiki is checked like a repository. Above the table, the program prints `Dry run: nothing was cloned, updated, archived or saved.` (or the line about saved `id` values, see below). Below the table, it prints what discovery found: `New`, `Missing`, `Renamed`, `Returned`. New repositories appear only in this list and have no table rows. A returned (`Returned`) repository is checked as an active one. The totals count `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` and `Skipped`.
+The wiki is checked like a repository; an enabled wiki without pages gets a `Skipped` row with the reason `Wiki has no pages` and no `WouldClone` row. Above the table, the program prints `Dry run: nothing was cloned, updated, archived or saved.` (or the line about saved `id` values, see below). Below the table, it prints what discovery found: `New`, `Missing`, `Renamed`, `Returned`. New repositories appear only in this list and have no table rows. A returned (`Returned`) repository is checked as an active one. The totals count `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` and `Skipped`.
 
 The clone check and the folder check run as in a normal run, and the entry gets the same `Failed` with the same reason. A clone move is only shown in the error column: `The clone would be moved from '<old>' to '<new>'.`
 
@@ -595,6 +595,7 @@ The upper table lists every repository of `backup-config.json` in configuration 
 | **Not in state** | Archive files in the archive folder without a record |
 | **Size** | Total size of the archive files in the archive folder |
 | **Last archive** | Creation time of the newest recorded archive of the repository or its wiki |
+| **Wiki** | State of the wiki in the latest run that processed the repository: `OK` (archived, up to date or warning), `No pages` (the wiki is enabled but empty; point at the cell for advice), `Failed`, `Cancelled`, `Off` (the wiki is turned off) or `—` (no run, the run history cannot be read, or the repository was skipped, failed or cancelled before its wiki was reached) |
 
 An archive file is a file directly in the archive folder of the repository whose name has the form of a repository or wiki archive of that repository (`<owner>_<repo>_<yyyyMMdd-HHmmss>_<hash>.zip` or `<owner>_<repo>.wiki_<yyyyMMdd-HHmmss>_<hash>.zip`), in any case. Other files are not shown and not counted. The program reads only the folder entries: files that a cloud client keeps online only are not downloaded, and their size is their full size.
 
@@ -726,7 +727,7 @@ An attribute is absent when its value is unknown. A repository that is skipped o
 
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
-- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`.
+- A wiki that is enabled but has no git repository on the server (it has no pages) is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`, and the wiki appears in the summary and the run history as `Skipped` with the reason `Wiki has no pages`. The exit code does not change.
 - The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector in `OpenTelemetry:Headers`, preferably with the variable `GitHubBackup__OpenTelemetry__Headers`, not in `OtlpEndpoint`. The standard variables `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` have no effect, also with the prefix `GitHubBackup__` or on the command line.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 

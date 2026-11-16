@@ -2,7 +2,10 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Overview;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -25,6 +28,12 @@ public sealed class ArchiveSummaryProviderTests
 
     private readonly IBackupStateStore _stateStore = Substitute.For<IBackupStateStore>();
 
+    private static readonly string[] _expectedNames = ["octo/tool", "octo/app", "other/lib"];
+
+    private readonly IRunHistoryStore _runHistoryStore = Substitute.For<IRunHistoryStore>();
+
+    private readonly FakeLogger<ArchiveSummaryProvider> _logger = new();
+
     private readonly ArchiveSummaryProvider _provider;
 
     /// <summary>
@@ -40,7 +49,43 @@ public sealed class ArchiveSummaryProviderTests
             .Returns(call => new ArchiveHistory(call.ArgAt<string>(0), true, []));
         _stateStore.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
-        _provider = new(_overviewProvider, _historyProvider, _stateStore);
+        _runHistoryStore.GetLatestRepositoryRunsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(new Dictionary<string, LatestRepositoryRun>());
+        _provider = new(_overviewProvider, _historyProvider, _stateStore, _runHistoryStore, _logger);
+    }
+
+    [Fact]
+    public async Task LoadAsync_LatestRuns_SetsWikiStatusFromOneHistoryQuery()
+    {
+        var runs = new Dictionary<string, LatestRepositoryRun>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["octo/tool"] = new(
+                new("octo/tool", BackupTarget.Repository, BackupItemStatus.UpToDate, TimeSpan.Zero),
+                new("octo/tool", BackupTarget.Wiki, BackupItemStatus.Skipped, TimeSpan.Zero)),
+            ["other/lib"] = new(new("other/lib", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero), null),
+        };
+        _runHistoryStore.GetLatestRepositoryRunsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .Returns(runs);
+
+        var summaries = await LoadAsync();
+
+        summaries.Select(summary => summary.WikiStatus).ShouldBe([WikiStatus.NoPages, WikiStatus.Unknown, WikiStatus.Off]);
+        await _runHistoryStore.Received(1).GetLatestRepositoryRunsAsync(
+            Arg.Is<IReadOnlyCollection<string>>(names => names.SequenceEqual(_expectedNames)),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAsync_RunHistoryUnreadable_AllWikiStatusesUnknownAndLogs()
+    {
+        _runHistoryStore.GetLatestRepositoryRunsAsync(Arg.Any<IReadOnlyCollection<string>>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new RunHistoryException(@"C:\app\history.db", "The runs cannot be read."));
+
+        var summaries = await LoadAsync();
+
+        summaries.ShouldAllBe(summary => summary.WikiStatus == WikiStatus.Unknown && summary.Error == null);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
     }
 
     [Fact]

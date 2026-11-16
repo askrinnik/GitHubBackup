@@ -154,6 +154,29 @@ public sealed class ArchiveHistoryViewModelTests
         row.HasError.ShouldBeFalse();
     }
 
+    [Theory]
+    [InlineData(WikiStatus.Ok, "OK", false)]
+    [InlineData(WikiStatus.NoPages, "No pages", true)]
+    [InlineData(WikiStatus.Failed, "Failed", false)]
+    [InlineData(WikiStatus.Cancelled, "Cancelled", false)]
+    [InlineData(WikiStatus.Off, "Off", false)]
+    [InlineData(WikiStatus.Unknown, "—", false)]
+    public async Task LoadRepositories_WikiStatus_RowShowsTextAndToolTipOnlyForNoPages(
+        WikiStatus status, string text, bool hasToolTip)
+    {
+        UseSummaries(Summary(_tool, true) with { WikiStatus = status });
+
+        await LoadAsync();
+
+        var row = _viewModel.Repositories.ShouldHaveSingleItem();
+        row.WikiText.ShouldBe(text);
+        (row.WikiToolTip is not null).ShouldBe(hasToolTip);
+        if (hasToolTip)
+        {
+            row.WikiToolTip.ShouldNotBeNull().ShouldContain("Turn off Wikis");
+        }
+    }
+
     [Fact]
     public async Task LoadRepositories_StateFileInvalid_RowShowsMaskedErrorAndLogs()
     {

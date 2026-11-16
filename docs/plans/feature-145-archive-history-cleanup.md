@@ -163,9 +163,9 @@ FR-9.5 говорит, что wiki без git-репозитория в dry-run 
 - [ ] Ручная проверка тома без Корзины.
 
 **Коммит 3 — статус wiki**
-- [ ] `ProcessWikiAsync`: `Skipped` с `Wiki has no pages`; тесты Core, Integration, CLI, App.
-- [ ] `LatestRepositoryRun`, `GetLatestRepositoryRunsAsync` + интеграционные тесты.
-- [ ] `WikiStatus`, `WikiStatusResolver` + тесты; подключение к `ArchiveSummaryProvider`.
-- [ ] Колонка Wiki с подсказкой `No pages` + тесты.
-- [ ] README: колонка Wiki, пустая wiki в сводке и dry-run.
+- [x] `ProcessWikiAsync`: `Skipped` с `Wiki has no pages`; тесты Core, Integration, CLI, App.
+- [x] `LatestRepositoryRun`, `GetLatestRepositoryRunsAsync` + интеграционные тесты.
+- [x] `WikiStatus`, `WikiStatusResolver` + тесты; подключение к `ArchiveSummaryProvider`.
+- [x] Колонка Wiki с подсказкой `No pages` + тесты.
+- [x] README: колонка Wiki, пустая wiki в сводке и dry-run.
 - [ ] Сборка, тесты, format; netwright; отметить задачи плана.

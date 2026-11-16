@@ -1,5 +1,6 @@
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Security;
+using GitHubBackup.Core.State;
 using GitHubBackup.Infrastructure.Configuration;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -111,6 +112,89 @@ internal sealed class SqliteRunHistoryStore(
                 options.Value.DatabasePath, $"The runs cannot be read. {exception.Message}", exception);
         }
     }
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Two projections without <c>Include</c>: the newest run row of each repository, then the repository and wiki
+    /// items of exactly those runs; both items of a repository carry the same name and differ by target. Names are
+    /// compared with the <c>NOCASE</c> collation, because SQLite compares text with case.
+    /// </remarks>
+    public async Task<IReadOnlyDictionary<string, LatestRepositoryRun>> GetLatestRepositoryRunsAsync(
+        IReadOnlyCollection<string> repositories, CancellationToken cancellationToken)
+    {
+        var latest = new Dictionary<string, LatestRepositoryRun>(StringComparer.OrdinalIgnoreCase);
+        if (repositories.Count == 0)
+        {
+            return latest;
+        }
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+            var repositoryNames = repositories.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+            var newestByStoredName = await context.RunItems
+                .AsNoTracking()
+                .Where(item => item.Target == BackupTarget.Repository
+                    && repositoryNames.Contains(EF.Functions.Collate(item.Repository, "NOCASE")))
+                .GroupBy(item => item.Repository)
+                .Select(group => new { Name = group.Key, RunEntityId = group.Max(item => item.RunEntityId) })
+                .ToListAsync(cancellationToken);
+            var newest = newestByStoredName
+                .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.MaxBy(entry => entry.RunEntityId)!)
+                .ToList();
+            if (newest.Count == 0)
+            {
+                return latest;
+            }
+
+            var runKeys = newest.Select(entry => entry.RunEntityId).Distinct().ToList();
+            var rows = await context.RunItems
+                .AsNoTracking()
+                .Where(item => runKeys.Contains(item.RunEntityId)
+                    && repositoryNames.Contains(EF.Functions.Collate(item.Repository, "NOCASE")))
+                .OrderBy(item => item.Id)
+                .ToListAsync(cancellationToken);
+
+            foreach (var entry in newest)
+            {
+                var inRun = rows.Where(row => row.RunEntityId == entry.RunEntityId).ToList();
+                var repositoryRow = inRun.FirstOrDefault(row =>
+                    row.Target == BackupTarget.Repository && string.Equals(row.Repository, entry.Name, StringComparison.OrdinalIgnoreCase));
+                if (repositoryRow is null)
+                {
+                    continue;
+                }
+
+                var wikiRow = inRun.FirstOrDefault(row =>
+                    row.Target == BackupTarget.Wiki && string.Equals(row.Repository, entry.Name, StringComparison.OrdinalIgnoreCase));
+                latest[repositoryRow.Repository] = new(ToItem(repositoryRow), wikiRow is null ? null : ToItem(wikiRow));
+            }
+
+            return latest;
+        }
+        catch (SqliteException exception)
+        {
+            throw new RunHistoryException(
+                options.Value.DatabasePath, $"The latest runs cannot be read. {exception.Message}", exception);
+        }
+    }
+
+    /// <summary>
+    /// Maps the row of an item back to the item.
+    /// </summary>
+    /// <param name="item">The item row.</param>
+    /// <returns>The item.</returns>
+    private static RunHistoryItem ToItem(RunItemEntity item) =>
+        new(item.Repository, item.Target, item.Status, item.Duration)
+        {
+            Branch = item.Branch,
+            HeadCommit = item.HeadCommit,
+            ArchiveFileName = item.ArchiveFileName,
+            ChangedRefs = [.. item.ChangedRefs],
+            Error = item.Error,
+        };
 
     /// <summary>
     /// Maps a run to the rows that store it.

@@ -48,6 +48,27 @@ public sealed class RunSummaryViewModelTests
     }
 
     [Fact]
+    public void FromResult_EmptyWiki_ShowsSkippedRowWithReason()
+    {
+        var result = new BackupRunResult(
+            [
+                new("octo/tool", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(1), null),
+                new("octo/tool.wiki", BackupItemStatus.Skipped, null, TimeSpan.Zero, BackupOrchestrator.WikiNoPagesMessage),
+            ],
+            [],
+            []);
+
+        var summary = RunSummaryViewModel.FromResult(result, _logPath, _masker);
+
+        summary.Rows.ShouldBe(
+        [
+            new("octo/tool", "UpToDate", string.Empty, "0:01.0", string.Empty),
+            new("octo/tool.wiki", "Skipped", string.Empty, "0:00.0", "Wiki has no pages"),
+        ]);
+        summary.TotalsLine.ShouldBe("Archived: 0, UpToDate: 1, Warning: 0, Failed: 0, Skipped: 1");
+    }
+
+    [Fact]
     public void FromResult_CriticalErrors_ShowsErrorsWarningsAndLogPathWithoutTable()
     {
         var result = BackupRunResult.Stopped(

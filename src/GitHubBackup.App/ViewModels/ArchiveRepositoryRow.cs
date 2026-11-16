@@ -76,6 +76,27 @@ public sealed class ArchiveRepositoryRow
     public string LastArchive =>
         LastArchiveAt?.ToString(ArchiveHistoryRow.DateFormat, CultureInfo.InvariantCulture) ?? string.Empty;
 
+    /// <summary>Gets the state of the wiki according to the latest run of the repository.</summary>
+    public WikiStatus WikiStatus { get; init; } = WikiStatus.Unknown;
+
+    /// <summary>Gets <see cref="WikiStatus"/> as the text of the Wiki cell.</summary>
+    public string WikiText => WikiStatus switch
+    {
+        WikiStatus.Ok => "OK",
+        WikiStatus.NoPages => "No pages",
+        WikiStatus.Failed => "Failed",
+        WikiStatus.Cancelled => "Cancelled",
+        WikiStatus.Off => "Off",
+        _ => "—",
+    };
+
+    /// <summary>
+    /// Gets the tooltip of the Wiki cell: the advice for an enabled wiki without pages, otherwise <see langword="null"/>.
+    /// </summary>
+    public string? WikiToolTip => WikiStatus == WikiStatus.NoPages
+        ? "The wiki is enabled but has no pages. Turn off Wikis in the repository settings on GitHub to stop checking it."
+        : null;
+
     /// <summary>
     /// Creates the row of a repository.
     /// </summary>
@@ -91,5 +112,6 @@ public sealed class ArchiveRepositoryRow
         History = error is null ? summary.History : null,
         Error = error,
         CleanupPlan = error is null ? summary.CleanupPlan : null,
+        WikiStatus = summary.WikiStatus,
     };
 }

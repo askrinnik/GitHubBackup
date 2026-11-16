@@ -38,4 +38,22 @@ public interface IRunHistoryStore
     /// <returns>The runs, the most recently recorded first; empty when none matches.</returns>
     /// <exception cref="RunHistoryException">The history cannot be read.</exception>
     Task<IReadOnlyList<RunHistoryEntry>> QueryAsync(RunHistoryQuery query, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Returns, for each repository, its items in the most recent run that recorded the repository, together with the
+    /// item of its wiki from that same run.
+    /// </summary>
+    /// <remarks>
+    /// The wiki item of an older run is never used. A run that holds only the wiki item of a repository does not count
+    /// as a run of that repository.
+    /// </remarks>
+    /// <param name="repositories">The repositories as <c>owner/name</c>.</param>
+    /// <param name="cancellationToken">The token that cancels the operation.</param>
+    /// <returns>
+    /// The latest runs by repository name, compared without regard to case; a repository that no run recorded has no
+    /// key.
+    /// </returns>
+    /// <exception cref="RunHistoryException">The history cannot be read.</exception>
+    Task<IReadOnlyDictionary<string, LatestRepositoryRun>> GetLatestRepositoryRunsAsync(
+        IReadOnlyCollection<string> repositories, CancellationToken cancellationToken);
 }

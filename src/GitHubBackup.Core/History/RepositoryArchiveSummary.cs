@@ -18,8 +18,10 @@ namespace GitHubBackup.Core.History;
 /// <param name="CleanupPlan">
 /// What the cleanup of old archives would remove, or <see langword="null"/> when <paramref name="Error"/> is set.
 /// </param>
+/// <param name="WikiStatus">The state of the wiki according to the latest run of the repository.</param>
 public sealed record RepositoryArchiveSummary(
     RepositoryOverviewEntry Repository,
     ArchiveHistory? History,
     Exception? Error,
-    ArchiveCleanupPlan? CleanupPlan = null);
+    ArchiveCleanupPlan? CleanupPlan = null,
+    WikiStatus WikiStatus = WikiStatus.Unknown);
