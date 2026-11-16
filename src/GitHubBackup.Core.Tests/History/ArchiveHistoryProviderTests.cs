@@ -1,7 +1,11 @@
 using System.IO.Abstractions.TestingHelpers;
+using GitHubBackup.Core.Archiving;
+using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.State;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -24,6 +28,8 @@ public sealed class ArchiveHistoryProviderTests
 
     private static readonly DateTimeOffset _wikiAt = new(2026, 10, 1, 12, 0, 0, TimeSpan.FromHours(3));
 
+    private static readonly TimeZoneInfo _zone = TimeZoneInfo.CreateCustomTimeZone("Test", TimeSpan.FromHours(3), "Test", "Test");
+
     private readonly IBackupStateStore _stateStore = Substitute.For<IBackupStateStore>();
 
     private readonly MockFileSystem _fileSystem = new();
@@ -31,13 +37,16 @@ public sealed class ArchiveHistoryProviderTests
     private readonly ArchiveHistoryProvider _provider;
 
     /// <summary>
-    /// Creates the provider over an existing, empty archive folder and a state store that returns an empty state.
+    /// Creates the provider over an existing, empty archive folder, a state store that returns an empty state and a
+    /// name builder whose local time zone is three hours ahead of UTC.
     /// </summary>
     public ArchiveHistoryProviderTests()
     {
         _fileSystem.AddDirectory(_folder);
         UseState(BackupState.CreateEmpty(_repositoryId, _fullName));
-        _provider = new(_stateStore, _fileSystem);
+        var clock = new FakeTimeProvider(_firstAt);
+        clock.SetLocalTimeZone(_zone);
+        _provider = new(_stateStore, _fileSystem, new ArchiveNameBuilder(clock, Options.Create(new BackupOptions())));
     }
 
     [Fact]
@@ -82,7 +91,9 @@ public sealed class ArchiveHistoryProviderTests
             "0123456789abcdef",
             2048,
             entry.ChangedRefs,
-            false));
+            false,
+            true,
+            null));
     }
 
     [Fact]
@@ -155,6 +166,112 @@ public sealed class ArchiveHistoryProviderTests
         var history = await LoadAsync();
 
         history.Archives.Select(entry => (entry.File, entry.FileExists)).ShouldBe([("second.zip", true), ("first.zip", false)]);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ArchiveFileExists_DiskSizeFromFile()
+    {
+        _fileSystem.AddFile(@"C:\backup\octo\tool\first.zip", new MockFileData(new byte[300]));
+        UseState(BackupState.CreateEmpty(_repositoryId, _fullName)
+            .WithArchive(BackupTarget.Repository, CreateRecord("first.zip", _firstAt), _fullName));
+
+        var entry = (await LoadAsync()).Archives.ShouldHaveSingleItem();
+
+        entry.IsInState.ShouldBeTrue();
+        entry.SizeBytes.ShouldBe(10);
+        entry.DiskSizeBytes.ShouldBe(300);
+    }
+
+    [Fact]
+    public async Task LoadAsync_ArchiveFileWithoutRecord_AddsNotInStateEntryFromName()
+    {
+        var path = @"C:\backup\octo\tool\octo_tool.wiki_20261003-081500_ABCDEF0123.zip";
+        _fileSystem.AddFile(path, new MockFileData(new byte[50]));
+
+        var entry = (await LoadAsync()).Archives.ShouldHaveSingleItem();
+
+        entry.ShouldBe(new ArchiveHistoryEntry(
+            BackupTarget.Wiki,
+            "octo_tool.wiki_20261003-081500_ABCDEF0123.zip",
+            path,
+            new DateTimeOffset(2026, 10, 3, 8, 15, 0, TimeSpan.FromHours(3)),
+            null,
+            "abcdef0123",
+            50,
+            entry.ChangedRefs,
+            true,
+            false,
+            50));
+        entry.ChangedRefs.ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("readme.txt")]
+    [InlineData("octo_other_20261003-081500_abcdef0123.zip")]
+    [InlineData("octo_tool_20261003-081500_abcdef0123.zip.tmp")]
+    [InlineData("octo_tool_20261003-081500_abc.zip")]
+    [InlineData(BackupState.FileName)]
+    public async Task LoadAsync_OtherFileInFolder_Ignored(string file)
+    {
+        _fileSystem.AddFile(Path.Combine(_folder, file), new MockFileData([1]));
+
+        var history = await LoadAsync();
+
+        history.Archives.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task LoadAsync_ArchiveFileInSubfolder_Ignored()
+    {
+        _fileSystem.AddFile(@"C:\backup\octo\tool\old\octo_tool_20261003-081500_abcdef0123.zip", new MockFileData([1]));
+
+        var history = await LoadAsync();
+
+        history.Archives.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task LoadAsync_RecordedFileInOtherCase_NotListedTwice()
+    {
+        _fileSystem.AddFile(@"C:\backup\octo\tool\OCTO_TOOL_20261001-100000_A1B2C3D4E5.ZIP", new MockFileData([1]));
+        UseState(BackupState.CreateEmpty(_repositoryId, _fullName).WithArchive(
+            BackupTarget.Repository, CreateRecord("octo_tool_20261001-100000_a1b2c3d4e5.zip", _firstAt), _fullName));
+
+        var entry = (await LoadAsync()).Archives.ShouldHaveSingleItem();
+
+        entry.IsInState.ShouldBeTrue();
+        entry.FileExists.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task LoadAsync_RecordsAndFiles_CountsRepositoryWithWiki()
+    {
+        _fileSystem.AddFile(@"C:\backup\octo\tool\first.zip", new MockFileData(new byte[100]));
+        _fileSystem.AddFile(@"C:\backup\octo\tool\wiki.zip", new MockFileData(new byte[20]));
+        _fileSystem.AddFile(@"C:\backup\octo\tool\octo_tool_20260901-100000_0000000000.zip", new MockFileData(new byte[3]));
+        _fileSystem.AddFile(@"C:\backup\octo\tool\octo_tool.wiki_20260901-100000_1111111111.zip", new MockFileData(new byte[4]));
+        _fileSystem.AddFile(@"C:\backup\octo\tool\notes.zip", new MockFileData(new byte[1000]));
+        UseState(BackupState.CreateEmpty(_repositoryId, _fullName)
+            .WithArchive(BackupTarget.Repository, CreateRecord("first.zip", _firstAt), _fullName)
+            .WithArchive(BackupTarget.Wiki, CreateRecord("wiki.zip", _wikiAt), _fullName)
+            .WithArchive(BackupTarget.Repository, CreateRecord("second.zip", _secondAt), _fullName));
+
+        var history = await LoadAsync();
+
+        (history.InStateCount, history.OnDiskCount, history.MissingCount, history.NotInStateCount, history.SizeOnDiskBytes)
+            .ShouldBe((3, 4, 1, 2, 127L));
+        history.LastArchiveAt.ShouldBe(_secondAt);
+    }
+
+    [Fact]
+    public async Task LoadAsync_OnlyFilesWithoutRecord_LastArchiveAtNull()
+    {
+        _fileSystem.AddFile(@"C:\backup\octo\tool\octo_tool_20261101-100000_0000000000.zip", new MockFileData([1]));
+
+        var history = await LoadAsync();
+
+        history.LastArchiveAt.ShouldBeNull();
+        history.NotInStateCount.ShouldBe(1);
     }
 
     [Fact]

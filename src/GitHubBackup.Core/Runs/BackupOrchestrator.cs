@@ -88,6 +88,9 @@ public sealed class BackupOrchestrator(
     /// <summary>The message of an entry without an ID that GitHub does not know or does not show.</summary>
     public const string RepositoryNotFoundMessage = "The repository was not found on GitHub.";
 
+    /// <summary>The message of the skipped wiki that is enabled but has no git repository on the server.</summary>
+    public const string WikiNoPagesMessage = "Wiki has no pages";
+
     /// <inheritdoc />
     /// <remarks>
     /// The run is traced as one span, with the discovery and each repository and wiki as its children, and every
@@ -1029,7 +1032,7 @@ public sealed class BackupOrchestrator(
     /// <remarks>
     /// The wiki is cloned on the server's default branch: the branch configured for the repository names a branch of
     /// the code, not of the wiki. An enabled wiki that nobody has edited has no git repository; it is logged and
-    /// skipped, and its clone and archives from earlier runs are kept. The span of the wiki starts once the wiki is
+    /// reported as <see cref="BackupItemStatus.Skipped"/> with <see cref="WikiNoPagesMessage"/>, and its clone and archives from earlier runs are kept. The span of the wiki starts once the wiki is
     /// known to be enabled, so a repository without a wiki adds no span; a failed lookup gets a span of its own.
     /// </remarks>
     /// <param name="item">The repository that owns the wiki.</param>
@@ -1040,8 +1043,8 @@ public sealed class BackupOrchestrator(
     /// </param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>
-    /// The result of the wiki, or <see langword="null"/> when the repository is not active, the wiki feature is
-    /// disabled or the wiki has no git repository on the server.
+    /// The result of the wiki, or <see langword="null"/> when the repository is not active or the wiki feature is
+    /// disabled.
     /// </returns>
     private async Task<BackupItemResult?> ProcessWikiAsync(
         BackupWorkItem item,
@@ -1096,7 +1099,7 @@ public sealed class BackupOrchestrator(
         catch (GitRepositoryNotFoundException)
         {
             BackupOrchestratorLog.WikiNotFound(logger);
-            return null;
+            outcome = new(BackupItemStatus.Skipped, null, WikiNoPagesMessage);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

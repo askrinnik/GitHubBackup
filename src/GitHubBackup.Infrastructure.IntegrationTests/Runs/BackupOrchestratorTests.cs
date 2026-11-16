@@ -190,13 +190,17 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var result = await RunAsync();
 
-        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        result.Items.Select(item => (item.Repository, item.Status, item.Target, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository, null),
+            ("owner/repo.wiki", BackupItemStatus.Skipped, BackupTarget.Wiki, BackupOrchestrator.WikiNoPagesMessage),
+        ]);
         result.ExitCode.ShouldBe(ExitCode.Success);
         Directory.Exists(Path.Combine(_sourcesRoot, _owner, "repo.wiki")).ShouldBeFalse();
     }
 
     [Fact]
-    public async Task RunAsync_DryRunWikiEnabledWithoutRepositoryAndClone_SkipsWikiWithoutWouldClone()
+    public async Task RunAsync_DryRunWikiEnabledWithoutRepositoryAndClone_ReportsSkippedWikiWithoutWouldClone()
     {
         await AddRemoteAsync("repo");
         _wikiEnabled.Add("repo");
@@ -206,7 +210,10 @@ public sealed class BackupOrchestratorTests : IDisposable
         var result = await RunAsync(dryRun: true);
 
         result.Items.Select(item => (item.Repository, item.Status, item.Target)).ShouldBe(
-            [("owner/repo", BackupItemStatus.WouldClone, BackupTarget.Repository)]);
+        [
+            ("owner/repo", BackupItemStatus.WouldClone, BackupTarget.Repository),
+            ("owner/repo.wiki", BackupItemStatus.Skipped, BackupTarget.Wiki),
+        ]);
         SnapshotTree().ShouldBe(before);
     }
 
@@ -237,7 +244,11 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var second = await RunAsync();
 
-        second.Items.ShouldHaveSingleItem().Repository.ShouldBe("owner/repo");
+        second.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.UpToDate),
+            ("owner/repo.wiki", BackupItemStatus.Skipped),
+        ]);
         second.ExitCode.ShouldBe(ExitCode.Success);
         var archiveFolder = Path.Combine(_archiveRoot, _owner, "repo");
         File.Exists(Path.Combine(archiveFolder, first.Items[1].ArchiveFileName!)).ShouldBeTrue();

@@ -341,7 +341,7 @@ Rules that keep OneDrive safe:
 - The program builds and tests each archive on the local disk, in `<sourcesRoot>\.tmp\`. It moves the finished archive to the archive folder only after the test passes. OneDrive therefore never uploads a half-written file.
 - If `sourcesRoot` lies inside `backupRoot` or inside an archive folder, the program warns you at startup: the clones would sync to the cloud. The same warning applies to `clonePath` folders.
 - If you leave `sourcesRoot` at `null`, the clones sit in `sources\` of the application folder. Do not place the application folder inside OneDrive in that case. Install it on a local disk, or set `sourcesRoot` to a local folder.
-- The program never deletes archives.
+- A backup run never deletes archives. Old archives go only when you delete them yourself with **Delete old archives** in the desktop app (see [Deleting old archives](#deleting-old-archives)); the files then go to the Windows Recycle Bin.
 
 An archive name is `<owner>_<repo>_<yyyyMMdd-HHmmss>_<shortHash>.zip`. The time is the local time of the machine when the archive was created. `shortHash` is the first characters of the commit hash of the selected branch (10 by default, `Backup:ShortHashLength`). A wiki archive uses `<repo>.wiki`. The archive holds the whole clone folder including `.git`; the root folder inside the archive is the clone folder name (`hello-world\`, `hello-world.wiki\`).
 
@@ -380,7 +380,7 @@ Check the result: the archive folder holds a `.zip` per repository, `sources\` h
 
 With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` it never appears.
 
-Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log.
+Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log. The cleanup of old archives in the desktop app takes the same lock (see [Deleting old archives](#deleting-old-archives)).
 
 Before it processes repositories, `backup` cleans `<sourcesRoot>\.tmp\` of files from interrupted runs. Then it compares the repositories of the tracked accounts with `backup-config.json`. With `discoverAccessibleRepositories: true`, it also compares other repositories your token can reach (see [Discovery mode](#discovery-mode-discoveraccessiblerepositories)). Without `--silent`, it asks about every new and every renamed repository. With `--silent`, it decides on its own:
 
@@ -502,7 +502,7 @@ A non-empty folder without `.git` and a clone whose `origin` points to another r
 - `Failed`: the check failed (for example, `ls-remote` returned an error). The other repositories are processed.
 - `Skipped`: the repository is marked `Unavailable` or disappeared from GitHub (a normal run would mark it `Unavailable`).
 
-The wiki is checked like a repository. Above the table, the program prints `Dry run: nothing was cloned, updated, archived or saved.` (or the line about saved `id` values, see below). Below the table, it prints what discovery found: `New`, `Missing`, `Renamed`, `Returned`. New repositories appear only in this list and have no table rows. A returned (`Returned`) repository is checked as an active one. The totals count `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` and `Skipped`.
+The wiki is checked like a repository; an enabled wiki without pages gets a `Skipped` row with the reason `Wiki has no pages` and no `WouldClone` row. Above the table, the program prints `Dry run: nothing was cloned, updated, archived or saved.` (or the line about saved `id` values, see below). Below the table, it prints what discovery found: `New`, `Missing`, `Renamed`, `Returned`. New repositories appear only in this list and have no table rows. A returned (`Returned`) repository is checked as an active one. The totals count `WouldClone`, `WouldArchive`, `UpToDate`, `Warning`, `Failed` and `Skipped`.
 
 The clone check and the folder check run as in a normal run, and the entry gets the same `Failed` with the same reason. A clone move is only shown in the error column: `The clone would be moved from '<old>' to '<new>'.`
 
@@ -578,7 +578,46 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 - **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table.
 - **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files.
 - **Summary.** The same information as the console summary when the run ends. A long result table or list of found repositories scrolls inside the summary. A found repository `id` is saved without a question, also in a dry run.
-- **History.** The list of runs with filters (period, status, mode) and run details, and the archive history of a selected repository with the actions **Open folder** and **Show in Explorer**.
+- **History.** The tab **Runs** lists the runs with filters (period, status, mode) and run details. The tab **Archives** shows the archives of the repositories (see [Archive history](#archive-history)).
+
+### Archive history
+
+The tab **Archives** of the history has two tables with a line between them: drag the line to change their heights.
+
+The upper table lists every repository of `backup-config.json` in configuration order: the repositories of the accounts, then the single repositories. Click a column header to sort by that column. The numbers count the repository together with its wiki:
+
+| Column | Meaning |
+|---|---|
+| **Repository**, **Account** | `owner/name` and the account that lists it; empty for a single repository |
+| **In state** | Archives recorded in `.backup-state.json` |
+| **On disk** | Archive files in the archive folder, with and without a record |
+| **Missing** | Records whose file is not in the archive folder |
+| **Not in state** | Archive files in the archive folder without a record |
+| **Size** | Total size of the archive files in the archive folder |
+| **Last archive** | Creation time of the newest recorded archive of the repository or its wiki |
+| **Wiki** | State of the wiki in the latest run that processed the repository: `OK` (archived, up to date or warning), `No pages` (the wiki is enabled but empty; point at the cell for advice), `Failed`, `Cancelled`, `Off` (the wiki is turned off) or `—` (no run, the run history cannot be read, or the repository was skipped, failed or cancelled before its wiki was reached) |
+
+An archive file is a file directly in the archive folder of the repository whose name has the form of a repository or wiki archive of that repository (`<owner>_<repo>_<yyyyMMdd-HHmmss>_<hash>.zip` or `<owner>_<repo>.wiki_<yyyyMMdd-HHmmss>_<hash>.zip`), in any case. Other files are not shown and not counted. The program reads only the folder entries: files that a cloud client keeps online only are not downloaded, and their size is their full size.
+
+If the `.backup-state.json` of a repository or its archive folder cannot be read, its row shows a red `Error` in the column **In state**, with the error as the tooltip, and no numbers. The other rows work as usual.
+
+The lower table shows the archives of the selected repository and its wiki, the newest first: creation time, target, file name, file state, branch, hash, size and the refs that changed since the previous archive of the same target. The file state is `Present`, `Missing` (the record stays, the row is red) or `Not in state` (a file without a record; its time, target and hash come from its name, and its branch is empty). For a repository whose files cannot be read, the error appears above the lower table. **Open folder** opens the archive folder in Explorer; **Show in Explorer** opens it with the selected archive selected.
+
+#### Deleting old archives
+
+**Delete old archives** removes the old archives of the selected repository. The button is enabled only when the cleanup would remove something, and never for a row with an error. The repository and its wiki are handled separately:
+
+- Each keeps its last archive in `.backup-state.json`, the file and the record: the next run compares the server with it.
+- If the file of the last archive is gone, its record still stays, and the newest recorded archive whose file is on the disk stays too, with its record.
+- Every other recorded archive file goes to the Recycle Bin, and its record is removed from `.backup-state.json`.
+- Every other record whose file is gone is removed.
+- Archive files without a record go to the Recycle Bin only if the repository (or the wiki) keeps an archive file on the disk. Otherwise they stay: the cleanup never leaves the repository or the wiki without an archive on the disk.
+
+Before anything changes, a confirmation shows how many files go to the Recycle Bin, their total size, and how many records without a file are removed. **No** changes nothing.
+
+The cleanup takes the same lock as a backup run: while a backup runs, it does not start and says that a backup is already running, and a backup does not start while the cleanup runs. If the archives changed between the confirmation and the start, the cleanup changes nothing, says so and reads the tables again.
+
+Files go only to the Windows Recycle Bin, from which you can restore them; the program never deletes an archive permanently. A file that cannot go to the Recycle Bin stays in place with its record: for example a file in use, a volume without a Recycle Bin (a network share), a Recycle Bin that is turned off or too small for the file. The other files are processed, and at the end a list shows the errors. The program then writes `.backup-state.json` once, atomically, and keeps the previous version in `.backup-state.json.bak`. If that write fails, the moved files stay in the Recycle Bin and keep their records; the history shows them as missing, and the next cleanup removes those records. Both tables are read again after the cleanup. The log records the repository, every moved file, every removed record and every error.
 
 ### Theme and window placement
 
@@ -688,7 +727,7 @@ An attribute is absent when its value is unknown. A repository that is skipped o
 
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
-- A wiki that is enabled but has no git repository on the server is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`.
+- A wiki that is enabled but has no git repository on the server (it has no pages) is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`, and the wiki appears in the summary and the run history as `Skipped` with the reason `Wiki has no pages`. The exit code does not change.
 - The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector in `OpenTelemetry:Headers`, preferably with the variable `GitHubBackup__OpenTelemetry__Headers`, not in `OtlpEndpoint`. The standard variables `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` have no effect, also with the prefix `GitHubBackup__` or on the command line.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 

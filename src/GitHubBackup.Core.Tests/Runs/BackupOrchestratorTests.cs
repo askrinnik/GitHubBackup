@@ -965,7 +965,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_WikiNotFound_SkipsWithoutResultAndLogs()
+    public async Task RunAsync_WikiNotFound_ReportsSkippedWikiAndLogs()
     {
         SetupWiki(hasWiki: true);
         _detector.DetectAsync(WikiRequest(), Arg.Any<CancellationToken>())
@@ -973,7 +973,11 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var result = await RunAsync();
 
-        result.Items.ShouldBe([Reached(new("owner/repo", BackupItemStatus.Archived, _archiveFile, TimeSpan.FromSeconds(5), null))]);
+        result.Items.Select(item => (item.Repository, item.Status, item.Target, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived, BackupTarget.Repository, null),
+            ("owner/repo.wiki", BackupItemStatus.Skipped, BackupTarget.Wiki, BackupOrchestrator.WikiNoPagesMessage),
+        ]);
         result.ExitCode.ShouldBe(ExitCode.Success);
         SingleRecord(_wikiNotFoundEventId).Level.ShouldBe(LogLevel.Information);
         _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Level == LogLevel.Error);
@@ -1635,7 +1639,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_DryRunWikiNotFoundOnServer_SkipsWikiAndKeepsRepositoryResult()
+    public async Task RunAsync_DryRunWikiNotFoundOnServer_ReportsSkippedWikiWithoutWouldClone()
     {
         SetupWiki(hasWiki: true);
         SetupPreview(ChangeDecision.CloneNeeded);
@@ -1644,8 +1648,11 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         var result = await DryRunAsync();
 
-        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
-            [("owner/repo", BackupItemStatus.WouldClone)]);
+        result.Items.Select(item => (item.Repository, item.Status, item.Message)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.WouldClone, null),
+            ("owner/repo.wiki", BackupItemStatus.Skipped, BackupOrchestrator.WikiNoPagesMessage),
+        ]);
         SingleRecord(_wikiNotFoundEventId).Level.ShouldBe(LogLevel.Information);
     }
 

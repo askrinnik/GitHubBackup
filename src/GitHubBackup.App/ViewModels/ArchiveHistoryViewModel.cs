@@ -1,28 +1,31 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Shell;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.History;
-using GitHubBackup.Core.Overview;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using Microsoft.Extensions.Logging;
 
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// Backs the archive history of the history screen: the repositories of <c>backup-config.json</c>, the archives of the
-/// selected repository and its wiki, and the commands that show the archive folder or an archive in Explorer.
+/// Backs the archive history of the history screen: the table of the repositories of <c>backup-config.json</c> with
+/// their archive counters, the archives of the selected repository and its wiki, the commands that show the archive
+/// folder or an archive in Explorer, and the cleanup of the old archives of the selected repository.
 /// </summary>
-/// <param name="overviewProvider">Reads the repositories with their archive folders.</param>
-/// <param name="archiveHistoryProvider">Reads the archives of a repository.</param>
+/// <param name="summaryProvider">Reads the repositories with their archives and cleanup plans.</param>
+/// <param name="cleanupService">Removes the old archives of a repository under the run lock.</param>
 /// <param name="explorer">Opens the archive folder and selects an archive in Explorer.</param>
-/// <param name="dialogs">Shows a failure to start Explorer.</param>
+/// <param name="dialogs">Asks to confirm the cleanup and shows its outcome and a failure to start Explorer.</param>
 /// <param name="secretMasker">Masks secrets in errors before the screen shows them.</param>
-/// <param name="logger">Logs the failures of reading and of starting Explorer.</param>
+/// <param name="logger">Logs the failures of reading, of the cleanup and of starting Explorer.</param>
 public sealed partial class ArchiveHistoryViewModel(
-    IRepositoryOverviewProvider overviewProvider,
-    IArchiveHistoryProvider archiveHistoryProvider,
+    IArchiveSummaryProvider summaryProvider,
+    IArchiveCleanupService cleanupService,
     IExplorerLauncher explorer,
     IDialogService dialogs,
     ISecretMasker secretMasker,
@@ -34,16 +37,30 @@ public sealed partial class ArchiveHistoryViewModel(
     /// <summary>The title of the dialog that shows a failure to start Explorer.</summary>
     public const string ExplorerFailedTitle = "Explorer not started";
 
-    /// <summary>Whether the selection changed while archives were being read, so they are read again when the read ends.</summary>
-    private bool _archivesPending;
+    /// <summary>The title of the confirmation of the cleanup.</summary>
+    public const string CleanupConfirmTitle = "Delete old archives";
 
-    /// <summary>The repositories of the configuration: those of the accounts in file order, then the standalone ones.</summary>
+    /// <summary>The title of the dialog that tells why the cleanup did not start.</summary>
+    public const string CleanupNotStartedTitle = "Cleanup not started";
+
+    /// <summary>The title of the dialog that lists the failures of the cleanup.</summary>
+    public const string CleanupFailedTitle = "Cleanup errors";
+
+    /// <summary>The message shown when the archives changed between the confirmation and the cleanup.</summary>
+    public const string PlanChangedMessage =
+        "The archives changed after the confirmation, so nothing was deleted. The table shows the current archives; check them and start the cleanup again.";
+
+    /// <summary>
+    /// The repositories of the configuration with their counters: those of the accounts in file order, then the
+    /// standalone ones.
+    /// </summary>
     [ObservableProperty]
-    private IReadOnlyList<RepositoryOverviewEntry> _repositories = [];
+    private IReadOnlyList<ArchiveRepositoryRow> _repositories = [];
 
     /// <summary>The repository whose archives are shown, or <see langword="null"/>.</summary>
     [ObservableProperty]
-    private RepositoryOverviewEntry? _selectedRepository;
+    [NotifyCanExecuteChangedFor(nameof(DeleteOldArchivesCommand))]
+    private ArchiveRepositoryRow? _selectedRepository;
 
     /// <summary>Why the repositories cannot be read, or <see langword="null"/>.</summary>
     [ObservableProperty]
@@ -85,22 +102,19 @@ public sealed partial class ArchiveHistoryViewModel(
     public bool HasLoadError => LoadError is not null;
 
     /// <summary>
-    /// Reads the repositories of the configuration and keeps the selected repository when it is still listed.
+    /// Reads the repositories of the configuration with their archives and keeps the selected repository when it is
+    /// still listed, showing its archives of the new read.
     /// </summary>
     /// <param name="cancellationToken">Cancels reading.</param>
-    /// <returns>A task that completes when the list is shown or the error is set.</returns>
+    /// <returns>A task that completes when the table is shown or the error is set.</returns>
     [RelayCommand]
     private async Task LoadRepositoriesAsync(CancellationToken cancellationToken)
     {
         var selectedId = SelectedRepository?.RepositoryId;
         try
         {
-            var overview = await overviewProvider.LoadAsync(cancellationToken);
-            Repositories =
-            [
-                .. overview.Accounts.SelectMany(account => account.Repositories),
-                .. overview.StandaloneRepositories,
-            ];
+            var summaries = await summaryProvider.LoadAsync(cancellationToken);
+            Repositories = [.. summaries.Select(CreateRow)];
             RepositoriesError = null;
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
@@ -111,23 +125,6 @@ public sealed partial class ArchiveHistoryViewModel(
         }
 
         SelectedRepository = Repositories.FirstOrDefault(repository => repository.RepositoryId == selectedId);
-    }
-
-    /// <summary>
-    /// Reads the archives of the selected repository; a selection changed while they are read starts another read
-    /// when this one ends.
-    /// </summary>
-    /// <param name="cancellationToken">Cancels reading.</param>
-    /// <returns>A task that completes when the archives are shown or the error is set.</returns>
-    [RelayCommand]
-    private async Task LoadArchivesAsync(CancellationToken cancellationToken)
-    {
-        do
-        {
-            _archivesPending = false;
-            await ReadArchivesAsync(cancellationToken);
-        }
-        while (_archivesPending);
     }
 
     /// <summary>
@@ -151,6 +148,76 @@ public sealed partial class ArchiveHistoryViewModel(
         : Task.CompletedTask;
 
     /// <summary>
+    /// Asks the user to confirm the cleanup plan of the selected repository, runs it under the run lock, shows the
+    /// outcome and reads the table again with the repository still selected.
+    /// </summary>
+    /// <remarks>
+    /// The plan comes from the read that filled the table; declining the confirmation changes nothing and reads nothing.
+    /// </remarks>
+    /// <param name="cancellationToken">Cancels the cleanup before the next file.</param>
+    /// <returns>A task that completes when the outcome is shown and the table is read again.</returns>
+    [RelayCommand(CanExecute = nameof(CanDeleteOldArchives))]
+    private async Task DeleteOldArchivesAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedRepository is not { CleanupPlan: { IsEmpty: false } plan } repository
+            || !dialogs.Confirm(CleanupConfirmTitle, DescribePlan(repository.Repository, plan)))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await cleanupService.ExecuteAsync(
+                repository.ArchiveFolder, repository.RepositoryId, repository.Repository, plan, cancellationToken);
+            ShowOutcome(result);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            AppLog.ArchiveCleanupFailed(logger, repository.Repository, exception);
+            dialogs.ShowError(CleanupFailedTitle, secretMasker.Mask(exception.Message));
+        }
+
+        await LoadRepositoriesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns whether the selected repository can be read and its cleanup would remove something.
+    /// </summary>
+    /// <returns><see langword="true"/> when the cleanup can start.</returns>
+    private bool CanDeleteOldArchives() =>
+        SelectedRepository is { HasError: false, CleanupPlan.IsEmpty: false };
+
+    /// <summary>
+    /// Builds the question of the confirmation: the number and size of the files and the number of records.
+    /// </summary>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="plan">The plan.</param>
+    /// <returns>The question.</returns>
+    internal static string DescribePlan(string repository, ArchiveCleanupPlan plan) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Delete the old archives of {repository}?\n\nFiles to move to the Recycle Bin: {plan.FileCount} ({ArchiveHistoryRow.FormatSize(plan.TotalSizeBytes)})\nRecords without a file to remove from .backup-state.json: {plan.RecordCount}\n\nThe last archive of the repository and of its wiki stays.");
+
+    /// <summary>
+    /// Shows why the cleanup did not start, or the files and the state file that failed.
+    /// </summary>
+    /// <param name="result">The outcome of the cleanup.</param>
+    private void ShowOutcome(ArchiveCleanupResult result)
+    {
+        switch (result.Status)
+        {
+            case ArchiveCleanupStatus.RunLockHeld:
+                dialogs.ShowError(CleanupNotStartedTitle, BackupOrchestrator.RunLockHeldMessage);
+                break;
+            case ArchiveCleanupStatus.PlanChanged:
+                dialogs.ShowInformation(CleanupNotStartedTitle, PlanChangedMessage);
+                break;
+            case ArchiveCleanupStatus.Completed when result.Errors.Count > 0:
+                dialogs.ShowError(CleanupFailedTitle, secretMasker.Mask(string.Join(Environment.NewLine, result.Errors)));
+                break;
+        }
+    }
+
+    /// <summary>
     /// Returns whether the archive folder of the selected repository exists.
     /// </summary>
     /// <returns><see langword="true"/> when the folder can be opened.</returns>
@@ -161,6 +228,22 @@ public sealed partial class ArchiveHistoryViewModel(
     /// </summary>
     /// <returns><see langword="true"/> when the archive can be shown.</returns>
     private bool CanShowInExplorer() => SelectedArchive is { IsMissing: false };
+
+    /// <summary>
+    /// Creates the row of a repository, logging and masking the error of a repository whose files cannot be read.
+    /// </summary>
+    /// <param name="summary">The repository with its archives or its error.</param>
+    /// <returns>The row.</returns>
+    private ArchiveRepositoryRow CreateRow(RepositoryArchiveSummary summary)
+    {
+        if (summary.Error is not { } error)
+        {
+            return ArchiveRepositoryRow.Create(summary, null);
+        }
+
+        AppLog.ArchiveHistoryLoadFailed(logger, summary.Repository.FullName, error);
+        return ArchiveRepositoryRow.Create(summary, secretMasker.Mask(error.Message));
+    }
 
     /// <summary>
     /// Starts Explorer and shows a failure in a dialog.
@@ -182,56 +265,25 @@ public sealed partial class ArchiveHistoryViewModel(
     }
 
     /// <summary>
-    /// Reads the archives of the selected repository once.
+    /// Shows the archives the table read for the new selection, or its error.
     /// </summary>
-    /// <param name="cancellationToken">Cancels reading.</param>
-    /// <returns>A task that completes when the archives are shown or the error is set.</returns>
-    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
-    private async Task ReadArchivesAsync(CancellationToken cancellationToken)
+    /// <param name="value">The new selection.</param>
+    partial void OnSelectedRepositoryChanged(ArchiveRepositoryRow? value)
     {
         SelectedArchive = null;
-        if (SelectedRepository is not { } repository)
+        ArchiveFolder = value?.ArchiveFolder;
+        if (value?.History is { } history)
         {
-            Archives = [];
-            ArchiveFolder = null;
-            FolderExists = false;
-            IsEmpty = false;
-            LoadError = null;
-            return;
-        }
-
-        ArchiveFolder = repository.ArchiveFolder;
-        try
-        {
-            var history = await archiveHistoryProvider.LoadAsync(
-                repository.ArchiveFolder, repository.RepositoryId, repository.FullName, cancellationToken);
             Archives = [.. history.Archives.Select(ArchiveHistoryRow.Create)];
             FolderExists = history.FolderExists;
             IsEmpty = Archives.Count == 0;
             LoadError = null;
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            AppLog.ArchiveHistoryLoadFailed(logger, repository.FullName, exception);
-            Archives = [];
-            FolderExists = false;
-            IsEmpty = false;
-            LoadError = secretMasker.Mask(exception.Message);
-        }
-    }
-
-    /// <summary>
-    /// Reads the archives of the new selection, or marks them to be read again when a read is in progress.
-    /// </summary>
-    /// <param name="value">The new selection.</param>
-    partial void OnSelectedRepositoryChanged(RepositoryOverviewEntry? value)
-    {
-        if (LoadArchivesCommand.IsRunning)
-        {
-            _archivesPending = true;
             return;
         }
 
-        LoadArchivesCommand.Execute(null);
+        Archives = [];
+        FolderExists = false;
+        IsEmpty = false;
+        LoadError = value?.Error;
     }
 }

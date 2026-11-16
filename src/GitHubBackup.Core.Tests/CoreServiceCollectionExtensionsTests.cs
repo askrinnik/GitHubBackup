@@ -5,9 +5,11 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Changes;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Discovery;
+using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
@@ -130,6 +132,7 @@ public sealed class CoreServiceCollectionExtensionsTests
             .AddSingleton(Substitute.For<IRunLock>())
             .AddSingleton(Substitute.For<IRepositoryPathResolver>())
             .AddSingleton(Substitute.For<IArchiver>())
+            .AddSingleton(Substitute.For<IRecycleBin>())
             .AddSingleton(Substitute.For<IBackupStateStore>())
             .AddSingleton(Substitute.For<ICloneLocationStore>())
             .AddSingleton(Substitute.For<IGitHubApi>())
@@ -217,6 +220,43 @@ public sealed class CoreServiceCollectionExtensionsTests
 
         historyProvider.ShouldBeOfType<ArchiveHistoryProvider>();
         provider.GetRequiredService<IArchiveHistoryProvider>().ShouldBeSameAs(historyProvider);
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_ArchiveSummaryProvider_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(Substitute.For<IBackupConfigStore>())
+            .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton(Substitute.For<IRepositoryPathResolver>())
+            .AddSingleton(Substitute.For<IRunHistoryStore>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddLogging()
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var summaryProvider = provider.GetRequiredService<IArchiveSummaryProvider>();
+
+        summaryProvider.ShouldBeOfType<ArchiveSummaryProvider>();
+        provider.GetRequiredService<IArchiveSummaryProvider>().ShouldBeSameAs(summaryProvider);
+    }
+
+    [Fact]
+    public void AddGitHubBackupCore_ArchiveCleanupService_IsResolvedAsSingleton()
+    {
+        using var provider = new ServiceCollection()
+            .AddSingleton(Substitute.For<IBackupStateStore>())
+            .AddSingleton(Substitute.For<IRecycleBin>())
+            .AddSingleton(Substitute.For<IRunLock>())
+            .AddSingleton<IFileSystem>(new MockFileSystem())
+            .AddSingleton(typeof(ILogger<>), typeof(NullLogger<>))
+            .AddGitHubBackupCore()
+            .BuildServiceProvider();
+
+        var cleanupService = provider.GetRequiredService<IArchiveCleanupService>();
+
+        cleanupService.ShouldBeOfType<ArchiveCleanupService>();
+        provider.GetRequiredService<IArchiveCleanupService>().ShouldBeSameAs(cleanupService);
     }
 
     [Fact]

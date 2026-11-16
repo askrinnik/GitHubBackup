@@ -415,6 +415,107 @@ public sealed class SqliteRunHistoryStoreTests : IDisposable
         exception.Message.ShouldContain(_database.DatabasePath);
     }
 
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_SeveralRuns_ReturnsLatestRunWithWikiOfSameRun()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt,
+            new RunHistoryItem("octo/one", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero),
+            new RunHistoryItem("octo/one", BackupTarget.Wiki, BackupItemStatus.Archived, TimeSpan.Zero)), CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt.AddHours(1),
+            new RunHistoryItem("octo/one", BackupTarget.Repository, BackupItemStatus.UpToDate, TimeSpan.Zero)), CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync(["octo/one"], CancellationToken);
+
+        var run = latest["octo/one"];
+        run.Repository.Status.ShouldBe(BackupItemStatus.UpToDate);
+        run.Wiki.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_RunWithWikiItem_ReturnsWikiOfSameRun()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt,
+            new RunHistoryItem("octo/one", BackupTarget.Repository, BackupItemStatus.UpToDate, TimeSpan.Zero),
+            new RunHistoryItem("octo/one", BackupTarget.Wiki, BackupItemStatus.Skipped, TimeSpan.Zero) { Error = "Wiki has no pages" }),
+            CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync(["octo/one"], CancellationToken);
+
+        var wiki = latest["octo/one"].Wiki.ShouldNotBeNull();
+        (wiki.Status, wiki.Error).ShouldBe((BackupItemStatus.Skipped, "Wiki has no pages"));
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_RunWithOnlyWikiItem_IsIgnored()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt,
+            new RunHistoryItem("octo/one", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero)), CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt.AddHours(1),
+            new RunHistoryItem("octo/one", BackupTarget.Wiki, BackupItemStatus.Failed, TimeSpan.Zero),
+            new RunHistoryItem("octo/two", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero)), CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync(["octo/one", "octo/two"], CancellationToken);
+
+        latest["octo/one"].Repository.Status.ShouldBe(BackupItemStatus.Archived);
+        latest["octo/one"].Wiki.ShouldBeNull();
+        latest["octo/two"].Wiki.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_NamesDifferInCase_MatchesWithoutRegardToCase()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt,
+            new RunHistoryItem("Octo/One", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero)), CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync(["octo/one"], CancellationToken);
+
+        latest["OCTO/ONE"].Repository.Repository.ShouldBe("Octo/One");
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_RepositoryWithoutRecords_HasNoKey()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+        await store.AddAsync(RunWith(
+            _startedAt,
+            new RunHistoryItem("octo/one", BackupTarget.Repository, BackupItemStatus.Archived, TimeSpan.Zero)), CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync(["octo/one", "octo/none"], CancellationToken);
+
+        latest.Keys.ShouldBe(["octo/one"]);
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_NoRepositories_ReturnsEmpty()
+    {
+        var store = await _database.CreateMigratedStoreAsync(CancellationToken);
+
+        var latest = await store.GetLatestRepositoryRunsAsync([], CancellationToken);
+
+        latest.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task GetLatestRepositoryRunsAsync_DatabaseWithoutSchema_ThrowsRunHistoryException()
+    {
+        var store = _database.CreateStoreWithoutSchema();
+
+        var exception = await Should.ThrowAsync<RunHistoryException>(
+            () => store.GetLatestRepositoryRunsAsync(["octo/one"], CancellationToken));
+
+        exception.DatabasePath.ShouldBe(_database.DatabasePath);
+    }
+
     /// <summary>
     /// Deletes the temp folder with the database.
     /// </summary>
@@ -434,4 +535,13 @@ public sealed class SqliteRunHistoryStoreTests : IDisposable
     /// <returns>The run.</returns>
     private static RunHistoryEntry CreateRun(DateTimeOffset startedAt) =>
         new(Guid.NewGuid(), startedAt, startedAt.AddMinutes(2), RunMode.Interactive, false, ExitCode.Success);
+
+    /// <summary>
+    /// Creates a run that started at <paramref name="startedAt"/> with <paramref name="items"/>.
+    /// </summary>
+    /// <param name="startedAt">The time the run started.</param>
+    /// <param name="items">The items of the run.</param>
+    /// <returns>The run.</returns>
+    private static RunHistoryEntry RunWith(DateTimeOffset startedAt, params RunHistoryItem[] items) =>
+        CreateRun(startedAt) with { Items = items };
 }
