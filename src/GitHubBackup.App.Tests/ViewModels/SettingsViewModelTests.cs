@@ -1211,6 +1211,326 @@ public sealed class SettingsViewModelTests
         _viewModel.TokenCheckError.ShouldBe(SettingsViewModel.TokenCheckCancelledMessage);
     }
 
+    [Fact]
+    public void Constructor_SelectsGeneralAndListsSectionsInNavigationOrder()
+    {
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.General);
+        _viewModel.Sections.Select(section => section.Section).ShouldBe(
+        [
+            SettingsSection.General, SettingsSection.Accounts, SettingsSection.Repositories,
+            SettingsSection.Tools, SettingsSection.Telemetry, SettingsSection.Token,
+        ]);
+        _viewModel.Sections.Select(section => section.Title)
+            .ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "GitHub token"]);
+        _viewModel.Sections.Select(section => section.AutomationId).ShouldBe(
+        [
+            "SettingsSectionGeneral", "SettingsSectionAccounts", "SettingsSectionRepositories",
+            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionToken",
+        ]);
+        _viewModel.Sections.Where(section => section.IsSelected).ShouldHaveSingleItem().ShouldBe(_viewModel.GeneralSection);
+        _viewModel.Sections.ShouldAllBe(section => !section.HasErrors);
+    }
+
+    [Fact]
+    public void Sections_EachHasItsOwnGlyph()
+    {
+        _viewModel.Sections.ShouldAllBe(section => !string.IsNullOrWhiteSpace(section.Glyph));
+        _viewModel.Sections.Select(section => section.Glyph).Distinct().Count().ShouldBe(_viewModel.Sections.Count);
+    }
+
+    [Fact]
+    public void SelectedSection_Changed_SelectsOnlyItsEntry()
+    {
+        _viewModel.SelectedSection = SettingsSection.Telemetry;
+
+        _viewModel.Sections.Where(section => section.IsSelected).ShouldHaveSingleItem().ShouldBe(_viewModel.TelemetrySection);
+    }
+
+    [Fact]
+    public async Task Load_Accounts_SelectsFirstAccount()
+    {
+        await LoadAccountsAsync("a", "b");
+
+        _viewModel.SelectedAccount.ShouldBe(_viewModel.Accounts[0]);
+        _viewModel.HasSelectedAccount.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Load_NoAccounts_SelectsNone()
+    {
+        await LoadAccountsAsync();
+
+        _viewModel.SelectedAccount.ShouldBeNull();
+        _viewModel.HasSelectedAccount.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AddAccount_SelectsNewAccountNamedAsNew()
+    {
+        await LoadAsync();
+
+        _viewModel.AddAccountCommand.Execute(null);
+
+        _viewModel.SelectedAccount.ShouldBe(_viewModel.Accounts[1]);
+        _viewModel.Accounts[1].DisplayName.ShouldBe(AccountSettingsViewModel.NewAccountName);
+    }
+
+    [Fact]
+    public async Task DisplayName_Url_IsTrimmedUrlAndFollowsEdits()
+    {
+        await LoadAsync();
+        var account = _viewModel.Accounts[0];
+        var notified = new List<string?>();
+        account.PropertyChanged += (_, e) => notified.Add(e.PropertyName);
+
+        account.Url = "  https://github.com/other  ";
+
+        account.DisplayName.ShouldBe("https://github.com/other");
+        notified.ShouldContain(nameof(AccountSettingsViewModel.DisplayName));
+    }
+
+    [Theory]
+    [InlineData(0, 1)]
+    [InlineData(1, 2)]
+    [InlineData(2, 1)]
+    public async Task RemoveAccount_Selected_SelectsNextOrPrevious(int removed, int expected)
+    {
+        await LoadAccountsAsync("a", "b", "c");
+        var accounts = _viewModel.Accounts.ToArray();
+        _viewModel.SelectedAccount = accounts[removed];
+
+        _viewModel.RemoveAccountCommand.Execute(accounts[removed]);
+
+        _viewModel.SelectedAccount.ShouldBe(accounts[expected]);
+    }
+
+    [Fact]
+    public async Task RemoveAccount_OnlyAccount_ClearsSelection()
+    {
+        await LoadAsync();
+
+        _viewModel.RemoveAccountCommand.Execute(_viewModel.Accounts[0]);
+
+        _viewModel.SelectedAccount.ShouldBeNull();
+        _viewModel.HasSelectedAccount.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RemoveAccount_NotSelected_KeepsSelection()
+    {
+        await LoadAccountsAsync("a", "b", "c");
+        var selected = _viewModel.Accounts[0];
+
+        _viewModel.RemoveAccountCommand.Execute(_viewModel.Accounts[2]);
+
+        _viewModel.SelectedAccount.ShouldBe(selected);
+    }
+
+    [Fact]
+    public async Task EditBackupRoot_InvalidThenValid_MarksAndUnmarksGeneral()
+    {
+        await LoadAsync();
+
+        _viewModel.BackupRoot = "relative";
+        var marked = _viewModel.GeneralSection.HasErrors;
+        _viewModel.BackupRoot = @"D:\Valid";
+
+        marked.ShouldBeTrue();
+        _viewModel.GeneralSection.HasErrors.ShouldBeFalse();
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.General);
+    }
+
+    [Fact]
+    public async Task Save_AccountUrlError_SelectsAccountsAndFirstAccountWithError()
+    {
+        await LoadAccountsAsync("a", "b", "c");
+        _viewModel.Accounts[1].Url = "https://example.com/b";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Accounts);
+        _viewModel.AccountsSection.HasErrors.ShouldBeTrue();
+        _viewModel.AccountsSection.IsSelected.ShouldBeTrue();
+        _viewModel.SelectedAccount.ShouldBe(_viewModel.Accounts[1]);
+        _viewModel.Accounts.Select(account => account.HasAnyErrors).ShouldBe([false, true, false]);
+    }
+
+    [Fact]
+    public async Task Save_AccountRepositoryError_MarksAccountAndClearsItsFilter()
+    {
+        await LoadAccountsAsync("a", "b");
+        var account = _viewModel.Accounts[0];
+        var repository = account.Repositories[0];
+        _viewModel.SelectedAccount = _viewModel.Accounts[1];
+        _viewModel.SelectedSection = SettingsSection.Tools;
+        account.RepositoryView.Filter = "zzz";
+
+        repository.Branch = "-x";
+        var markedAtOnce = account.HasAnyErrors;
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        markedAtOnce.ShouldBeTrue();
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Accounts);
+        _viewModel.SelectedAccount.ShouldBe(account);
+        account.RepositoryView.Filter.ShouldBeEmpty();
+        account.RepositoryView.Items.ShouldContain(repository);
+    }
+
+    [Fact]
+    public async Task Save_StandaloneRepositoryError_SelectsRepositoriesAndClearsFilter()
+    {
+        await LoadAsync();
+        _viewModel.RepositoryView.Filter = "zzz";
+        _viewModel.Repositories[0].Url = "https://github.com/other";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Repositories);
+        _viewModel.RepositoriesSection.HasErrors.ShouldBeTrue();
+        _viewModel.AccountsSection.HasErrors.ShouldBeFalse();
+        _viewModel.RepositoryView.Filter.ShouldBeEmpty();
+        _viewModel.RepositoryView.Items.ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Save_ErrorsInSeveralSections_SelectsFirstInNavigationOrder()
+    {
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns(["OpenTelemetry:OtlpEndpoint must be an absolute URI."]);
+        await LoadAsync();
+        _viewModel.SelectedSection = SettingsSection.Token;
+        _viewModel.OtlpEndpoint = "localhost";
+        _viewModel.Token = "   ";
+        _viewModel.Repositories[0].Url = "https://github.com/other";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Repositories);
+        _viewModel.Sections.Where(section => section.HasErrors).Select(section => section.Section)
+            .ShouldBe([SettingsSection.Repositories, SettingsSection.Telemetry, SettingsSection.Token]);
+    }
+
+    [Fact]
+    public async Task Save_WhitespaceToken_MarksTokenUntilUserTypes()
+    {
+        await LoadAsync();
+        _viewModel.Token = "   ";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+        var marked = _viewModel.TokenSection.HasErrors;
+        var selected = _viewModel.SelectedSection;
+        _viewModel.Token = _typedToken;
+
+        marked.ShouldBeTrue();
+        selected.ShouldBe(SettingsSection.Token);
+        _viewModel.TokenSection.HasErrors.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Save_InvalidTelemetry_MarksAndSelectsTelemetry()
+    {
+        _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns(["OpenTelemetry:Headers must be name=value pairs."]);
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "bad";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.TelemetrySection.HasErrors.ShouldBeTrue();
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Telemetry);
+    }
+
+    [Fact]
+    public async Task Save_SchemaErrorOnly_KeepsSectionAndMarksNone()
+    {
+        var config = CreateConfig();
+        config.SchemaVersion = 2;
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+        _viewModel.SelectedSection = SettingsSection.Tools;
+        _viewModel.BackupRoot = @"D:\NewBackups";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.HasGeneralErrors.ShouldBeTrue();
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Tools);
+        _viewModel.Sections.ShouldAllBe(section => !section.HasErrors);
+    }
+
+    [Fact]
+    public async Task RemoveAccount_WithError_ClearsAccountsMark()
+    {
+        await LoadAccountsAsync("a", "b");
+        _viewModel.Accounts[1].Path = "relative";
+        var marked = _viewModel.AccountsSection.HasErrors;
+
+        _viewModel.RemoveAccountCommand.Execute(_viewModel.Accounts[1]);
+
+        marked.ShouldBeTrue();
+        _viewModel.AccountsSection.HasErrors.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RemoveAccountRepository_WithError_ClearsAccountMark()
+    {
+        await LoadAsync();
+        var account = _viewModel.Accounts[0];
+        account.Repositories[0].Branch = "-x";
+
+        account.RemoveRepositoryCommand.Execute(account.Repositories[0]);
+
+        account.HasAnyErrors.ShouldBeFalse();
+        _viewModel.AccountsSection.HasErrors.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task AddRepository_FilterActive_ClearsFilterAndShowsNewRowLast()
+    {
+        await LoadAsync();
+        _viewModel.RepositoryView.Filter = "zzz";
+
+        _viewModel.AddRepositoryCommand.Execute(null);
+
+        _viewModel.RepositoryView.Filter.ShouldBeEmpty();
+        _viewModel.RepositoryView.Items.Count.ShouldBe(2);
+        _viewModel.RepositoryView.Items[^1].ShouldBe(_viewModel.Repositories[^1]);
+        _viewModel.RepositoryView.HasNoMatch.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task RepositoryView_FilterByUrl_KeepsFileOrderInSave()
+    {
+        await LoadAsync();
+        _viewModel.AddRepositoryCommand.Execute(null);
+        _viewModel.Repositories[1].Url = "https://github.com/octo/zeta";
+
+        _viewModel.RepositoryView.Filter = "ZETA";
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _viewModel.RepositoryView.Items.ShouldHaveSingleItem().ShouldBe(_viewModel.Repositories[1]);
+        SavedConfig().Repositories.Select(repository => repository.Url)
+            .ShouldBe(["https://github.com/other/lib", "https://github.com/octo/zeta"]);
+    }
+
+    [Fact]
+    public async Task ConfigNotReadable_NavigationWorksAndToolsErrorSelectsTools()
+    {
+        _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns(["Tools:GitPath must be an absolute path when set."]);
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(
+            new BackupConfigException(_configPath, ["backupRoot must be set."]));
+        await LoadAsync();
+        _viewModel.SelectedSection = SettingsSection.Telemetry;
+        var telemetrySelected = _viewModel.TelemetrySection.IsSelected;
+        _viewModel.SelectedSection = SettingsSection.General;
+        _viewModel.GitPath = "git.exe";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        telemetrySelected.ShouldBeTrue();
+        _viewModel.IsLoaded.ShouldBeFalse();
+        _viewModel.SelectedAccount.ShouldBeNull();
+        _viewModel.SelectedSection.ShouldBe(SettingsSection.Tools);
+        _viewModel.ToolsSection.HasErrors.ShouldBeTrue();
+    }
+
     /// <summary>
     /// Creates the configuration the store returns: one account with two repositories and one standalone repository.
     /// </summary>
@@ -1256,6 +1576,29 @@ public sealed class SettingsViewModelTests
     /// <returns>The messages.</returns>
     private static string?[] ErrorsOf(SettingsFormViewModel form, string propertyName) =>
         [.. form.GetErrors(propertyName).Select(result => result.ErrorMessage)];
+
+    /// <summary>
+    /// Reads a configuration with one account per login, each with one repository, and no standalone repositories.
+    /// </summary>
+    /// <param name="logins">The logins of the accounts, in file order.</param>
+    /// <returns>A task that completes when the editor is filled.</returns>
+    private Task LoadAccountsAsync(params string[] logins)
+    {
+        var config = new BackupConfig
+        {
+            BackupRoot = @"D:\Backups",
+            Accounts =
+            [
+                .. logins.Select((login, index) => new AccountConfig
+                {
+                    Url = $"https://github.com/{login}",
+                    Repositories = [new() { Name = "tool", Id = 300 + index }],
+                }),
+            ],
+        };
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        return LoadAsync();
+    }
 
     /// <summary>
     /// Reads the configuration into the editor.

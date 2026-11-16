@@ -1,4 +1,5 @@
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Globalization;
 using System.IO;
@@ -96,6 +97,18 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Whether the telemetry settings changed since they were read or saved.</summary>
     private bool _telemetryDirty;
+
+    /// <summary>Whether many fields are validated at once, so the error marks of the sections are updated once after.</summary>
+    private bool _batchingErrors;
+
+    /// <summary>The section the editor shows; every new editor starts at <see cref="SettingsSection.General"/>.</summary>
+    [ObservableProperty]
+    private SettingsSection _selectedSection = SettingsSection.General;
+
+    /// <summary>The account whose details the section of the accounts shows, or <see langword="null"/>.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasSelectedAccount))]
+    private AccountSettingsViewModel? _selectedAccount;
 
     /// <summary>The absolute path of the root folder of the archives.</summary>
     [ObservableProperty]
@@ -262,6 +275,18 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         _otlpEndpoint = telemetry.OtlpEndpoint ?? string.Empty;
         _telemetryHeaders = telemetry.Headers ?? string.Empty;
         IsTelemetryHeadersOverridden = telemetrySettingsStore.HeadersOverridden;
+
+        GeneralSection = new(SettingsSection.General, "General", "\uE713") { IsSelected = true };
+        AccountsSection = new(SettingsSection.Accounts, "Accounts", "\uE716");
+        RepositoriesSection = new(SettingsSection.Repositories, "Repositories", "\uE8B7");
+        ToolsSection = new(SettingsSection.Tools, "Tools", "\uE90F");
+        TelemetrySection = new(SettingsSection.Telemetry, "Telemetry", "\uE9D9");
+        TokenSection = new(SettingsSection.Token, "GitHub token", "\uE8D7");
+        Sections = [GeneralSection, AccountsSection, RepositoriesSection, ToolsSection, TelemetrySection, TokenSection];
+        RepositoryView = new(Repositories, repository => repository.Url);
+
+        // The generated setters validate after OnXxxChanged runs, so the marks follow ErrorsChanged instead.
+        ErrorsChanged += OnFormErrorsChanged;
     }
 
     /// <summary>Gets the tracked accounts, in file order.</summary>
@@ -269,6 +294,33 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Gets the standalone repositories, in file order.</summary>
     public ObservableCollection<RepositorySettingsViewModel> Repositories { get; } = [];
+
+    /// <summary>Gets the standalone repositories whose URL contains the filter of the table.</summary>
+    public FilteredItems<RepositorySettingsViewModel> RepositoryView { get; }
+
+    /// <summary>Gets the entries of the navigation, in order.</summary>
+    public IReadOnlyList<SettingsSectionItem> Sections { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.General"/>.</summary>
+    public SettingsSectionItem GeneralSection { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Accounts"/>.</summary>
+    public SettingsSectionItem AccountsSection { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Repositories"/>.</summary>
+    public SettingsSectionItem RepositoriesSection { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Tools"/>.</summary>
+    public SettingsSectionItem ToolsSection { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Telemetry"/>.</summary>
+    public SettingsSectionItem TelemetrySection { get; }
+
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Token"/>.</summary>
+    public SettingsSectionItem TokenSection { get; }
+
+    /// <summary>Gets whether an account is selected, so its details are shown.</summary>
+    public bool HasSelectedAccount => SelectedAccount is not null;
 
     /// <summary>Gets the entries of the theme list.</summary>
     public static IReadOnlyList<ThemeOption> ThemeOptions => ThemeOption.All;
@@ -375,6 +427,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     {
         List<string> general = [];
         var valid = true;
+        _batchingErrors = true;
 
         BackupConfig? config = null;
         if (IsLoaded && (IsDirty || IsNewConfig))
@@ -414,9 +467,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             }
         }
 
+        _batchingErrors = false;
         GeneralErrors = [.. general.Select(_secretMasker.Mask)];
+        RefreshSectionErrors();
         if (!valid)
         {
+            SelectFirstSectionWithErrors();
             return;
         }
 
@@ -524,30 +580,49 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [RelayCommand]
     private void AddAccount()
     {
-        Accounts.Add(new(new AccountConfig(), OnConfigEdited));
+        var account = new AccountSettingsViewModel(new AccountConfig(), OnConfigEdited);
+        Track(account);
+        Accounts.Add(account);
+        SelectedAccount = account;
         OnConfigEdited();
     }
 
     /// <summary>
-    /// Removes an account together with its repositories.
+    /// Removes an account together with its repositories; when it is selected, the account that takes its place in
+    /// the list is selected, or the one before it when it was the last.
     /// </summary>
     /// <param name="account">The account to remove.</param>
     [RelayCommand]
     private void RemoveAccount(AccountSettingsViewModel? account)
     {
-        if (account is not null && Accounts.Remove(account))
+        var index = account is null ? -1 : Accounts.IndexOf(account);
+        if (account is null || index < 0)
         {
-            OnConfigEdited();
+            return;
         }
+
+        var wasSelected = account == SelectedAccount;
+        Untrack(account);
+        Accounts.RemoveAt(index);
+        if (wasSelected)
+        {
+            SelectedAccount = Accounts.Count == 0 ? null : Accounts[Math.Min(index, Accounts.Count - 1)];
+        }
+
+        OnConfigEdited();
     }
 
     /// <summary>
-    /// Adds an empty standalone repository; its id is resolved by name on the next run.
+    /// Adds an empty standalone repository; its id is resolved by name on the next run. The filter of the table is
+    /// cleared first, so the new row is shown.
     /// </summary>
     [RelayCommand]
     private void AddRepository()
     {
-        Repositories.Add(new(new RepositoryConfig { Status = RepositoryStatus.Active }, OnConfigEdited));
+        RepositoryView.Filter = string.Empty;
+        var repository = new RepositorySettingsViewModel(new RepositoryConfig { Status = RepositoryStatus.Active }, OnConfigEdited);
+        repository.ErrorsChanged += OnFormErrorsChanged;
+        Repositories.Add(repository);
         OnConfigEdited();
     }
 
@@ -560,6 +635,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     {
         if (repository is not null && Repositories.Remove(repository))
         {
+            repository.ErrorsChanged -= OnFormErrorsChanged;
             OnConfigEdited();
         }
     }
@@ -666,16 +742,33 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             SourcesRoot = config.SourcesRoot ?? string.Empty;
             Exclude = FormatMasks(config.Exclude);
             DiscoverAccessibleRepositories = config.DiscoverAccessibleRepositories;
-            Accounts.Clear();
-            foreach (var account in config.Accounts)
+            foreach (var account in Accounts)
             {
-                Accounts.Add(new(account, OnConfigEdited));
+                Untrack(account);
             }
 
-            Repositories.Clear();
-            foreach (var repository in config.Repositories)
+            Accounts.Clear();
+            foreach (var entry in config.Accounts)
             {
-                Repositories.Add(new(repository, OnConfigEdited));
+                var account = new AccountSettingsViewModel(entry, OnConfigEdited);
+                Track(account);
+                Accounts.Add(account);
+            }
+
+            foreach (var repository in Repositories)
+            {
+                repository.ErrorsChanged -= OnFormErrorsChanged;
+            }
+
+            using (RepositoryView.DeferRefresh())
+            {
+                Repositories.Clear();
+                foreach (var entry in config.Repositories)
+                {
+                    var repository = new RepositorySettingsViewModel(entry, OnConfigEdited);
+                    repository.ErrorsChanged += OnFormErrorsChanged;
+                    Repositories.Add(repository);
+                }
             }
         }
         finally
@@ -683,9 +776,103 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             _populating = false;
         }
 
+        SelectedAccount = Accounts.FirstOrDefault();
         IsLoaded = true;
         IsDirty = false;
         RefreshWarnings();
+        RefreshSectionErrors();
+    }
+
+    /// <summary>
+    /// Follows the errors of an account and of its repositories.
+    /// </summary>
+    /// <param name="account">The account.</param>
+    private void Track(AccountSettingsViewModel account)
+    {
+        account.ErrorsChanged += OnFormErrorsChanged;
+        foreach (var repository in account.Repositories)
+        {
+            repository.ErrorsChanged += OnFormErrorsChanged;
+        }
+    }
+
+    /// <summary>
+    /// Stops following the errors of an account and of its repositories.
+    /// </summary>
+    /// <param name="account">The account.</param>
+    private void Untrack(AccountSettingsViewModel account)
+    {
+        account.ErrorsChanged -= OnFormErrorsChanged;
+        foreach (var repository in account.Repositories)
+        {
+            repository.ErrorsChanged -= OnFormErrorsChanged;
+        }
+    }
+
+    /// <summary>
+    /// Updates the error marks of the sections and accounts when a field of the editor shows or clears an error.
+    /// </summary>
+    /// <param name="sender">The form whose errors changed.</param>
+    /// <param name="e">The property whose errors changed.</param>
+    private void OnFormErrorsChanged(object? sender, DataErrorsChangedEventArgs e)
+    {
+        if (!_batchingErrors)
+        {
+            RefreshSectionErrors();
+        }
+    }
+
+    /// <summary>
+    /// Marks every section and account in which a field shows an error.
+    /// </summary>
+    /// <remarks>
+    /// The errors that belong to no field mark no section: they are shown above Save in every section.
+    /// </remarks>
+    private void RefreshSectionErrors()
+    {
+        foreach (var account in Accounts)
+        {
+            account.RefreshHasAnyErrors();
+        }
+
+        GeneralSection.HasErrors = HasFieldErrors(nameof(BackupRoot), nameof(SourcesRoot), nameof(Exclude));
+        AccountsSection.HasErrors = Accounts.Any(account => account.HasAnyErrors);
+        RepositoriesSection.HasErrors = Repositories.Any(repository => repository.HasErrors);
+        ToolsSection.HasErrors = HasFieldErrors(nameof(GitPath), nameof(SevenZipPath));
+        TelemetrySection.HasErrors = HasFieldErrors(nameof(OtlpEndpoint), nameof(TelemetryHeaders));
+        TokenSection.HasErrors = TokenError is not null;
+    }
+
+    /// <summary>
+    /// Returns whether any of the given fields of the editor shows an error.
+    /// </summary>
+    /// <param name="propertyNames">The names of the properties bound to the fields.</param>
+    /// <returns><see langword="true"/> when a field shows an error.</returns>
+    private bool HasFieldErrors(params string[] propertyNames) =>
+        propertyNames.Any(propertyName => GetErrors(propertyName).Any());
+
+    /// <summary>
+    /// Opens the first section in navigation order that shows an error. In the accounts it also selects the first
+    /// account with an error; the filter of the table in the opened section is cleared, so every row with an error is
+    /// shown.
+    /// </summary>
+    private void SelectFirstSectionWithErrors()
+    {
+        if (Sections.FirstOrDefault(section => section.HasErrors) is not { } first)
+        {
+            return;
+        }
+
+        SelectedSection = first.Section;
+        if (first.Section == SettingsSection.Accounts && Accounts.FirstOrDefault(account => account.HasAnyErrors) is { } account)
+        {
+            SelectedAccount = account;
+            account.RepositoryView.Filter = string.Empty;
+        }
+        else if (first.Section == SettingsSection.Repositories)
+        {
+            RepositoryView.Filter = string.Empty;
+        }
     }
 
     /// <summary>
@@ -875,6 +1062,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
         IsDirty = true;
         RefreshWarnings();
+        RefreshSectionErrors();
     }
 
     /// <summary>Marks the configuration as changed.</summary>
@@ -917,6 +1105,20 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <param name="value">The chosen entry.</param>
     partial void OnSelectedThemeChanged(ThemeOption value) =>
         ThemeChange = _preferences.ChangeThemeAsync(value.Value, CancellationToken.None);
+
+    /// <summary>Shows the section and its entry in the navigation as selected.</summary>
+    /// <param name="value">The section.</param>
+    partial void OnSelectedSectionChanged(SettingsSection value)
+    {
+        foreach (var section in Sections)
+        {
+            section.IsSelected = section.Section == value;
+        }
+    }
+
+    /// <summary>Updates the error mark of the token section.</summary>
+    /// <param name="value">The new error.</param>
+    partial void OnTokenErrorChanged(string? value) => TokenSection.HasErrors = value is not null;
 
     /// <summary>Clears the error of the token field when the user types.</summary>
     /// <param name="value">The new token.</param>
