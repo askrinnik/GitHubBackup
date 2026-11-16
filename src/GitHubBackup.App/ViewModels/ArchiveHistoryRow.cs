@@ -17,6 +17,9 @@ public sealed record ArchiveHistoryRow
     /// <summary>The file state of an archive whose file is not in the archive folder.</summary>
     public const string MissingText = "Missing";
 
+    /// <summary>The file state of an archive file in the archive folder that the state file does not record.</summary>
+    public const string NotInStateText = "Not in state";
+
     /// <summary>The number of characters of the commit id the list shows.</summary>
     public const int ShortHashLength = 10;
 
@@ -35,10 +38,10 @@ public sealed record ArchiveHistoryRow
     /// <summary>Gets the local time the archive was created, as recorded.</summary>
     public required string CreatedAt { get; init; }
 
-    /// <summary>Gets the branch checked out in the archived clone.</summary>
+    /// <summary>Gets the branch checked out in the archived clone; empty for a file without a record.</summary>
     public required string Branch { get; init; }
 
-    /// <summary>Gets the full id of the archived commit.</summary>
+    /// <summary>Gets the full id of the archived commit; the hash from the name for a file without a record.</summary>
     public required string HeadCommit { get; init; }
 
     /// <summary>Gets the first <see cref="ShortHashLength"/> characters of the archived commit.</summary>
@@ -53,8 +56,11 @@ public sealed record ArchiveHistoryRow
     /// <summary>Gets whether the archive file is not in the archive folder.</summary>
     public required bool IsMissing { get; init; }
 
-    /// <summary>Gets <see cref="MissingText"/> or <see cref="PresentText"/>.</summary>
-    public string FileState => IsMissing ? MissingText : PresentText;
+    /// <summary>Gets whether the archive file is in the archive folder without a record in the state file.</summary>
+    public required bool IsNotInState { get; init; }
+
+    /// <summary>Gets <see cref="NotInStateText"/>, <see cref="MissingText"/> or <see cref="PresentText"/>.</summary>
+    public string FileState => IsNotInState ? NotInStateText : IsMissing ? MissingText : PresentText;
 
     /// <summary>
     /// Creates the row of an archive.
@@ -67,12 +73,13 @@ public sealed record ArchiveHistoryRow
         File = entry.File,
         FullPath = entry.FullPath,
         CreatedAt = entry.CreatedAt.ToString(DateFormat, CultureInfo.InvariantCulture),
-        Branch = entry.Branch,
+        Branch = entry.Branch ?? string.Empty,
         HeadCommit = entry.HeadCommit,
         ShortHash = entry.HeadCommit.Length > ShortHashLength ? entry.HeadCommit[..ShortHashLength] : entry.HeadCommit,
         Size = FormatSize(entry.SizeBytes),
         ChangedRefs = string.Join(", ", entry.ChangedRefs),
         IsMissing = !entry.FileExists,
+        IsNotInState = !entry.IsInState,
     };
 
     /// <summary>

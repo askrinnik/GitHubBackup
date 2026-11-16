@@ -3,7 +3,6 @@ using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.History;
-using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Security;
 using Microsoft.Extensions.Logging.Abstractions;
 using NSubstitute;
@@ -18,7 +17,7 @@ public sealed class HistoryViewModelTests
 {
     private readonly IRunHistoryStore _store = Substitute.For<IRunHistoryStore>();
 
-    private readonly IRepositoryOverviewProvider _overviewProvider = Substitute.For<IRepositoryOverviewProvider>();
+    private readonly IArchiveSummaryProvider _summaryProvider = Substitute.For<IArchiveSummaryProvider>();
 
     private readonly INavigationService _navigation = Substitute.For<INavigationService>();
 
@@ -30,12 +29,11 @@ public sealed class HistoryViewModelTests
     public HistoryViewModelTests()
     {
         _store.QueryAsync(Arg.Any<RunHistoryQuery>(), Arg.Any<CancellationToken>()).Returns([]);
-        _overviewProvider.LoadAsync(Arg.Any<CancellationToken>()).Returns(new RepositoryOverview([], []));
+        _summaryProvider.LoadAsync(Arg.Any<CancellationToken>()).Returns([]);
         var masker = new SecretMasker();
         var runs = new RunHistoryViewModel(_store, masker, TimeProvider.System, NullLogger<RunHistoryViewModel>.Instance);
         var archives = new ArchiveHistoryViewModel(
-            _overviewProvider,
-            Substitute.For<IArchiveHistoryProvider>(),
+            _summaryProvider,
             Substitute.For<IExplorerLauncher>(),
             Substitute.For<IDialogService>(),
             masker,
@@ -49,7 +47,7 @@ public sealed class HistoryViewModelTests
         await _viewModel.LoadCommand.ExecuteAsync(null);
 
         await _store.Received(1).QueryAsync(RunHistoryQuery.All, Arg.Any<CancellationToken>());
-        await _overviewProvider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _summaryProvider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
         _viewModel.Runs.IsEmpty.ShouldBeTrue();
     }
 
@@ -62,7 +60,7 @@ public sealed class HistoryViewModelTests
         await _viewModel.LoadCommand.ExecuteAsync(null);
 
         _viewModel.Runs.HasLoadError.ShouldBeTrue();
-        await _overviewProvider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _summaryProvider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
         _viewModel.Archives.HasRepositoriesError.ShouldBeFalse();
     }
 

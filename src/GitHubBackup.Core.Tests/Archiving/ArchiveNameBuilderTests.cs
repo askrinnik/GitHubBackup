@@ -103,6 +103,95 @@ public sealed class ArchiveNameBuilderTests
     public void Build_InvalidRepository_Throws(string repository) => Should.Throw<ArgumentException>(() => CreateBuilder(DateTimeOffset.UnixEpoch).Build("o", repository, BackupTarget.Repository, _commit))
             .ParamName.ShouldBe("repository");
 
+    [Fact]
+    public void TryParse_RepositoryName_ReturnsTargetLocalTimeAndHash()
+    {
+        var parsed = TryParse("octo_tool_20261111-132030_0123456789.zip").ShouldNotBeNull();
+
+        parsed.ShouldBe(new ParsedArchiveName(
+            BackupTarget.Repository, new DateTimeOffset(2026, 11, 11, 13, 20, 30, TimeSpan.FromHours(3)), "0123456789"));
+    }
+
+    [Fact]
+    public void TryParse_WikiName_ReturnsWikiTarget() =>
+        TryParse("octo_tool.wiki_20261111-132030_0123456789.zip").ShouldNotBeNull().Target.ShouldBe(BackupTarget.Wiki);
+
+    [Fact]
+    public void TryParse_DifferentCase_MatchesAndReturnsLowerCaseHash()
+    {
+        var parsed = TryParse("OCTO_Tool.WIKI_20261111-132030_ABCDEF0123.ZIP").ShouldNotBeNull();
+
+        parsed.Target.ShouldBe(BackupTarget.Wiki);
+        parsed.ShortHash.ShouldBe("abcdef0123");
+    }
+
+    [Theory]
+    [InlineData(BackupTarget.Repository)]
+    [InlineData(BackupTarget.Wiki)]
+    public void TryParse_BuiltName_ReturnsValuesOfBuild(BackupTarget target)
+    {
+        var builder = CreateBuilder(new DateTimeOffset(2026, 3, 4, 5, 6, 7, TimeSpan.Zero));
+        var name = builder.Build("octo", "my_tool.js", target, _commit);
+
+        builder.TryParse(name.FileName, "octo", "my_tool.js", out var parsed).ShouldBeTrue();
+
+        parsed.ShouldBe(new ParsedArchiveName(target, name.CreatedAt, "0123456789"));
+    }
+
+    [Theory]
+    [InlineData("octo_tool_20261111-132030_0123456789.7z")]
+    [InlineData("octo_tool_20261111-132030_0123456789.zip.tmp")]
+    [InlineData("octo_tool_20261111-132030_0123456789.zipx")]
+    [InlineData("other_tool_20261111-132030_0123456789.zip")]
+    [InlineData("octo_tools_20261111-132030_0123456789.zip")]
+    [InlineData("octo_tool_extra_20261111-132030_0123456789.zip")]
+    [InlineData("octo_tool.wik_20261111-132030_0123456789.zip")]
+    [InlineData("octotool_20261111-132030_0123456789.zip")]
+    [InlineData("octo_tool_20261111132030_0123456789.zip")]
+    [InlineData("octo_tool_20261111-1320300123456789.zip")]
+    [InlineData("octo_tool_2026111a-132030_0123456789.zip")]
+    [InlineData("octo_tool_20261311-132030_0123456789.zip")]
+    [InlineData("octo_tool_20260230-132030_0123456789.zip")]
+    [InlineData("octo_tool_20261111-246030_0123456789.zip")]
+    [InlineData("octo_tool_20261111-132030_012345678.zip")]
+    [InlineData("octo_tool_20261111-132030_01234567890.zip")]
+    [InlineData("octo_tool_20261111-132030_012345678g.zip")]
+    [InlineData("octo_tool_20261111-132030_0123456789")]
+    [InlineData("readme.txt")]
+    [InlineData("")]
+    public void TryParse_NotAnArchiveNameOfRepository_ReturnsFalse(string fileName)
+    {
+        var matched = CreateBuilder(DateTimeOffset.UnixEpoch).TryParse(fileName, "octo", "tool", out var parsed);
+
+        matched.ShouldBeFalse();
+        parsed.ShouldBeNull();
+    }
+
+    [Fact]
+    public void TryParse_RepositoryNamedLikeWiki_WikiSuffixBelongsToRepositoryName()
+    {
+        var builder = CreateBuilder(DateTimeOffset.UnixEpoch);
+
+        builder.TryParse("octo_tool.wiki_20261111-132030_0123456789.zip", "octo", "tool.wiki", out var parsed).ShouldBeTrue();
+
+        parsed.ShouldNotBeNull().Target.ShouldBe(BackupTarget.Repository);
+    }
+
+    [Theory]
+    [InlineData(4, "octo_tool_20261111-132030_abcd.zip", true)]
+    [InlineData(4, "octo_tool_20261111-132030_0123456789.zip", false)]
+    [InlineData(12, "octo_tool_20261111-132030_0123456789ab.zip", true)]
+    public void TryParse_HashLength_FollowsOption(int length, string fileName, bool expected) =>
+        CreateBuilder(DateTimeOffset.UnixEpoch, length).TryParse(fileName, "octo", "tool", out _).ShouldBe(expected);
+
+    /// <summary>
+    /// Parses <paramref name="fileName"/> as an archive name of <c>octo/tool</c> with the default hash length.
+    /// </summary>
+    /// <param name="fileName">The file name.</param>
+    /// <returns>The parsed values, or <see langword="null"/> when the name does not match.</returns>
+    private static ParsedArchiveName? TryParse(string fileName) =>
+        CreateBuilder(DateTimeOffset.UnixEpoch).TryParse(fileName, "octo", "tool", out var parsed) ? parsed : null;
+
     /// <summary>
     /// Creates a builder whose clock shows <paramref name="utcNow"/> in a zone three hours ahead of UTC.
     /// </summary>

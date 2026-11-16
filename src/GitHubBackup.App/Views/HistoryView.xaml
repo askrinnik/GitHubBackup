@@ -178,71 +178,120 @@
             </TabItem>
             <TabItem Header="Archives" AutomationProperties.AutomationId="ArchivesTab">
                 <DockPanel DataContext="{Binding Archives, Mode=OneWay}" Margin="4">
-                    <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
-                        <TextBlock Text="Repository" Style="{StaticResource FilterLabelStyle}" />
-                        <ComboBox ItemsSource="{Binding Repositories, Mode=OneWay}"
-                                  SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
-                                  DisplayMemberPath="FullName"
-                                  MinWidth="240"
-                                  Margin="0,0,12,4"
-                                  AutomationProperties.AutomationId="ArchiveRepositoryList" />
-                        <Button Content="Open folder"
-                                Command="{Binding OpenFolderCommand, Mode=OneWay}"
-                                Padding="8,2" Margin="0,0,8,4"
-                                AutomationProperties.AutomationId="OpenArchiveFolderButton" />
-                        <Button Content="Show in Explorer"
-                                Command="{Binding ShowInExplorerCommand, Mode=OneWay}"
-                                Padding="8,2" Margin="0,0,8,4"
-                                AutomationProperties.AutomationId="ShowArchiveInExplorerButton" />
-                    </WrapPanel>
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="{Binding ArchiveFolder, Mode=OneWay, StringFormat='Folder: {0}'}"
-                               Style="{StaticResource OptionalLineStyle}"
-                               Margin="0,0,0,8"
-                               AutomationProperties.AutomationId="ArchiveFolderPath" />
                     <TextBlock DockPanel.Dock="Top"
                                Text="{Binding RepositoriesError, Mode=OneWay}"
                                Visibility="{Binding HasRepositoriesError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                Style="{StaticResource ErrorTextStyle}"
                                AutomationProperties.AutomationId="ArchiveRepositoriesError" />
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="{Binding LoadError, Mode=OneWay}"
-                               Visibility="{Binding HasLoadError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                               Style="{StaticResource ErrorTextStyle}"
-                               AutomationProperties.AutomationId="ArchiveLoadError" />
-                    <TextBlock DockPanel.Dock="Top"
-                               Text="{x:Static vm:ArchiveHistoryViewModel.NoArchivesMessage}"
-                               Visibility="{Binding IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                               Margin="0,0,0,8"
-                               AutomationProperties.AutomationId="ArchiveNoArchives" />
-                    <DataGrid ItemsSource="{Binding Archives, Mode=OneWay}"
-                              SelectedItem="{Binding SelectedArchive, Mode=TwoWay}"
-                              Style="{StaticResource HistoryGridStyle}"
-                              AutomationProperties.AutomationId="ArchiveHistoryList">
-                        <DataGrid.RowStyle>
-                            <!-- An archive whose file is gone stays listed, so the gap in the history is visible.
-                                 The Fluent theme gives a data grid row a keyed style rather than a style of the type,
-                                 so the row style extends that key; the type key resolves to the classic light row. -->
-                            <Style TargetType="DataGridRow" BasedOn="{StaticResource DefaultDataGridRowStyle}">
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsMissing, Mode=OneWay}" Value="True">
-                                        <Setter Property="Foreground" Value="Firebrick" />
-                                        <Setter Property="FontStyle" Value="Italic" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </DataGrid.RowStyle>
-                        <DataGrid.Columns>
-                            <DataGridTextColumn Header="Created" Binding="{Binding CreatedAt, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Target" Binding="{Binding Target, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Archive" Binding="{Binding File, Mode=OneWay}" />
-                            <DataGridTextColumn Header="File" Binding="{Binding FileState, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Branch" Binding="{Binding Branch, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Hash" Binding="{Binding ShortHash, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Size" Binding="{Binding Size, Mode=OneWay}" />
-                            <DataGridTextColumn Header="Changed refs" Binding="{Binding ChangedRefs, Mode=OneWay}" />
-                        </DataGrid.Columns>
-                    </DataGrid>
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="*" MinHeight="80" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="2*" MinHeight="80" />
+                        </Grid.RowDefinitions>
+                        <!-- The table keeps the configuration order until the user sorts it by a column header; the
+                             numeric and date columns sort by their values, not by their display text. -->
+                        <DataGrid Grid.Row="0"
+                                  ItemsSource="{Binding Repositories, Mode=OneWay}"
+                                  SelectedItem="{Binding SelectedRepository, Mode=TwoWay}"
+                                  Style="{StaticResource HistoryGridStyle}"
+                                  CanUserSortColumns="True"
+                                  AutomationProperties.AutomationId="ArchiveRepositoryList">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Repository" Binding="{Binding Repository, Mode=OneWay}" />
+                                <DataGridTextColumn Header="Account" Binding="{Binding Account, Mode=OneWay}" />
+                                <DataGridTextColumn Header="In state"
+                                                    Binding="{Binding InStateText, Mode=OneWay}"
+                                                    SortMemberPath="InState">
+                                    <DataGridTextColumn.ElementStyle>
+                                        <!-- A repository whose files cannot be read shows the error here instead of
+                                             its counters; the full text is the tooltip. -->
+                                        <Style TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasError, Mode=OneWay}" Value="True">
+                                                    <Setter Property="Foreground" Value="Firebrick" />
+                                                    <Setter Property="ToolTip" Value="{Binding Error, Mode=OneWay}" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </DataGridTextColumn.ElementStyle>
+                                </DataGridTextColumn>
+                                <DataGridTextColumn Header="On disk" Binding="{Binding OnDisk, Mode=OneWay}" />
+                                <DataGridTextColumn Header="Missing" Binding="{Binding Missing, Mode=OneWay}" />
+                                <DataGridTextColumn Header="Not in state" Binding="{Binding NotInState, Mode=OneWay}" />
+                                <DataGridTextColumn Header="Size"
+                                                    Binding="{Binding Size, Mode=OneWay}"
+                                                    SortMemberPath="SizeBytes" />
+                                <DataGridTextColumn Header="Last archive"
+                                                    Binding="{Binding LastArchive, Mode=OneWay}"
+                                                    SortMemberPath="LastArchiveAt" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <GridSplitter Grid.Row="1"
+                                      Height="5"
+                                      HorizontalAlignment="Stretch"
+                                      AutomationProperties.AutomationId="ArchiveRepositorySplitter" />
+                        <DockPanel Grid.Row="2" Margin="0,4,0,0">
+                            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                                <Button Content="Open folder"
+                                        Command="{Binding OpenFolderCommand, Mode=OneWay}"
+                                        Padding="8,2" Margin="0,0,8,4"
+                                        AutomationProperties.AutomationId="OpenArchiveFolderButton" />
+                                <Button Content="Show in Explorer"
+                                        Command="{Binding ShowInExplorerCommand, Mode=OneWay}"
+                                        Padding="8,2" Margin="0,0,8,4"
+                                        AutomationProperties.AutomationId="ShowArchiveInExplorerButton" />
+                            </WrapPanel>
+                            <TextBlock DockPanel.Dock="Top"
+                                       Text="{Binding ArchiveFolder, Mode=OneWay, StringFormat='Folder: {0}'}"
+                                       Style="{StaticResource OptionalLineStyle}"
+                                       Margin="0,0,0,8"
+                                       AutomationProperties.AutomationId="ArchiveFolderPath" />
+                            <TextBlock DockPanel.Dock="Top"
+                                       Text="{Binding LoadError, Mode=OneWay}"
+                                       Visibility="{Binding HasLoadError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                       Style="{StaticResource ErrorTextStyle}"
+                                       AutomationProperties.AutomationId="ArchiveLoadError" />
+                            <TextBlock DockPanel.Dock="Top"
+                                       Text="{x:Static vm:ArchiveHistoryViewModel.NoArchivesMessage}"
+                                       Visibility="{Binding IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                       Margin="0,0,0,8"
+                                       AutomationProperties.AutomationId="ArchiveNoArchives" />
+                            <DataGrid ItemsSource="{Binding Archives, Mode=OneWay}"
+                                      SelectedItem="{Binding SelectedArchive, Mode=TwoWay}"
+                                      Style="{StaticResource HistoryGridStyle}"
+                                      AutomationProperties.AutomationId="ArchiveHistoryList">
+                                <DataGrid.RowStyle>
+                                    <!-- An archive whose file is gone stays listed, so the gap in the history is visible;
+                                         a file without a record is set apart from the recorded archives.
+                                         The Fluent theme gives a data grid row a keyed style rather than a style of the
+                                         type, so the row style extends that key; the type key resolves to the classic
+                                         light row. -->
+                                    <Style TargetType="DataGridRow" BasedOn="{StaticResource DefaultDataGridRowStyle}">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsMissing, Mode=OneWay}" Value="True">
+                                                <Setter Property="Foreground" Value="Firebrick" />
+                                                <Setter Property="FontStyle" Value="Italic" />
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsNotInState, Mode=OneWay}" Value="True">
+                                                <Setter Property="Foreground" Value="DarkGoldenrod" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </DataGrid.RowStyle>
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="Created" Binding="{Binding CreatedAt, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Target" Binding="{Binding Target, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Archive" Binding="{Binding File, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="File" Binding="{Binding FileState, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Branch" Binding="{Binding Branch, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Hash" Binding="{Binding ShortHash, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Size" Binding="{Binding Size, Mode=OneWay}" />
+                                    <DataGridTextColumn Header="Changed refs" Binding="{Binding ChangedRefs, Mode=OneWay}" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </DockPanel>
+                    </Grid>
                 </DockPanel>
             </TabItem>
         </TabControl>

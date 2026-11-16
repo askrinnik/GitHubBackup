@@ -578,7 +578,29 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 - **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table.
 - **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files.
 - **Summary.** The same information as the console summary when the run ends. A long result table or list of found repositories scrolls inside the summary. A found repository `id` is saved without a question, also in a dry run.
-- **History.** The list of runs with filters (period, status, mode) and run details, and the archive history of a selected repository with the actions **Open folder** and **Show in Explorer**.
+- **History.** The tab **Runs** lists the runs with filters (period, status, mode) and run details. The tab **Archives** shows the archives of the repositories (see [Archive history](#archive-history)).
+
+### Archive history
+
+The tab **Archives** of the history has two tables with a line between them: drag the line to change their heights.
+
+The upper table lists every repository of `backup-config.json` in configuration order: the repositories of the accounts, then the single repositories. Click a column header to sort by that column. The numbers count the repository together with its wiki:
+
+| Column | Meaning |
+|---|---|
+| **Repository**, **Account** | `owner/name` and the account that lists it; empty for a single repository |
+| **In state** | Archives recorded in `.backup-state.json` |
+| **On disk** | Archive files in the archive folder, with and without a record |
+| **Missing** | Records whose file is not in the archive folder |
+| **Not in state** | Archive files in the archive folder without a record |
+| **Size** | Total size of the archive files in the archive folder |
+| **Last archive** | Creation time of the newest recorded archive of the repository or its wiki |
+
+An archive file is a file directly in the archive folder of the repository whose name has the form of a repository or wiki archive of that repository (`<owner>_<repo>_<yyyyMMdd-HHmmss>_<hash>.zip` or `<owner>_<repo>.wiki_<yyyyMMdd-HHmmss>_<hash>.zip`), in any case. Other files are not shown and not counted. The program reads only the folder entries: files that a cloud client keeps online only are not downloaded, and their size is their full size.
+
+If the `.backup-state.json` of a repository or its archive folder cannot be read, its row shows a red `Error` in the column **In state**, with the error as the tooltip, and no numbers. The other rows work as usual.
+
+The lower table shows the archives of the selected repository and its wiki, the newest first: creation time, target, file name, file state, branch, hash, size and the refs that changed since the previous archive of the same target. The file state is `Present`, `Missing` (the record stays, the row is red) or `Not in state` (a file without a record; its time, target and hash come from its name, and its branch is empty). For a repository whose files cannot be read, the error appears above the lower table. **Open folder** opens the archive folder in Explorer; **Show in Explorer** opens it with the selected archive selected.
 
 ### Theme and window placement
 

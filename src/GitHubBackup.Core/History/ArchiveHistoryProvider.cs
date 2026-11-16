@@ -1,4 +1,5 @@
 using System.IO.Abstractions;
+using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.State;
 
 namespace GitHubBackup.Core.History;
@@ -8,18 +9,22 @@ namespace GitHubBackup.Core.History;
 /// </summary>
 /// <param name="stateStore">Reads the state file of the repository.</param>
 /// <param name="fileSystem">Checks the archive folder and the archive files.</param>
-public sealed class ArchiveHistoryProvider(IBackupStateStore stateStore, IFileSystem fileSystem) : IArchiveHistoryProvider
+/// <param name="nameBuilder">Recognises the archive files of the repository by their names.</param>
+public sealed class ArchiveHistoryProvider(
+    IBackupStateStore stateStore, IFileSystem fileSystem, IArchiveNameBuilder nameBuilder) : IArchiveHistoryProvider
 {
     /// <inheritdoc />
     public async Task<ArchiveHistory> LoadAsync(
         string archiveFolder, long repositoryId, string fullName, CancellationToken cancellationToken)
     {
         var state = await stateStore.LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken);
-        var archives = CreateEntries(archiveFolder, BackupTarget.Repository, state.Repository)
+        var folderExists = fileSystem.Directory.Exists(archiveFolder);
+        var recorded = CreateEntries(archiveFolder, BackupTarget.Repository, state.Repository)
             .Concat(CreateEntries(archiveFolder, BackupTarget.Wiki, state.Wiki))
-            .OrderByDescending(entry => entry.CreatedAt)
             .ToList();
-        return new(archiveFolder, fileSystem.Directory.Exists(archiveFolder), archives);
+        var unrecorded = folderExists ? CreateUnrecordedEntries(archiveFolder, fullName, recorded) : [];
+        var archives = recorded.Concat(unrecorded).OrderByDescending(entry => entry.CreatedAt).ToList();
+        return new(archiveFolder, folderExists, archives);
     }
 
     /// <summary>
@@ -41,8 +46,9 @@ public sealed class ArchiveHistoryProvider(IBackupStateStore stateStore, IFileSy
         {
             var fullPath = fileSystem.Path.Combine(archiveFolder, record.File);
 
-            // File.Exists reads only the directory entry, so a cloud placeholder counts as present and its content is
-            // not downloaded.
+            // File.Exists and FileInfo.Length read only the directory entry, so a cloud placeholder counts as present
+            // with its logical size and its content is not downloaded.
+            var fileExists = fileSystem.File.Exists(fullPath);
             yield return new(
                 target,
                 record.File,
@@ -52,8 +58,62 @@ public sealed class ArchiveHistoryProvider(IBackupStateStore stateStore, IFileSy
                 record.HeadCommit,
                 record.SizeBytes,
                 record.Refs.GetChangedRefs(previous?.Refs),
-                fileSystem.File.Exists(fullPath));
+                fileExists,
+                IsInState: true,
+                fileExists ? fileSystem.FileInfo.New(fullPath).Length : null);
             previous = record;
         }
+    }
+
+    /// <summary>
+    /// Creates the entries of the archive files directly in the folder that no record names.
+    /// </summary>
+    /// <remarks>
+    /// Only a file whose name <see cref="IArchiveNameBuilder.TryParse"/> accepts for this repository or its wiki is an
+    /// archive file; any other file in the folder is not part of the history.
+    /// </remarks>
+    /// <param name="archiveFolder">The existing archive folder of the repository.</param>
+    /// <param name="fullName">The <c>owner/name</c> of the repository.</param>
+    /// <param name="recorded">The entries of the records of the state file.</param>
+    /// <returns>One entry per archive file without a record.</returns>
+    private List<ArchiveHistoryEntry> CreateUnrecordedEntries(
+        string archiveFolder, string fullName, IReadOnlyList<ArchiveHistoryEntry> recorded)
+    {
+        var separator = fullName.IndexOf('/', StringComparison.Ordinal);
+        if (separator <= 0)
+        {
+            return [];
+        }
+
+        var owner = fullName[..separator];
+        var repository = fullName[(separator + 1)..];
+
+        // Windows compares file names without regard to case, so a record matches its file in any case.
+        var recordedFiles = recorded.Select(entry => entry.File).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var entries = new List<ArchiveHistoryEntry>();
+        foreach (var fullPath in fileSystem.Directory.EnumerateFiles(archiveFolder))
+        {
+            var file = fileSystem.Path.GetFileName(fullPath);
+            if (recordedFiles.Contains(file) || !nameBuilder.TryParse(file, owner, repository, out var parsed))
+            {
+                continue;
+            }
+
+            var size = fileSystem.FileInfo.New(fullPath).Length;
+            entries.Add(new(
+                parsed.Target,
+                file,
+                fullPath,
+                parsed.CreatedAt,
+                Branch: null,
+                parsed.ShortHash,
+                size,
+                [],
+                FileExists: true,
+                IsInState: false,
+                size));
+        }
+
+        return entries;
     }
 }
