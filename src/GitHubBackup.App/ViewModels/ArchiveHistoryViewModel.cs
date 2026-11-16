@@ -1,9 +1,12 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Shell;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.History;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using Microsoft.Extensions.Logging;
 
@@ -11,16 +14,18 @@ namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
 /// Backs the archive history of the history screen: the table of the repositories of <c>backup-config.json</c> with
-/// their archive counters, the archives of the selected repository and its wiki, and the commands that show the
-/// archive folder or an archive in Explorer.
+/// their archive counters, the archives of the selected repository and its wiki, the commands that show the archive
+/// folder or an archive in Explorer, and the cleanup of the old archives of the selected repository.
 /// </summary>
-/// <param name="summaryProvider">Reads the repositories with their archives.</param>
+/// <param name="summaryProvider">Reads the repositories with their archives and cleanup plans.</param>
+/// <param name="cleanupService">Removes the old archives of a repository under the run lock.</param>
 /// <param name="explorer">Opens the archive folder and selects an archive in Explorer.</param>
-/// <param name="dialogs">Shows a failure to start Explorer.</param>
+/// <param name="dialogs">Asks to confirm the cleanup and shows its outcome and a failure to start Explorer.</param>
 /// <param name="secretMasker">Masks secrets in errors before the screen shows them.</param>
-/// <param name="logger">Logs the failures of reading and of starting Explorer.</param>
+/// <param name="logger">Logs the failures of reading, of the cleanup and of starting Explorer.</param>
 public sealed partial class ArchiveHistoryViewModel(
     IArchiveSummaryProvider summaryProvider,
+    IArchiveCleanupService cleanupService,
     IExplorerLauncher explorer,
     IDialogService dialogs,
     ISecretMasker secretMasker,
@@ -32,6 +37,19 @@ public sealed partial class ArchiveHistoryViewModel(
     /// <summary>The title of the dialog that shows a failure to start Explorer.</summary>
     public const string ExplorerFailedTitle = "Explorer not started";
 
+    /// <summary>The title of the confirmation of the cleanup.</summary>
+    public const string CleanupConfirmTitle = "Delete old archives";
+
+    /// <summary>The title of the dialog that tells why the cleanup did not start.</summary>
+    public const string CleanupNotStartedTitle = "Cleanup not started";
+
+    /// <summary>The title of the dialog that lists the failures of the cleanup.</summary>
+    public const string CleanupFailedTitle = "Cleanup errors";
+
+    /// <summary>The message shown when the archives changed between the confirmation and the cleanup.</summary>
+    public const string PlanChangedMessage =
+        "The archives changed after the confirmation, so nothing was deleted. The table shows the current archives; check them and start the cleanup again.";
+
     /// <summary>
     /// The repositories of the configuration with their counters: those of the accounts in file order, then the
     /// standalone ones.
@@ -41,6 +59,7 @@ public sealed partial class ArchiveHistoryViewModel(
 
     /// <summary>The repository whose archives are shown, or <see langword="null"/>.</summary>
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(DeleteOldArchivesCommand))]
     private ArchiveRepositoryRow? _selectedRepository;
 
     /// <summary>Why the repositories cannot be read, or <see langword="null"/>.</summary>
@@ -127,6 +146,76 @@ public sealed partial class ArchiveHistoryViewModel(
     private Task ShowInExplorerAsync(CancellationToken cancellationToken) => SelectedArchive is { IsMissing: false } archive
         ? RunExplorerAsync(archive.FullPath, () => explorer.ShowFileAsync(archive.FullPath, cancellationToken))
         : Task.CompletedTask;
+
+    /// <summary>
+    /// Asks the user to confirm the cleanup plan of the selected repository, runs it under the run lock, shows the
+    /// outcome and reads the table again with the repository still selected.
+    /// </summary>
+    /// <remarks>
+    /// The plan comes from the read that filled the table; declining the confirmation changes nothing and reads nothing.
+    /// </remarks>
+    /// <param name="cancellationToken">Cancels the cleanup before the next file.</param>
+    /// <returns>A task that completes when the outcome is shown and the table is read again.</returns>
+    [RelayCommand(CanExecute = nameof(CanDeleteOldArchives))]
+    private async Task DeleteOldArchivesAsync(CancellationToken cancellationToken)
+    {
+        if (SelectedRepository is not { CleanupPlan: { IsEmpty: false } plan } repository
+            || !dialogs.Confirm(CleanupConfirmTitle, DescribePlan(repository.Repository, plan)))
+        {
+            return;
+        }
+
+        try
+        {
+            var result = await cleanupService.ExecuteAsync(
+                repository.ArchiveFolder, repository.RepositoryId, repository.Repository, plan, cancellationToken);
+            ShowOutcome(result);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            AppLog.ArchiveCleanupFailed(logger, repository.Repository, exception);
+            dialogs.ShowError(CleanupFailedTitle, secretMasker.Mask(exception.Message));
+        }
+
+        await LoadRepositoriesAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// Returns whether the selected repository can be read and its cleanup would remove something.
+    /// </summary>
+    /// <returns><see langword="true"/> when the cleanup can start.</returns>
+    private bool CanDeleteOldArchives() =>
+        SelectedRepository is { HasError: false, CleanupPlan.IsEmpty: false };
+
+    /// <summary>
+    /// Builds the question of the confirmation: the number and size of the files and the number of records.
+    /// </summary>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="plan">The plan.</param>
+    /// <returns>The question.</returns>
+    internal static string DescribePlan(string repository, ArchiveCleanupPlan plan) => string.Create(
+        CultureInfo.InvariantCulture,
+        $"Delete the old archives of {repository}?\n\nFiles to move to the Recycle Bin: {plan.FileCount} ({ArchiveHistoryRow.FormatSize(plan.TotalSizeBytes)})\nRecords without a file to remove from .backup-state.json: {plan.RecordCount}\n\nThe last archive of the repository and of its wiki stays.");
+
+    /// <summary>
+    /// Shows why the cleanup did not start, or the files and the state file that failed.
+    /// </summary>
+    /// <param name="result">The outcome of the cleanup.</param>
+    private void ShowOutcome(ArchiveCleanupResult result)
+    {
+        switch (result.Status)
+        {
+            case ArchiveCleanupStatus.RunLockHeld:
+                dialogs.ShowError(CleanupNotStartedTitle, BackupOrchestrator.RunLockHeldMessage);
+                break;
+            case ArchiveCleanupStatus.PlanChanged:
+                dialogs.ShowInformation(CleanupNotStartedTitle, PlanChangedMessage);
+                break;
+            case ArchiveCleanupStatus.Completed when result.Errors.Count > 0:
+                dialogs.ShowError(CleanupFailedTitle, secretMasker.Mask(string.Join(Environment.NewLine, result.Errors)));
+                break;
+        }
+    }
 
     /// <summary>
     /// Returns whether the archive folder of the selected repository exists.

@@ -4,6 +4,7 @@ using GitHubBackup.Core.Archiving;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
@@ -17,6 +18,7 @@ using GitHubBackup.Infrastructure.Archiving;
 using GitHubBackup.Infrastructure.Authentication;
 using GitHubBackup.Infrastructure.BackupConfiguration;
 using GitHubBackup.Infrastructure.Configuration;
+using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Git;
 using GitHubBackup.Infrastructure.GitHub;
 using GitHubBackup.Infrastructure.History;
@@ -98,6 +100,17 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
 
         store.ShouldBeOfType<JsonBackupStateStore>();
         provider.GetRequiredService<IBackupStateStore>().ShouldBeSameAs(store);
+    }
+
+    [Fact]
+    public void AddGitHubBackupInfrastructure_RecycleBin_IsShellRecycleBinOncePerProvider()
+    {
+        using var provider = BuildProvider(new());
+
+        var recycleBin = provider.GetRequiredService<IRecycleBin>();
+
+        recycleBin.ShouldBeOfType<ShellRecycleBin>();
+        provider.GetRequiredService<IRecycleBin>().ShouldBeSameAs(recycleBin);
     }
 
     [Fact]

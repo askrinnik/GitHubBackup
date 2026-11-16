@@ -65,4 +65,23 @@ public sealed record BackupState(
         BackupTarget.Wiki => this with { FullName = fullName, Wiki = Wiki.Append(record) },
         _ => throw new ArgumentOutOfRangeException(nameof(target), target, "The backup target is not defined."),
     };
+
+    /// <summary>
+    /// Returns a state without the records of <paramref name="target"/> that name one of <paramref name="files"/>.
+    /// </summary>
+    /// <remarks>
+    /// File names compare without regard to case, as Windows compares them; the order of the remaining records and the
+    /// other section are left as they are.
+    /// </remarks>
+    /// <param name="target">The backup target whose records are removed.</param>
+    /// <param name="files">The file names of the archives whose records are removed.</param>
+    /// <returns>The new state; this one is unchanged.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="target"/> is not a defined value.</exception>
+    public BackupState WithoutArchives(BackupTarget target, IEnumerable<string> files)
+    {
+        var removed = files.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var section = new BackupStateSection(
+            [.. GetSection(target).Archives.Where(record => !removed.Contains(record.File))]);
+        return target == BackupTarget.Repository ? this with { Repository = section } : this with { Wiki = section };
+    }
 }

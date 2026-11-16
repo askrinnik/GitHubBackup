@@ -341,7 +341,7 @@ Rules that keep OneDrive safe:
 - The program builds and tests each archive on the local disk, in `<sourcesRoot>\.tmp\`. It moves the finished archive to the archive folder only after the test passes. OneDrive therefore never uploads a half-written file.
 - If `sourcesRoot` lies inside `backupRoot` or inside an archive folder, the program warns you at startup: the clones would sync to the cloud. The same warning applies to `clonePath` folders.
 - If you leave `sourcesRoot` at `null`, the clones sit in `sources\` of the application folder. Do not place the application folder inside OneDrive in that case. Install it on a local disk, or set `sourcesRoot` to a local folder.
-- The program never deletes archives.
+- A backup run never deletes archives. Old archives go only when you delete them yourself with **Delete old archives** in the desktop app (see [Deleting old archives](#deleting-old-archives)); the files then go to the Windows Recycle Bin.
 
 An archive name is `<owner>_<repo>_<yyyyMMdd-HHmmss>_<shortHash>.zip`. The time is the local time of the machine when the archive was created. `shortHash` is the first characters of the commit hash of the selected branch (10 by default, `Backup:ShortHashLength`). A wiki archive uses `<repo>.wiki`. The archive holds the whole clone folder including `.git`; the root folder inside the archive is the clone folder name (`hello-world\`, `hello-world.wiki\`).
 
@@ -380,7 +380,7 @@ Check the result: the archive folder holds a `.zip` per repository, `sources\` h
 
 With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` it never appears.
 
-Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log.
+Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log. The cleanup of old archives in the desktop app takes the same lock (see [Deleting old archives](#deleting-old-archives)).
 
 Before it processes repositories, `backup` cleans `<sourcesRoot>\.tmp\` of files from interrupted runs. Then it compares the repositories of the tracked accounts with `backup-config.json`. With `discoverAccessibleRepositories: true`, it also compares other repositories your token can reach (see [Discovery mode](#discovery-mode-discoveraccessiblerepositories)). Without `--silent`, it asks about every new and every renamed repository. With `--silent`, it decides on its own:
 
@@ -601,6 +601,22 @@ An archive file is a file directly in the archive folder of the repository whose
 If the `.backup-state.json` of a repository or its archive folder cannot be read, its row shows a red `Error` in the column **In state**, with the error as the tooltip, and no numbers. The other rows work as usual.
 
 The lower table shows the archives of the selected repository and its wiki, the newest first: creation time, target, file name, file state, branch, hash, size and the refs that changed since the previous archive of the same target. The file state is `Present`, `Missing` (the record stays, the row is red) or `Not in state` (a file without a record; its time, target and hash come from its name, and its branch is empty). For a repository whose files cannot be read, the error appears above the lower table. **Open folder** opens the archive folder in Explorer; **Show in Explorer** opens it with the selected archive selected.
+
+#### Deleting old archives
+
+**Delete old archives** removes the old archives of the selected repository. The button is enabled only when the cleanup would remove something, and never for a row with an error. The repository and its wiki are handled separately:
+
+- Each keeps its last archive in `.backup-state.json`, the file and the record: the next run compares the server with it.
+- If the file of the last archive is gone, its record still stays, and the newest recorded archive whose file is on the disk stays too, with its record.
+- Every other recorded archive file goes to the Recycle Bin, and its record is removed from `.backup-state.json`.
+- Every other record whose file is gone is removed.
+- Archive files without a record go to the Recycle Bin only if the repository (or the wiki) keeps an archive file on the disk. Otherwise they stay: the cleanup never leaves the repository or the wiki without an archive on the disk.
+
+Before anything changes, a confirmation shows how many files go to the Recycle Bin, their total size, and how many records without a file are removed. **No** changes nothing.
+
+The cleanup takes the same lock as a backup run: while a backup runs, it does not start and says that a backup is already running, and a backup does not start while the cleanup runs. If the archives changed between the confirmation and the start, the cleanup changes nothing, says so and reads the tables again.
+
+Files go only to the Windows Recycle Bin, from which you can restore them; the program never deletes an archive permanently. A file that cannot go to the Recycle Bin stays in place with its record: for example a file in use, a volume without a Recycle Bin (a network share), a Recycle Bin that is turned off or too small for the file. The other files are processed, and at the end a list shows the errors. The program then writes `.backup-state.json` once, atomically, and keeps the previous version in `.backup-state.json.bak`. If that write fails, the moved files stay in the Recycle Bin and keep their records; the history shows them as missing, and the next cleanup removes those records. Both tables are read again after the cleanup. The log records the repository, every moved file, every removed record and every error.
 
 ### Theme and window placement
 

@@ -65,11 +65,42 @@ internal sealed class JsonBackupStateStore(
         var state = (await LoadAsync(archiveFolder, repositoryId, fullName, cancellationToken))
             .WithArchive(target, record, fullName);
 
-        var content = JsonSerializer.SerializeToUtf8Bytes(state, BackupStateJsonContext.BackupStateTypeInfo);
-        await writer.WriteAsync(path, content.Concat(_finalNewLine).ToArray(), cancellationToken);
+        await WriteAsync(path, state, cancellationToken);
 
         BackupStateLog.ArchiveAppended(logger, path, target, record.File);
         return state;
+    }
+
+    /// <inheritdoc />
+    public async Task ReplaceAsync(string archiveFolder, BackupState state, CancellationToken cancellationToken)
+    {
+        var path = Path.Combine(archiveFolder, BackupState.FileName);
+        var existing = await ReadAsync(path, cancellationToken)
+            ?? throw new BackupStateException(
+                path, [$"The backup state file '{path}' does not exist, so there is nothing to replace."]);
+        if (existing.RepositoryId != state.RepositoryId)
+        {
+            throw new BackupStateException(
+                path,
+                [$"The backup state file '{path}' belongs to another repository (id {existing.RepositoryId}, expected {state.RepositoryId}); it is not changed."]);
+        }
+
+        await WriteAsync(path, state, cancellationToken);
+
+        BackupStateLog.Replaced(logger, path, state.Repository.Archives.Count, state.Wiki.Archives.Count);
+    }
+
+    /// <summary>
+    /// Serializes <paramref name="state"/> and replaces the state file with it atomically.
+    /// </summary>
+    /// <param name="path">The path of the state file.</param>
+    /// <param name="state">The state to write.</param>
+    /// <param name="cancellationToken">Cancels the write before the file is replaced.</param>
+    /// <returns>A task that completes when the file holds <paramref name="state"/>.</returns>
+    private async Task WriteAsync(string path, BackupState state, CancellationToken cancellationToken)
+    {
+        var content = JsonSerializer.SerializeToUtf8Bytes(state, BackupStateJsonContext.BackupStateTypeInfo);
+        await writer.WriteAsync(path, content.Concat(_finalNewLine).ToArray(), cancellationToken);
     }
 
     /// <summary>

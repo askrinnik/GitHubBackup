@@ -78,6 +78,41 @@ public sealed class BackupStateTests
     public void GetSection_UndefinedTarget_ThrowsArgumentOutOfRangeException() =>
         Should.Throw<ArgumentOutOfRangeException>(() => BackupState.CreateEmpty(1, "owner/repo").GetSection((BackupTarget)42));
 
+    [Fact]
+    public void WithoutArchives_Repository_RemovesNamedRecordsInAnyCaseAndKeepsOrderAndWiki()
+    {
+        var state = BackupState.CreateEmpty(1, "owner/repo")
+            .WithArchive(BackupTarget.Repository, CreateRecord("a.zip"), "owner/repo")
+            .WithArchive(BackupTarget.Repository, CreateRecord("b.zip"), "owner/repo")
+            .WithArchive(BackupTarget.Repository, CreateRecord("c.zip"), "owner/repo")
+            .WithArchive(BackupTarget.Wiki, CreateRecord("a.zip"), "owner/repo");
+
+        var result = state.WithoutArchives(BackupTarget.Repository, ["B.ZIP", "missing.zip"]);
+
+        result.Repository.Archives.Select(record => record.File).ShouldBe(["a.zip", "c.zip"]);
+        result.Wiki.Archives.Select(record => record.File).ShouldBe(["a.zip"]);
+        (result.RepositoryId, result.FullName, result.SchemaVersion).ShouldBe((1L, "owner/repo", BackupState.CurrentSchemaVersion));
+        state.Repository.Archives.Count.ShouldBe(3);
+    }
+
+    [Fact]
+    public void WithoutArchives_Wiki_LeavesRepositoryUnchanged()
+    {
+        var state = BackupState.CreateEmpty(1, "owner/repo")
+            .WithArchive(BackupTarget.Repository, CreateRecord("a.zip"), "owner/repo")
+            .WithArchive(BackupTarget.Wiki, CreateRecord("a.zip"), "owner/repo");
+
+        var result = state.WithoutArchives(BackupTarget.Wiki, ["a.zip"]);
+
+        result.Wiki.Archives.ShouldBeEmpty();
+        result.Repository.Archives.ShouldHaveSingleItem().File.ShouldBe("a.zip");
+    }
+
+    [Fact]
+    public void WithoutArchives_UndefinedTarget_ThrowsArgumentOutOfRangeException() =>
+        Should.Throw<ArgumentOutOfRangeException>(
+            () => BackupState.CreateEmpty(1, "owner/repo").WithoutArchives((BackupTarget)42, ["a.zip"]));
+
     /// <summary>
     /// Creates a valid record of an archive named <paramref name="file"/>.
     /// </summary>

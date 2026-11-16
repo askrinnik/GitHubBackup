@@ -241,6 +241,12 @@
                                         Command="{Binding ShowInExplorerCommand, Mode=OneWay}"
                                         Padding="8,2" Margin="0,0,8,4"
                                         AutomationProperties.AutomationId="ShowArchiveInExplorerButton" />
+                                <Button Content="Delete old archives"
+                                        Command="{Binding DeleteOldArchivesCommand, Mode=OneWay}"
+                                        ToolTip="Moves every archive except the last of the repository and of its wiki to the Recycle Bin"
+                                        ToolTipService.ShowOnDisabled="True"
+                                        Padding="8,2" Margin="0,0,8,4"
+                                        AutomationProperties.AutomationId="DeleteOldArchivesButton" />
                             </WrapPanel>
                             <TextBlock DockPanel.Dock="Top"
                                        Text="{Binding ArchiveFolder, Mode=OneWay, StringFormat='Folder: {0}'}"

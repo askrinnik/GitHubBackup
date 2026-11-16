@@ -47,4 +47,23 @@ public interface IBackupStateStore
         BackupTarget target,
         ArchiveRecord record,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Replaces the existing state file of a repository with <paramref name="state"/>.
+    /// </summary>
+    /// <remarks>
+    /// The file is replaced atomically and the previous version is kept next to it, so a failure leaves the previous
+    /// file intact.
+    /// </remarks>
+    /// <param name="archiveFolder">The archive folder of the repository.</param>
+    /// <param name="state">The complete new state; its repository id must match the existing file.</param>
+    /// <param name="cancellationToken">Cancels reading and writing the file.</param>
+    /// <returns>A task that completes when the file holds <paramref name="state"/>.</returns>
+    /// <exception cref="BackupStateException">
+    /// There is no state file to replace, or the existing file cannot be read or belongs to a repository with another
+    /// id than <paramref name="state"/>; such a file is never overwritten.
+    /// </exception>
+    /// <exception cref="IOException">The new file cannot be written.</exception>
+    /// <exception cref="UnauthorizedAccessException">The new file cannot be written.</exception>
+    Task ReplaceAsync(string archiveFolder, BackupState state, CancellationToken cancellationToken);
 }

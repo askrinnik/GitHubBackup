@@ -1,12 +1,13 @@
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
+using GitHubBackup.App.ViewModels;
 using GitHubBackup.TestUtilities;
 
 namespace GitHubBackup.App.UITests;
 
 /// <summary>
 /// Opens the Archives tab of the history screen over archive folders prepared on the disk and checks the repository
-/// table, the archives of the selected repository and sorting by a column header.
+/// table, the archives of the selected repository, sorting by a column header and the confirmation of the cleanup.
 /// </summary>
 public sealed class ArchiveHistoryTests : IDisposable
 {
@@ -84,6 +85,32 @@ public sealed class ArchiveHistoryTests : IDisposable
 
         AppSession.WaitUntil(() => RowTexts(table)[0][0] == "octo/app", "the table sorted by On disk");
         RowTexts(table).Select(cells => cells[3]).ShouldBe(["1", "2"]);
+    }
+
+    [Fact]
+    public void DeleteOldArchives_AnsweredNo_ShowsNumbersAndChangesNothing()
+    {
+        var tool = Path.Combine(_installation.ArchivesPath, _owner, "tool");
+        var statePath = Path.Combine(tool, ".backup-state.json");
+        var originalState = File.ReadAllText(statePath);
+        var table = OpenArchives();
+        Rows(table)[0].Patterns.SelectionItem.Pattern.Select();
+
+        _session!.Invoke("DeleteOldArchivesButton");
+        var messageBox = _session.WaitForMessageBox(ArchiveHistoryViewModel.CleanupConfirmTitle);
+        var text = AppSession.MessageText(messageBox);
+        AppSession.Answer(messageBox, MessageBoxButtonId.No);
+
+        text.ShouldContain("octo/tool");
+        text.ShouldContain("Files to move to the Recycle Bin: 1 (1.0 KB)");
+        text.ShouldContain("Records without a file to remove from .backup-state.json: 0");
+        AppSession.WaitUntil(
+            () => _session.WaitFor("DeleteOldArchivesButton").IsEnabled,
+            "the cleanup button to be enabled again after the confirmation");
+        File.ReadAllText(statePath).ShouldBe(originalState);
+        File.Exists(Path.Combine(tool, _toolRecorded)).ShouldBeTrue();
+        File.Exists(Path.Combine(tool, _toolUnrecorded)).ShouldBeTrue();
+        File.Exists(statePath + ".bak").ShouldBeFalse();
     }
 
     /// <summary>

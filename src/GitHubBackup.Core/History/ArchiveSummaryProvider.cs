@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.State;
 
@@ -9,8 +10,11 @@ namespace GitHubBackup.Core.History;
 /// </summary>
 /// <param name="overviewProvider">Reads the repositories of the configuration with their archive folders.</param>
 /// <param name="historyProvider">Reads the archives of one repository.</param>
+/// <param name="stateStore">Reads the record order of the state file for the cleanup plan.</param>
 public sealed class ArchiveSummaryProvider(
-    IRepositoryOverviewProvider overviewProvider, IArchiveHistoryProvider historyProvider) : IArchiveSummaryProvider
+    IRepositoryOverviewProvider overviewProvider,
+    IArchiveHistoryProvider historyProvider,
+    IBackupStateStore stateStore) : IArchiveSummaryProvider
 {
     /// <inheritdoc />
     public async Task<IReadOnlyList<RepositoryArchiveSummary>> LoadAsync(CancellationToken cancellationToken)
@@ -27,11 +31,12 @@ public sealed class ArchiveSummaryProvider(
     }
 
     /// <summary>
-    /// Reads the archives of one repository and turns a failure to read its files into the error of its summary.
+    /// Reads the archives of one repository with its cleanup plan and turns a failure to read its files into the error
+    /// of its summary.
     /// </summary>
     /// <param name="repository">The repository.</param>
     /// <param name="cancellationToken">Cancels reading.</param>
-    /// <returns>The summary with the history or the error.</returns>
+    /// <returns>The summary with the history and the cleanup plan, or the error.</returns>
     private async Task<RepositoryArchiveSummary> LoadSummaryAsync(
         RepositoryOverviewEntry repository, CancellationToken cancellationToken)
     {
@@ -39,7 +44,9 @@ public sealed class ArchiveSummaryProvider(
         {
             var history = await historyProvider.LoadAsync(
                 repository.ArchiveFolder, repository.RepositoryId, repository.FullName, cancellationToken);
-            return new(repository, history, null);
+            var state = await stateStore.LoadAsync(
+                repository.ArchiveFolder, repository.RepositoryId, repository.FullName, cancellationToken);
+            return new(repository, history, null, ArchiveCleanupPlanner.Plan(state, history));
         }
         catch (Exception exception) when (exception is BackupStateException or IOException or UnauthorizedAccessException)
         {

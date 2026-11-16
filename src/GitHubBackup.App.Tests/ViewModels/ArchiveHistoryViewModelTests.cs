@@ -2,9 +2,11 @@ using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.Processes;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.State;
 using Microsoft.Extensions.Logging;
@@ -16,7 +18,7 @@ namespace GitHubBackup.App.Tests.ViewModels;
 
 /// <summary>
 /// Tests <see cref="ArchiveHistoryViewModel"/>: the repository table, the archives of the selected repository, the
-/// marking of missing archives and files without a record, and the Explorer commands.
+/// marking of missing archives and files without a record, the Explorer commands and the cleanup of old archives.
 /// </summary>
 public sealed class ArchiveHistoryViewModelTests
 {
@@ -25,6 +27,8 @@ public sealed class ArchiveHistoryViewModelTests
     private const int _archiveHistoryLoadFailedEventId = 11;
 
     private const int _explorerFailedEventId = 12;
+
+    private const int _archiveCleanupFailedEventId = 16;
 
     private const string _token = "ghp_ArchiveTokenValue0123456789abcdefABC";
 
@@ -38,7 +42,16 @@ public sealed class ArchiveHistoryViewModelTests
 
     private static readonly RepositoryOverviewEntry _lib = CreateRepository("other", "lib", null, 42, _libFolder);
 
+    private static readonly ArchiveCleanupPlan _plan = new(
+        [
+            new(BackupTarget.Repository, "old.zip", $@"{_toolFolder}\old.zip", 1024, true),
+            new(BackupTarget.Wiki, "extra.zip", $@"{_toolFolder}\extra.zip", 512, false),
+        ],
+        [new(BackupTarget.Repository, "gone.zip")]);
+
     private readonly IArchiveSummaryProvider _summaryProvider = Substitute.For<IArchiveSummaryProvider>();
+
+    private readonly IArchiveCleanupService _cleanupService = Substitute.For<IArchiveCleanupService>();
 
     private readonly IExplorerLauncher _explorer = Substitute.For<IExplorerLauncher>();
 
@@ -57,7 +70,11 @@ public sealed class ArchiveHistoryViewModelTests
     public ArchiveHistoryViewModelTests()
     {
         UseSummaries(Summary(_tool, true), Summary(_lib, true));
-        _viewModel = new(_summaryProvider, _explorer, _dialogs, _masker, _logger);
+        _dialogs.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(true);
+        _cleanupService.ExecuteAsync(
+                Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<ArchiveCleanupPlan>(), Arg.Any<CancellationToken>())
+            .Returns(new ArchiveCleanupResult(ArchiveCleanupStatus.Completed, _plan.FilesToRecycle, [], []));
+        _viewModel = new(_summaryProvider, _cleanupService, _explorer, _dialogs, _masker, _logger);
     }
 
     [Fact]
@@ -353,6 +370,150 @@ public sealed class ArchiveHistoryViewModelTests
     }
 
     [Fact]
+    public void DeleteOldArchives_NoRepository_CannotExecute() =>
+        _viewModel.DeleteOldArchivesCommand.CanExecute(null).ShouldBeFalse();
+
+    [Fact]
+    public async Task DeleteOldArchives_PlanRemovesSomething_CanExecuteAfterSelection()
+    {
+        UseSummaries(PlanSummary(_tool, _plan));
+        await LoadAsync();
+        var raised = 0;
+        _viewModel.DeleteOldArchivesCommand.CanExecuteChanged += (_, _) => raised++;
+
+        _viewModel.SelectedRepository = _viewModel.Repositories[0];
+
+        _viewModel.DeleteOldArchivesCommand.CanExecute(null).ShouldBeTrue();
+        raised.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_EmptyPlan_CannotExecute()
+    {
+        UseSummaries(PlanSummary(_tool, ArchiveCleanupPlan.Empty));
+        await LoadAsync();
+
+        _viewModel.SelectedRepository = _viewModel.Repositories[0];
+
+        _viewModel.DeleteOldArchivesCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_RowWithError_CannotExecute()
+    {
+        UseSummaries(new RepositoryArchiveSummary(_tool, null, new IOException("broken"), _plan));
+        await LoadAsync();
+
+        _viewModel.SelectedRepository = _viewModel.Repositories[0];
+
+        _viewModel.SelectedRepository.CleanupPlan.ShouldBeNull();
+        _viewModel.DeleteOldArchivesCommand.CanExecute(null).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_Executed_ConfirmsWithFileCountSizeAndRecordCount()
+    {
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).Confirm(
+            ArchiveHistoryViewModel.CleanupConfirmTitle,
+            "Delete the old archives of octo/tool?\n\n"
+            + "Files to move to the Recycle Bin: 2 (1.5 KB)\n"
+            + "Records without a file to remove from .backup-state.json: 1\n\n"
+            + "The last archive of the repository and of its wiki stays.");
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_Declined_ChangesAndReadsNothing()
+    {
+        _dialogs.Confirm(Arg.Any<string>(), Arg.Any<string>()).Returns(false);
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        await _cleanupService.DidNotReceive().ExecuteAsync(
+            Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<ArchiveCleanupPlan>(), Arg.Any<CancellationToken>());
+        await _summaryProvider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_Completed_RunsConfirmedPlanAndReloadsKeepingSelection()
+    {
+        await SelectPlanAsync();
+        UseSummaries(PlanSummary(_tool, ArchiveCleanupPlan.Empty));
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        await _cleanupService.Received(1).ExecuteAsync(_toolFolder, 1, "octo/tool", _plan, Arg.Any<CancellationToken>());
+        await _summaryProvider.Received(2).LoadAsync(Arg.Any<CancellationToken>());
+        _viewModel.SelectedRepository.ShouldBeSameAs(_viewModel.Repositories[0]);
+        _viewModel.DeleteOldArchivesCommand.CanExecute(null).ShouldBeFalse();
+        _dialogs.DidNotReceiveWithAnyArgs().ShowError(default!, default!);
+        _dialogs.DidNotReceiveWithAnyArgs().ShowInformation(default!, default!);
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_RunLockHeld_SaysBackupIsRunningAndReloads()
+    {
+        UseResult(ArchiveCleanupResult.RunLockHeld);
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(ArchiveHistoryViewModel.CleanupNotStartedTitle, BackupOrchestrator.RunLockHeldMessage);
+        await _summaryProvider.Received(2).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_PlanChanged_SaysSoAndReloads()
+    {
+        UseResult(ArchiveCleanupResult.PlanChanged);
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowInformation(
+            ArchiveHistoryViewModel.CleanupNotStartedTitle, ArchiveHistoryViewModel.PlanChangedMessage);
+        await _summaryProvider.Received(2).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_FailedFiles_ShowsErrorsAsOneMaskedList()
+    {
+        _masker.Register(_token);
+        UseResult(new ArchiveCleanupResult(
+            ArchiveCleanupStatus.Completed, [], [], ["'a.zip': The file is in use.", $"'b.zip': denied {_token}"]));
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(
+            ArchiveHistoryViewModel.CleanupFailedTitle,
+            $"'a.zip': The file is in use.{Environment.NewLine}'b.zip': denied ***");
+    }
+
+    [Fact]
+    public async Task DeleteOldArchives_ServiceThrows_ShowsMaskedErrorLogsAndReloads()
+    {
+        _masker.Register(_token);
+        _cleanupService.ExecuteAsync(
+                Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<ArchiveCleanupPlan>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BackupStateException($@"{_toolFolder}\.backup-state.json", [$"broken {_token}"]));
+        await SelectPlanAsync();
+
+        await _viewModel.DeleteOldArchivesCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(
+            ArchiveHistoryViewModel.CleanupFailedTitle, Arg.Is<string>(text => text.Contains("***") && !text.Contains(_token)));
+        var record = _logger.Collector.GetSnapshot().Single(entry => entry.Id.Id == _archiveCleanupFailedEventId);
+        record.Level.ShouldBe(LogLevel.Error);
+        record.GetStructuredStateValue("Repository").ShouldBe("octo/tool");
+        await _summaryProvider.Received(2).LoadAsync(Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
     public void CreateRow_Entry_FormatsEveryCell()
     {
         var entry = new ArchiveHistoryEntry(
@@ -438,6 +599,36 @@ public sealed class ArchiveHistoryViewModelTests
         await LoadAsync();
         _viewModel.SelectedRepository = _viewModel.Repositories[0];
     }
+
+    /// <summary>
+    /// Makes <c>octo/tool</c> the only repository, with <see cref="_plan"/> as its cleanup plan, reads the table and
+    /// selects the repository.
+    /// </summary>
+    /// <returns>A task that completes when the repository is selected.</returns>
+    private async Task SelectPlanAsync()
+    {
+        UseSummaries(PlanSummary(_tool, _plan));
+        await LoadAsync();
+        _viewModel.SelectedRepository = _viewModel.Repositories[0];
+    }
+
+    /// <summary>
+    /// Makes the cleanup service return <paramref name="result"/>.
+    /// </summary>
+    /// <param name="result">The result.</param>
+    private void UseResult(ArchiveCleanupResult result) =>
+        _cleanupService.ExecuteAsync(
+                Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<ArchiveCleanupPlan>(), Arg.Any<CancellationToken>())
+            .Returns(result);
+
+    /// <summary>
+    /// Creates the summary of a repository without archives whose cleanup plan is <paramref name="plan"/>.
+    /// </summary>
+    /// <param name="repository">The repository.</param>
+    /// <param name="plan">The cleanup plan.</param>
+    /// <returns>The summary.</returns>
+    private static RepositoryArchiveSummary PlanSummary(RepositoryOverviewEntry repository, ArchiveCleanupPlan plan) =>
+        new(repository, new(repository.ArchiveFolder, true, []), null, plan);
 
     /// <summary>
     /// Makes the summary provider return <paramref name="summaries"/>.

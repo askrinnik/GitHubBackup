@@ -129,4 +129,13 @@ internal static partial class AppLog
     /// <param name="exception">The exception, logged with its stack trace.</param>
     [LoggerMessage(EventId = 15, Level = LogLevel.Warning, Message = "The user interface preferences cannot be saved")]
     public static partial void UiSettingsSaveFailed(ILogger logger, Exception exception);
+
+    /// <summary>
+    /// Logs that the cleanup of old archives of a repository could not run because its files cannot be read.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="exception">The exception, logged with its stack trace.</param>
+    [LoggerMessage(EventId = 16, Level = LogLevel.Error, Message = "The old archives of {Repository} cannot be cleaned up")]
+    public static partial void ArchiveCleanupFailed(ILogger logger, string repository, Exception exception);
 }

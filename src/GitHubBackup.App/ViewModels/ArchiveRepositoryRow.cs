@@ -1,4 +1,5 @@
 using System.Globalization;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.History;
 
 namespace GitHubBackup.App.ViewModels;
@@ -33,6 +34,11 @@ public sealed class ArchiveRepositoryRow
 
     /// <summary>Gets why the archives cannot be read, masked for display, or <see langword="null"/>.</summary>
     public required string? Error { get; init; }
+
+    /// <summary>
+    /// Gets what the cleanup of old archives would remove, or <see langword="null"/> when the archives cannot be read.
+    /// </summary>
+    public required ArchiveCleanupPlan? CleanupPlan { get; init; }
 
     /// <summary>Gets whether the archives cannot be read.</summary>
     public bool HasError => Error is not null;
@@ -84,5 +90,6 @@ public sealed class ArchiveRepositoryRow
         ArchiveFolder = summary.Repository.ArchiveFolder,
         History = error is null ? summary.History : null,
         Error = error,
+        CleanupPlan = error is null ? summary.CleanupPlan : null,
     };
 }

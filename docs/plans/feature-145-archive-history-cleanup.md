@@ -153,13 +153,13 @@ FR-9.5 говорит, что wiki без git-репозитория в dry-run 
 - [x] README: вкладка Archives; этот план.
 
 **Коммит 2 — очистка старых архивов**
-- [ ] `BackupState.WithoutArchives`, `ReplaceAsync` + тесты.
-- [ ] `ArchiveCleanupPlan`, `ArchiveCleanupPlanner` + тесты.
-- [ ] `IRecycleBin`, `RecycleOutcome`, `ShellRecycleBin`, регистрация + тесты.
-- [ ] `ArchiveCleanupService`, `ArchiveCleanupResult`, `ArchiveCleanupLog`, регистрация + тесты.
-- [ ] `DeleteOldArchivesCommand`, подтверждение, сообщения, перезагрузка + тесты; кнопка в XAML.
-- [ ] FlaUI: подтверждение и ответ No.
-- [ ] README: очистка, Корзина, блокировка.
+- [x] `BackupState.WithoutArchives`, `ReplaceAsync` + тесты.
+- [x] `ArchiveCleanupPlan`, `ArchiveCleanupPlanner` + тесты.
+- [x] `IRecycleBin`, `RecycleOutcome`, `ShellRecycleBin`, регистрация + тесты.
+- [x] `ArchiveCleanupService`, `ArchiveCleanupResult`, `ArchiveCleanupLog`, регистрация + тесты.
+- [x] `DeleteOldArchivesCommand`, подтверждение, сообщения, перезагрузка + тесты; кнопка в XAML.
+- [x] FlaUI: подтверждение и ответ No.
+- [x] README: очистка, Корзина, блокировка.
 - [ ] Ручная проверка тома без Корзины.
 
 **Коммит 3 — статус wiki**

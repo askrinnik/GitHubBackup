@@ -4,6 +4,7 @@ using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Clones;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
@@ -50,7 +51,7 @@ public static class InfrastructureServiceCollectionExtensions
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
         /// token, the <see cref="ITokenStore"/> in Windows Credential Manager, the <see cref="ITokenProvider"/> with the
-        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IGitHubTokenInspector"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IToolPathsStore"/> and the <see cref="IUiSettingsStore"/> over one user settings file, the <see cref="IBackupStateStore"/>, the <see cref="ICloneLocationStore"/>, the <see cref="IRunHistoryStore"/> with the
+        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IGitHubTokenInspector"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IToolPathsStore"/> and the <see cref="IUiSettingsStore"/> over one user settings file, the <see cref="IBackupStateStore"/>, the <see cref="IRecycleBin"/> of the Windows Shell, the <see cref="ICloneLocationStore"/>, the <see cref="IRunHistoryStore"/> with the
         /// hosted service that creates and migrates its database when the host starts, and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
@@ -97,6 +98,7 @@ public static class InfrastructureServiceCollectionExtensions
                 provider.GetRequiredService<AppSettingsFile>()));
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
+            services.TryAddSingleton<IRecycleBin, ShellRecycleBin>();
             services.TryAddSingleton<ICloneLocationStore, JsonCloneLocationStore>();
             services.AddDbContextFactory<HistoryDbContext>((provider, builder) => builder
                 .UseSqlite(HistoryConnectionString.Create(

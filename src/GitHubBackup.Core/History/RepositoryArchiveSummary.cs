@@ -1,3 +1,4 @@
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.Overview;
 
 namespace GitHubBackup.Core.History;
@@ -14,5 +15,11 @@ namespace GitHubBackup.Core.History;
 /// Why the state file or the archive folder cannot be read, or <see langword="null"/> when <paramref name="History"/>
 /// is set.
 /// </param>
+/// <param name="CleanupPlan">
+/// What the cleanup of old archives would remove, or <see langword="null"/> when <paramref name="Error"/> is set.
+/// </param>
 public sealed record RepositoryArchiveSummary(
-    RepositoryOverviewEntry Repository, ArchiveHistory? History, Exception? Error);
+    RepositoryOverviewEntry Repository,
+    ArchiveHistory? History,
+    Exception? Error,
+    ArchiveCleanupPlan? CleanupPlan = null);

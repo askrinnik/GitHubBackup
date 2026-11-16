@@ -35,4 +35,14 @@ internal static partial class BackupStateLog
     /// <param name="file">The file name of the archive.</param>
     [LoggerMessage(EventId = 3, Level = LogLevel.Information, Message = "Recorded the {Target} archive {File} in the backup state {Path}")]
     public static partial void ArchiveAppended(ILogger logger, string path, BackupTarget target, string file);
+
+    /// <summary>
+    /// Logs that the state file was replaced as a whole.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="path">The path of the state file.</param>
+    /// <param name="repositoryArchives">The number of archives of the repository written.</param>
+    /// <param name="wikiArchives">The number of archives of the wiki written.</param>
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "Replaced the backup state {Path} with {RepositoryArchives} repository archives and {WikiArchives} wiki archives")]
+    public static partial void Replaced(ILogger logger, string path, int repositoryArchives, int wikiArchives);
 }

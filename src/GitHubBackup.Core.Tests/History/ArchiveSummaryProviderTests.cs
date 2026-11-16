@@ -1,4 +1,5 @@
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.Git;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Overview;
 using GitHubBackup.Core.State;
@@ -22,6 +23,8 @@ public sealed class ArchiveSummaryProviderTests
 
     private readonly IArchiveHistoryProvider _historyProvider = Substitute.For<IArchiveHistoryProvider>();
 
+    private readonly IBackupStateStore _stateStore = Substitute.For<IBackupStateStore>();
+
     private readonly ArchiveSummaryProvider _provider;
 
     /// <summary>
@@ -35,7 +38,9 @@ public sealed class ArchiveSummaryProviderTests
             [_lib]));
         _historyProvider.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => new ArchiveHistory(call.ArgAt<string>(0), true, []));
-        _provider = new(_overviewProvider, _historyProvider);
+        _stateStore.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
+        _provider = new(_overviewProvider, _historyProvider, _stateStore);
     }
 
     [Fact]
@@ -58,6 +63,37 @@ public sealed class ArchiveSummaryProviderTests
         summaries[1].History.ShouldBeSameAs(history);
     }
 
+    [Fact]
+    public async Task LoadAsync_OldArchives_SummaryHoldsCleanupPlan()
+    {
+        var old = new ArchiveRecord("old.zip", new(2026, 10, 1, 9, 0, 0, TimeSpan.Zero), "main", "a1b2c3", 10, RefSnapshot.Empty);
+        var last = new ArchiveRecord("last.zip", new(2026, 10, 2, 9, 0, 0, TimeSpan.Zero), "main", "a1b2c3", 10, RefSnapshot.Empty);
+        var state = BackupState.CreateEmpty(1, "octo/tool")
+            .WithArchive(BackupTarget.Repository, old, "octo/tool")
+            .WithArchive(BackupTarget.Repository, last, "octo/tool");
+        _stateStore.LoadAsync(_tool.ArchiveFolder, 1, "octo/tool", Arg.Any<CancellationToken>()).Returns(state);
+        _historyProvider.LoadAsync(_tool.ArchiveFolder, 1, "octo/tool", Arg.Any<CancellationToken>()).Returns(
+            new ArchiveHistory(_tool.ArchiveFolder, true, [Entry(last), Entry(old)]));
+
+        var summaries = await LoadAsync();
+
+        summaries[0].CleanupPlan.ShouldNotBeNull().FilesToRecycle.ShouldHaveSingleItem().File.ShouldBe("old.zip");
+        summaries[1].CleanupPlan.ShouldNotBeNull().IsEmpty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task LoadAsync_StateUnreadableForPlan_ErrorInItsRow()
+    {
+        var error = new BackupStateException(@"C:\backup\octo\tool\.backup-state.json", ["The file is not valid JSON."]);
+        _stateStore.LoadAsync(_tool.ArchiveFolder, Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(error);
+
+        var summaries = await LoadAsync();
+
+        summaries[0].Error.ShouldBeSameAs(error);
+        summaries[0].CleanupPlan.ShouldBeNull();
+    }
+
     [Theory]
     [InlineData(nameof(BackupStateException))]
     [InlineData(nameof(IOException))]
@@ -78,6 +114,7 @@ public sealed class ArchiveSummaryProviderTests
 
         summaries[0].Error.ShouldBeSameAs(error);
         summaries[0].History.ShouldBeNull();
+        summaries[0].CleanupPlan.ShouldBeNull();
         summaries.Skip(1).ShouldAllBe(summary => summary.Error == null && summary.History != null);
     }
 
@@ -107,6 +144,24 @@ public sealed class ArchiveSummaryProviderTests
     /// <returns>The summaries.</returns>
     private Task<IReadOnlyList<RepositoryArchiveSummary>> LoadAsync() =>
         _provider.LoadAsync(TestContext.Current.CancellationToken);
+
+    /// <summary>
+    /// Creates the history entry of a recorded archive of <c>octo/tool</c> whose file is on the disk.
+    /// </summary>
+    /// <param name="record">The record.</param>
+    /// <returns>The entry.</returns>
+    private static ArchiveHistoryEntry Entry(ArchiveRecord record) => new(
+        BackupTarget.Repository,
+        record.File,
+        Path.Combine(_tool.ArchiveFolder, record.File),
+        record.CreatedAt,
+        record.Branch,
+        record.HeadCommit,
+        record.SizeBytes,
+        [],
+        FileExists: true,
+        IsInState: true,
+        record.SizeBytes);
 
     /// <summary>
     /// Creates a repository of the overview whose archive folder is below <c>C:\backup</c>.

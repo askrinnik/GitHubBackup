@@ -2,6 +2,7 @@ using GitHubBackup.App.Dialogs;
 using GitHubBackup.App.Navigation;
 using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
+using GitHubBackup.Core.Cleanup;
 using GitHubBackup.Core.History;
 using GitHubBackup.Core.Security;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -34,6 +35,7 @@ public sealed class HistoryViewModelTests
         var runs = new RunHistoryViewModel(_store, masker, TimeProvider.System, NullLogger<RunHistoryViewModel>.Instance);
         var archives = new ArchiveHistoryViewModel(
             _summaryProvider,
+            Substitute.For<IArchiveCleanupService>(),
             Substitute.For<IExplorerLauncher>(),
             Substitute.For<IDialogService>(),
             masker,

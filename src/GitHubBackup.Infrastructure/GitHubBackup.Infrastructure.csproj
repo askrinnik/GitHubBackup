@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <PropertyGroup>
+    <!-- The interop code that LibraryImport and GeneratedComInterface generate for the Shell Recycle Bin uses pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\GitHubBackup.Core\GitHubBackup.Core.csproj" />
   </ItemGroup>
