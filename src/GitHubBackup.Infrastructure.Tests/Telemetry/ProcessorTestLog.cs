@@ -49,4 +49,29 @@ internal static partial class ProcessorTestLog
     /// <param name="repository">The repository, kept in the <c>Repository</c> property.</param>
     [LoggerMessage(EventId = 5, Level = LogLevel.Warning, Message = "Cloning {Repository}")]
     public static partial void Cloning(ILogger logger, string repository);
+
+    /// <summary>
+    /// Logs a message at the level given by the caller.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The level of the entry.</param>
+    /// <param name="repository">The repository, kept in the <c>Repository</c> property.</param>
+    [LoggerMessage(EventId = 6, Message = "Entry for {Repository}")]
+    public static partial void AtLevel(ILogger logger, LogLevel level, string repository);
+
+    /// <summary>
+    /// Logs an entry with a <c>level</c> property.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The value, kept in the <c>level</c> property.</param>
+    [LoggerMessage(EventId = 7, Level = LogLevel.Warning, Message = "Custom {level}")]
+    public static partial void LowerCaseLevelProperty(ILogger logger, string level);
+
+    /// <summary>
+    /// Logs an entry with a <c>Level</c> property.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The value, kept in the <c>Level</c> property.</param>
+    [LoggerMessage(EventId = 8, Level = LogLevel.Warning, Message = "Custom {Level}")]
+    public static partial void UpperCaseLevelProperty(ILogger logger, string level);
 }

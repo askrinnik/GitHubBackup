@@ -744,6 +744,7 @@ Logs:
 
 - The program sends the same entries it writes to the log files (see [Logs](#logs)): the message, the level, the category and the properties of the entry as attributes, among them `RunId`, `Repository` and `Operation`.
 - The levels of `Serilog:MinimumLevel` apply to the sent entries too; there is no separate level for OTLP.
+- Every sent entry has the attribute `level` with the name of its level (`Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical`), the same value as the severity text of the record, so a backend can show the level as an ordinary attribute. The Serilog level `Fatal` is sent as `Critical`. If the entry already has a property named `level`, the program keeps that value and adds no second attribute. The log files do not change.
 - Secrets, the token and the values of `OpenTelemetry:Headers` among them, are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
 - With telemetry off, the program registers no OpenTelemetry log provider; the log files and the live log of the desktop app are the same either way.
 

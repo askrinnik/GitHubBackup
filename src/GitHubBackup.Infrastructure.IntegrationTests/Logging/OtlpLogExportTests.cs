@@ -63,6 +63,7 @@ public sealed class OtlpLogExportTests : IDisposable
         var record = OwnRecords().ShouldHaveSingleItem();
         record.LogLevel.ShouldBe(LogLevel.Warning);
         record.FormattedMessage.ShouldBe("\"Entry\"");
+        record.GetAttribute("level").ShouldBe("Warning");
         record.GetAttribute(LogProperties.RunId).ShouldBe(runId);
         record.GetAttribute(LogProperties.Repository).ShouldBe("octocat/hello-world");
         record.GetAttribute(LogProperties.Operation).ShouldBe("clone");

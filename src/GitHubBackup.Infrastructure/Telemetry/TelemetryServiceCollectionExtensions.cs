@@ -34,8 +34,8 @@ public static class TelemetryServiceCollectionExtensions
         /// <see langword="true"/>; otherwise adds nothing.
         /// </summary>
         /// <remarks>
-        /// The logger provider receives the entries that Serilog lets through its levels; it requires
-        /// <see cref="ISecretMasker"/> to be registered.
+        /// The logger provider receives the entries that Serilog lets through its levels, and each record carries its
+        /// level as the <c>level</c> attribute; it requires <see cref="ISecretMasker"/> to be registered.
         /// The switch is read from <paramref name="configuration"/> because registration happens before the options
         /// exist. A value that is not a boolean registers nothing here and is reported by the validation of
         /// <see cref="OpenTelemetryOptions"/> when the host starts. The endpoint and the headers are read from the
@@ -58,6 +58,7 @@ public static class TelemetryServiceCollectionExtensions
                 .WithLogging(
                     logging => logging
                         .AddProcessor(provider => new SecretMaskingLogRecordProcessor(provider.GetRequiredService<ISecretMasker>()))
+                        .AddProcessor(new LevelLogRecordProcessor())
                         .AddOtlpExporter(),
                     ConfigureLogging);
 
