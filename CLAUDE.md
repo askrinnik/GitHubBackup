@@ -6,6 +6,7 @@ Windows 11 application (.NET 10, C# 14) that keeps local clones of GitHub reposi
 
 - **`docs/PRD.md` is the single source of requirements.** Every issue links the PRD sections and requirement ids (`FR-x.y`, `NFR-x`) it implements. Read those sections, not the whole document.
 - **PRD first.** If a task needs behaviour the PRD does not describe, or contradicts it, stop and propose the PRD change (bump the version in the header, add a row to the change history). Code follows only after the user approves the change; the issue is updated after the PRD.
+- **PRD change in the issue.** A PRD change approved before work on its issue starts is not written to `docs/PRD.md` yet: the approved text goes into the issue body under `## Изменение PRD`, and `## Источник требований` names the affected requirement ids and points to that section. The implementation copies the text into `docs/PRD.md` on the issue's branch, together with the code; the version and the change-history row are assigned then. The text is already approved, so the workflow does not ask again unless the PRD changed since; then it proposes the updated text.
 - The AI harness itself (agents, rules, skills, workflow, benchmark) is described in `docs/ai/README.md`. The issue workflow comes from the `issue-kit` plugin of the marketplace `askrinnik/ai-plugins`, the harness benchmark from its `harness-kit` plugin; `issue-kit.config.json` (repository root) holds this repository's values for the workflow.
 
 ## Language (NFR-7)
