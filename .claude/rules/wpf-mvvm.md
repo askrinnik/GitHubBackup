@@ -44,7 +44,21 @@ paths:
 - Every interactive element an automated UI test needs carries an `AutomationProperties.AutomationId`; names are stable, PascalCase and unique within the window.
 - User-visible text is English (NFR-7).
 
+## Visual design
+
+These rules hold for every window and view; a change that breaks one is a defect, not a matter of taste.
+
+- **Separate regions visibly.** A panel that is not the main content (the run summary, a notice) sits in a card: `CardBackgroundFillColorDefaultBrush` fill, a 1 px `SystemColors.ActiveBorderBrushKey` border, `CornerRadius="4"`, padding 8,6. Inside a card, a 1 px line of the same brush with a margin of 6 above and below separates a table from the text lines around it. The Fluent divider brushes are too faint for this in the dark theme.
+- **One baseline per table row.** In a `DataGrid`, text columns get an `ElementStyle` based on `DataGridTextColumn.DefaultElementStyle` with `VerticalAlignment="Center"`, and the controls and text blocks of template columns are centred too.
+- **Selection keeps the text color.** Selected rows use the translucent accent of `App.xaml`, never a fill that needs a different text color.
+- **Nothing is cut.** A table inside a resizable panel keeps at least its column header and one row (`RowDefinition.MinHeight`). A splitter stops at the height of the content below it; when the window has no room left, the panel scrolls as a whole instead of clipping a line.
+- **Theme brushes only.** Colors come from Fluent theme resources (`DynamicResource`) or the shared styles in `App.xaml`, so the light and the dark theme both work. Fixed colors are allowed only for status text (`Firebrick`, `DarkGoldenrod`), as the existing views use them.
+
 ## Verifying the running app
+
+- **Every visual change is checked with screenshots before and after, in the light and the dark theme.** "Looks better" is not a check: measure. Crop or zoom the changed region and compare pixel rows: the top of the text of every cell in a row is the same pixel row, margins are the same on both sides, and no glyph touches or crosses a border.
+- Walk the states of the changed view, each with a screenshot: empty, one row, many rows, a long text, selected and focused, dry run, error, and the smallest size of every panel and splitter around it (start with a small saved panel height in `ui-settings.json` and drag the splitter to its limit). A change is not done while one of these states cuts text or misaligns it.
+- Run the app against a temporary installation: a copy of the build output with its own `appsettings.json`, `backup-config.json` and `ui-settings.json`, and a local stub for the GitHub API address. Never the user's installation, real repositories or a real token.
 
 - When an issue changes a window or view, its verify step also checks the visible acceptance items in the running app through the `netwright` MCP server, next to the ViewModel and FlaUI tests.
 - Launch with `desktop_app action=launch project=src/GitHubBackup.App/GitHubBackup.App.csproj`, target elements by AutomationId selectors (`#RepositoryTree`), assert each item with `desktop_expect`, and close the app with `desktop_app action=close` when done.
