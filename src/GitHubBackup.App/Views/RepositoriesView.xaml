@@ -246,7 +246,13 @@
                    Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                    DragDelta="OnLogSummarySplitterDragDelta"
                    AutomationProperties.AutomationId="LogSummarySplitter" />
+            <!-- The frame and the card fill set the summary of the last run apart from the live log above it. -->
             <Border Grid.Row="4"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
+                    BorderThickness="1"
+                    CornerRadius="4"
+                    Padding="8,6"
                     Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                     AutomationProperties.AutomationId="RunSummary">
                 <!-- The result table takes the height the splitter gives the summary and scrolls inside it;
