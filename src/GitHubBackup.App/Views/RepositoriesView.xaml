@@ -249,10 +249,15 @@
             <Border Grid.Row="4"
                     Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                     AutomationProperties.AutomationId="RunSummary">
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
-                              HorizontalScrollBarVisibility="Disabled"
-                              AutomationProperties.AutomationId="RunSummaryScroll">
-                <StackPanel DataContext="{Binding Summary, Mode=OneWay}">
+                <!-- The result table takes the height the splitter gives the summary and scrolls inside it;
+                     the lines above and below it keep their natural height. -->
+                <Grid DataContext="{Binding Summary, Mode=OneWay}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <StackPanel Grid.Row="0">
                     <TextBlock Text="{Binding Header, Mode=OneWay}"
                                Style="{StaticResource OptionalLineStyle}"
                                AutomationProperties.AutomationId="RunSummaryHeader" />
@@ -278,9 +283,10 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
-                    <ListView ItemsSource="{Binding Rows, Mode=OneWay}"
+                </StackPanel>
+                    <ListView Grid.Row="1"
+                              ItemsSource="{Binding Rows, Mode=OneWay}"
                               Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                              MaxHeight="160"
                               VirtualizingPanel.IsVirtualizing="True"
                               VirtualizingPanel.VirtualizationMode="Recycling"
                               ItemContainerStyle="{StaticResource CompactListViewItemStyle}"
@@ -295,6 +301,7 @@
                             </GridView>
                         </ListView.View>
                     </ListView>
+                <StackPanel Grid.Row="2">
                     <TextBlock Text="{Binding NoRepositoriesLine, Mode=OneWay}"
                                Style="{StaticResource OptionalLineStyle}"
                                AutomationProperties.AutomationId="RunSummaryNoRepositories" />
@@ -321,7 +328,7 @@
                                TextWrapping="Wrap"
                                AutomationProperties.AutomationId="RunSummaryLogPath" />
                 </StackPanel>
-                </ScrollViewer>
+                </Grid>
             </Border>
         </Grid>
     </DockPanel>

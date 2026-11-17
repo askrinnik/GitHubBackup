@@ -71,13 +71,12 @@ public sealed class MainWindowLayoutTests : IDisposable
         session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
         var log = session.WaitFor("RunLog").BoundingRectangle.Height;
         var scale = log / UiSettings.DefaultLogPanelHeight;
-        var before = session.WaitFor("RunSummaryScroll").BoundingRectangle.Height;
+        var before = SummaryHeight(session);
 
         DragVertically(session.WaitFor("LogSummarySplitter"), -(int)(60 * scale));
 
-        AppSession.WaitUntil(
-            () => session.WaitFor("RunSummaryScroll").BoundingRectangle.Height >= before + (50 * scale), "the summary to grow");
-        var resized = session.WaitFor("RunSummaryScroll").BoundingRectangle.Height;
+        AppSession.WaitUntil(() => SummaryHeight(session) >= before + (50 * scale), "the summary to grow");
+        var resized = SummaryHeight(session);
         ((double)session.WaitFor("RunLog").BoundingRectangle.Height).ShouldBe(log, _pixelTolerance);
         await CloseAsync(session);
         _installation.ReadMainWindowSettings().GetProperty("SummaryPanelHeight").GetDouble()
@@ -226,6 +225,15 @@ public sealed class MainWindowLayoutTests : IDisposable
     /// <returns>The elements in tree order.</returns>
     private static AutomationElement[] FindAll(AutomationElement root, string automationId) =>
         root.FindAllDescendants(condition => condition.ByAutomationId(automationId));
+
+    /// <summary>
+    /// Measures the summary panel from the splitter above it to its last line, the log path, because the panel itself
+    /// is a layout element that UI Automation does not expose.
+    /// </summary>
+    /// <param name="session">The running application.</param>
+    /// <returns>The height in pixels.</returns>
+    private static double SummaryHeight(AppSession session) =>
+        session.WaitFor("RunSummaryLogPath").BoundingRectangle.Bottom - session.WaitFor("LogSummarySplitter").BoundingRectangle.Bottom;
 
     /// <summary>
     /// Drags <paramref name="splitter"/> up or down with the mouse.
