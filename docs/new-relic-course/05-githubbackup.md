@@ -72,7 +72,7 @@ GitHubBackup.Cli.exe backup --dry-run --OpenTelemetry:Enabled=true --OpenTelemet
 
 ```
 backup.run                      githubbackup.dry_run, githubbackup.run.outcome
-├── backup.discovery            нет при --repo
+├── backup.discovery            при --repo — точечная проверка записи; нет, если у записи нет ID или она исключена
 ├── backup.repository           githubbackup.repository, githubbackup.status, githubbackup.change.decision ...
 │   ├── ls-remote refs
 │   ├── ls-remote default-branch

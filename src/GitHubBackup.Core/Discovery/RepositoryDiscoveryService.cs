@@ -103,15 +103,7 @@ public sealed class RepositoryDiscoveryService(
                 continue;
             }
 
-            if (item.Status == RepositoryStatus.Unavailable)
-            {
-                returned.Add(new(item, current));
-            }
-
-            if (!IsSameName(item.FullName, current.FullName) && HasValidName(current))
-            {
-                renamed.Add(new(item, current));
-            }
+            Classify(item, current, returned, renamed);
         }
 
         var result = new DiscoveryResult(newInAccounts, newStandalone, missing, returned, renamed)
@@ -121,6 +113,38 @@ public sealed class RepositoryDiscoveryService(
         RepositoryDiscoveryServiceLog.Classified(
             logger, newInAccounts.Count, newStandalone.Count, missing.Count, returned.Count, renamed.Count);
         return result;
+    }
+
+    /// <inheritdoc />
+    public async Task<DiscoveryResult> CheckRepositoryAsync(
+        BackupConfig config, BackupWorkItem item, CancellationToken cancellationToken)
+    {
+        ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(item.Id, 0);
+        ParseAccounts(config, out var tracked);
+        var entry = tracked.Find(candidate => candidate.Id == item.Id)
+            ?? throw new ArgumentException($"The repository {item.FullName} is not in the configuration.", nameof(item));
+
+        var current = await FindForCheckAsync(entry, cancellationToken);
+        var missing = new List<TrackedRepository>();
+        var returned = new List<ReturnedRepository>();
+        var renamed = new List<RenamedRepository>();
+        if (current is null)
+        {
+            if (entry.Status == RepositoryStatus.Active)
+            {
+                missing.Add(entry);
+            }
+        }
+        else
+        {
+            Classify(entry, current, returned, renamed);
+        }
+
+        RepositoryDiscoveryServiceLog.Checked(logger, entry.FullName, missing.Count, returned.Count, renamed.Count);
+        return new DiscoveryResult([], [], missing, returned, renamed)
+        {
+            Repositories = current is null ? [] : new Dictionary<long, GitHubRepository> { [current.Id] = current },
+        };
     }
 
     /// <inheritdoc />
@@ -163,6 +187,31 @@ public sealed class RepositoryDiscoveryService(
         }
 
         return new(resolved, notFound, conflicts);
+    }
+
+    /// <summary>
+    /// Adds a configured repository that GitHub reports to <paramref name="returned"/> when it was unavailable and to
+    /// <paramref name="renamed"/> when GitHub reports it under another valid name.
+    /// </summary>
+    /// <param name="item">The configured repository.</param>
+    /// <param name="current">The repository GitHub reports for the same id.</param>
+    /// <param name="returned">Receives the entry when it was unavailable.</param>
+    /// <param name="renamed">Receives the entry when it was renamed.</param>
+    private void Classify(
+        TrackedRepository item,
+        GitHubRepository current,
+        List<ReturnedRepository> returned,
+        List<RenamedRepository> renamed)
+    {
+        if (item.Status == RepositoryStatus.Unavailable)
+        {
+            returned.Add(new(item, current));
+        }
+
+        if (!IsSameName(item.FullName, current.FullName) && HasValidName(current))
+        {
+            renamed.Add(new(item, current));
+        }
     }
 
     /// <summary>
@@ -312,6 +361,31 @@ public sealed class RepositoryDiscoveryService(
         }
 
         return await TryGetAsync(() => gitHubApi.GetRepositoryByIdAsync(item.Id, cancellationToken));
+    }
+
+    /// <summary>
+    /// Looks up the entry of a single-repository check: by its id, then by its configured name when the id answers 404
+    /// or 403.
+    /// </summary>
+    /// <remarks>
+    /// A repository found by name counts only when it has the id of the entry; the name may belong to another
+    /// repository now.
+    /// </remarks>
+    /// <param name="item">The configured repository, with an id.</param>
+    /// <param name="cancellationToken">The token that cancels the requests.</param>
+    /// <returns>The repository, or <see langword="null"/> when no repository with the id is visible.</returns>
+    /// <exception cref="GitHubApiException">A request failed for another reason, such as an exhausted rate limit.</exception>
+    private async Task<GitHubRepository?> FindForCheckAsync(TrackedRepository item, CancellationToken cancellationToken)
+    {
+        var byId = await TryGetAsync(() => gitHubApi.GetRepositoryByIdAsync(item.Id, cancellationToken));
+        if (byId is not null)
+        {
+            return byId;
+        }
+
+        var byName = await TryGetAsync(
+            () => gitHubApi.GetRepositoryAsync(item.Owner, item.Name, cancellationToken));
+        return byName is not null && byName.Id == item.Id ? byName : null;
     }
 
     /// <summary>

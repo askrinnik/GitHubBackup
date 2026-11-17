@@ -78,4 +78,18 @@ internal static partial class RepositoryDiscoveryServiceLog
         Level = LogLevel.Warning,
         Message = "The id {Id} found for {Repository} already belongs to {OtherRepository} in backup-config.json")]
     public static partial void IdConflict(ILogger logger, string repository, long id, string otherRepository);
+
+    /// <summary>
+    /// Logs the outcome of the check of a single configured repository.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The entry as <c>owner/name</c>.</param>
+    /// <param name="missing">The number of missing findings, 0 or 1.</param>
+    /// <param name="returned">The number of returned findings, 0 or 1.</param>
+    /// <param name="renamed">The number of renamed findings, 0 or 1.</param>
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Information,
+        Message = "Check of {Repository} found {Missing} missing, {Returned} returned, {Renamed} renamed")]
+    public static partial void Checked(ILogger logger, string repository, int missing, int returned, int renamed);
 }

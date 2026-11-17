@@ -388,6 +388,8 @@ Before it processes repositories, `backup` cleans `<sourcesRoot>\.tmp\` of files
 - Missing repository: the program marks it `Unavailable`. Its clone and archives stay in place. There is no question.
 - Renamed repository: it gets the new name, and the clone is moved in every case. In interactive mode you choose whether to rename the archive folder (a) or keep it and store it in `path` (b, the default). With `--silent`, the answer is always (b). If the archive folder does not depend on the name, there is no question.
 
+With `--repo`, the comparison covers only that entry (a single-repository check). The program asks GitHub for the repository by its ID (`GET /repositories/{id}`). If GitHub answers 404 or 403, it asks for the repository by name (`GET /repos/{owner}/{repo}`) before it treats the entry as missing. A found repository under the same name changes nothing; an `Unavailable` entry that GitHub reports again becomes `Active` and is backed up in the same run; a repository under another name is a rename, with the same questions as above. A missing repository gets `Unavailable` without `Failed` items for the repository or its wiki, and the run exits with code `3`. The check does not look for new repositories. It does not run for an entry without `id` (see [Entries without `id`](#entries-without-id)) or for an excluded entry. `--dry-run` runs the check too and saves nothing. A GitHub API failure during the check is a critical error (exit code `2`).
+
 Without `--silent`, a run with redirected input (for example from the Task Scheduler) exits with code `2` and a hint to use `--silent`. It processes no repositories and changes nothing. This check runs before any call to GitHub and applies to every filter (`--account`, `--repo`). With `--dry-run`, there is no such check.
 
 ### Discovery mode (`discoverAccessibleRepositories`)
@@ -681,7 +683,7 @@ Traces:
 
 ```
 backup.run                      githubbackup.dry_run, githubbackup.run.outcome
-├── backup.discovery            absent with --repo
+├── backup.discovery            with --repo, the check of one entry; absent when that entry has no id or is excluded
 ├── backup.repository           githubbackup.repository, githubbackup.target, githubbackup.status,
 │   │                           githubbackup.change.decision, githubbackup.change.reason, githubbackup.branch
 │   ├── ls-remote refs          githubbackup.operation, githubbackup.git.query, githubbackup.git.refs_count
@@ -696,7 +698,7 @@ Spans:
 | Span | When it appears | What it does |
 |---|---|---|
 | `backup.run` | Always; the root of the trace | The whole run. |
-| `backup.discovery` | Every run except a run with `--repo` | Asks the GitHub API for the repositories and finds new, missing and renamed ones. |
+| `backup.discovery` | Every run; with `--repo` only when the entry has an id and is not excluded | Asks the GitHub API for the repositories and finds new, missing and renamed ones; with `--repo`, it checks that one entry. |
 | `backup.repository` | Once for each processed repository or wiki | Processes one repository or its wiki; the operation spans below are its children. |
 | `ls-remote refs` | A normal run with an existing clone and a last archive whose file exists; a dry run with an existing clone; a dry run of a wiki without a clone | Reads the branches and tags of the server without changing the clone. |
 | `ls-remote default-branch` | After `ls-remote refs`, when the branch is not set or is missing on the server | Asks the server for its default branch. |

@@ -900,6 +900,157 @@ public sealed class RepositoryDiscoveryServiceTests
         await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
     }
 
+    [Fact]
+    public async Task CheckRepositoryAsync_FoundByIdSameName_NoChangesAndRepositoryReturned()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        var repository = Repo(1, "octo", "tool");
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(repository);
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.HasChanges.ShouldBeFalse();
+        result.Repositories[1].ShouldBe(repository);
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+        await _api.DidNotReceiveWithAnyArgs().GetCurrentUserRepositoriesAsync(Token);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task CheckRepositoryAsync_FoundByIdOtherName_IsRenamed(bool inAccount)
+    {
+        var config = inAccount
+            ? Config(Account("octo", Active(1, "tool")))
+            : new BackupConfig { Repositories = [Standalone("octo", "tool", 1)] };
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool-new"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        var renamed = result.Renamed.ShouldHaveSingleItem();
+        renamed.Tracked.FullName.ShouldBe("octo/tool");
+        renamed.Current.FullName.ShouldBe("octo/tool-new");
+        result.Missing.ShouldBeEmpty();
+        result.Returned.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_FoundByIdInvalidName_IsNeitherRenamedNorMissing()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "bad name"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.HasChanges.ShouldBeFalse();
+        ShouldLogInvalidName("octo/bad name");
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_UnavailableFoundById_IsReturned()
+    {
+        var config = Config(Account("octo", Unavailable(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.Returned.ShouldHaveSingleItem().Tracked.Id.ShouldBe(1);
+        result.Renamed.ShouldBeEmpty();
+        result.Missing.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_UnavailableFoundUnderOtherName_IsReturnedAndRenamed()
+    {
+        var config = Config(Account("octo", Unavailable(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool-new"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.Returned.ShouldHaveSingleItem();
+        result.Renamed.ShouldHaveSingleItem().Current.Name.ShouldBe("tool-new");
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task CheckRepositoryAsync_IdAndNameNotFoundOrDenied_IsMissing(bool idDenied, bool nameDenied)
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns<GitHubRepository>(
+            _ => throw (idDenied ? new GitHubAccessDeniedException("denied", "repositories") : new GitHubNotFoundException("not found", "repositories")));
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns<GitHubRepository>(
+            _ => throw (nameDenied ? new GitHubAccessDeniedException("denied", "repos") : new GitHubNotFoundException("not found", "repos")));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.Missing.ShouldHaveSingleItem().FullName.ShouldBe("octo/tool");
+        result.Repositories.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_IdNotFoundNameSameId_NoChanges()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.HasChanges.ShouldBeFalse();
+        result.Repositories.ShouldContainKey(1);
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_IdNotFoundNameOtherId_IsMissing()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns(Repo(2, "octo", "tool"));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.Missing.ShouldHaveSingleItem().Id.ShouldBe(1);
+        result.Repositories.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_UnavailableNotFound_NoChanges()
+    {
+        var config = Config(Account("octo", Unavailable(1, "tool")));
+
+        var result = await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        result.HasChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_ByIdApiFailure_Throws()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns<GitHubRepository>(_ => throw RateLimit());
+
+        await Should.ThrowAsync<GitHubApiException>(() => _service.CheckRepositoryAsync(config, Items(config)[0], Token));
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_ByNameApiFailure_Throws()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryAsync("octo", "tool", Arg.Any<CancellationToken>()).Returns<GitHubRepository>(_ => throw RateLimit());
+
+        await Should.ThrowAsync<GitHubApiException>(() => _service.CheckRepositoryAsync(config, Items(config)[0], Token));
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_EntryWithoutId_ThrowsArgumentOutOfRange()
+    {
+        var config = Config(Account("octo", Active(0, "tool")));
+
+        await Should.ThrowAsync<ArgumentOutOfRangeException>(
+            () => _service.CheckRepositoryAsync(config, Items(config)[0], Token));
+    }
+
     /// <summary>
     /// Lists the entries of <paramref name="config"/> as work items, with an archive root set so the folders resolve.
     /// </summary>

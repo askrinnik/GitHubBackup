@@ -5,7 +5,7 @@ namespace GitHubBackup.Core.Runs;
 /// one repository.
 /// </summary>
 /// <remarks>
-/// A run limited to one repository skips discovery; a run limited to one account discovers only that account and
+/// A run limited to one repository checks only that entry (a single-repository check); a run limited to one account discovers only that account and
 /// processes only the entries listed under it, not the standalone repositories of the same owner.
 /// </remarks>
 public sealed record BackupRunFilter
@@ -35,7 +35,7 @@ public sealed record BackupRunFilter
     /// <summary>Gets the name of the repository the run is limited to, or <see langword="null"/>.</summary>
     public string? RepositoryName { get; }
 
-    /// <summary>Gets whether the run is limited to one repository and therefore skips discovery.</summary>
+    /// <summary>Gets whether the run is limited to one repository and therefore checks only that entry instead of discovering.</summary>
     public bool IsRepository => RepositoryName is not null;
 
     /// <summary>Gets the repository the run is limited to as <c>owner/name</c>, or <see langword="null"/>.</summary>

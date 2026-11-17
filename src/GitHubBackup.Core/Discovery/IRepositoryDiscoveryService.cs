@@ -33,6 +33,25 @@ public interface IRepositoryDiscoveryService
     Task<DiscoveryResult> DiscoverAsync(BackupConfig config, string? accountLogin, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Checks one configured repository with an ID: asks GitHub for it by ID, then by name when the ID answers 404 or
+    /// 403, and classifies it as missing, returned or renamed. The configuration is not changed.
+    /// </summary>
+    /// <remarks>
+    /// No new repositories are looked for. A repository found by name counts only when it has the ID of the entry.
+    /// <see cref="DiscoveryResult.Repositories"/> holds the repository GitHub reported, when there is one.
+    /// </remarks>
+    /// <param name="config">A configuration that has passed <see cref="IBackupConfigValidator"/>.</param>
+    /// <param name="item">The entry to check; it has an ID.</param>
+    /// <param name="cancellationToken">The token that cancels the lookups.</param>
+    /// <returns>The classified repository, or a result without findings when nothing changed.</returns>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="item"/> has no ID.</exception>
+    /// <exception cref="ArgumentException">
+    /// A URL in <paramref name="config"/> is not valid, or no entry of <paramref name="config"/> has the ID of <paramref name="item"/>.
+    /// </exception>
+    /// <exception cref="GitHubApiException">A lookup failed for another reason, such as an exhausted rate limit.</exception>
+    Task<DiscoveryResult> CheckRepositoryAsync(BackupConfig config, BackupWorkItem item, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Looks up each of <paramref name="items"/> that has no ID by its configured name and returns the IDs GitHub
     /// reports. The configuration is not changed.
     /// </summary>

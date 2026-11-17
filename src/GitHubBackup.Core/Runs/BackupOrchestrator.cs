@@ -245,7 +245,14 @@ public sealed class BackupOrchestrator(
         DiscoveryApplyResult? applied = null;
         RepositoryIdResolution resolution;
         IReadOnlyList<string> savedIds;
-        using (var discoveryActivity = filter.IsRepository ? null : telemetry.StartDiscovery())
+
+        // A single-repository run checks the entry only when it has an ID before the run resolves IDs by name and no
+        // exclusion mask matches it.
+        var entryToCheck = filter.IsRepository
+            ? items.FirstOrDefault(item =>
+                item.Id != 0 && filter.Includes(item) && exclusionMatcher.Match(config, item.Owner, item.Name) is null)
+            : null;
+        using (var discoveryActivity = filter.IsRepository && entryToCheck is null ? null : telemetry.StartDiscovery())
         {
             try
             {
@@ -261,7 +268,7 @@ public sealed class BackupOrchestrator(
                 // Taken before a rename changes the folders, so a clone the applier could not move is still found
                 // under its old name when the file has no record of it.
                 currentLocations = GetConfiguredLocations(items);
-                discovery = await DiscoverAsync(config, filter, request.Progress, cancellationToken);
+                discovery = await DiscoverAsync(config, filter, entryToCheck, request.Progress, cancellationToken);
 
                 // The applier always saves the configuration and may move folders, so a dry run only shows what
                 // discovery found and leaves the decisions to a backup run.
@@ -300,7 +307,7 @@ public sealed class BackupOrchestrator(
         var missing = dryRun ? discovery.Missing.Select(repository => repository.Id).ToHashSet() : [];
         var locations = new LocationBook(recordedLocations, currentLocations, remoteUrlProvider);
         var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress, locations, sourcesRoot);
-        var work = ExcludeMatching(config, SelectIncluded(items, filter));
+        var work = ExcludeMatching(config, SelectIncluded(items, filter, entryToCheck?.Id));
         var results = new List<BackupItemResult>(work.Count);
         var unresolved = GetUnresolved(resolution);
         var discovered = MergeResolved(discovery.Repositories, resolution);
@@ -603,25 +610,34 @@ public sealed class BackupOrchestrator(
 
     /// <summary>
     /// Discovers the repositories of every account, or of the account the run is limited to; a run limited to one
-    /// repository skips discovery.
+    /// repository checks only that entry.
     /// </summary>
     /// <param name="config">The configuration to compare with.</param>
     /// <param name="filter">The repositories the run covers.</param>
+    /// <param name="entryToCheck">
+    /// The entry a run limited to one repository checks, or <see langword="null"/> when that run has nothing to check.
+    /// </param>
     /// <param name="progress">Receives the start of the discovery, or <see langword="null"/>.</param>
     /// <param name="cancellationToken">Cancels the discovery.</param>
-    /// <returns>The classified repositories, or <see cref="DiscoveryResult.Empty"/> when discovery is skipped.</returns>
-    /// <exception cref="GitHubApiException">Listing the repositories failed.</exception>
+    /// <returns>The classified repositories, or <see cref="DiscoveryResult.Empty"/> when there is nothing to check.</returns>
+    /// <exception cref="GitHubApiException">Listing the repositories or the check failed.</exception>
     /// <exception cref="ArgumentException">The account of <paramref name="filter"/> is not tracked.</exception>
     private async Task<DiscoveryResult> DiscoverAsync(
         BackupConfig config,
         BackupRunFilter filter,
+        BackupWorkItem? entryToCheck,
         IProgress<BackupProgress>? progress,
         CancellationToken cancellationToken)
     {
         if (filter.IsRepository)
         {
-            BackupOrchestratorLog.DiscoverySkipped(logger, filter.RepositoryFullName!);
-            return DiscoveryResult.Empty;
+            if (entryToCheck is null)
+            {
+                BackupOrchestratorLog.DiscoverySkipped(logger, filter.RepositoryFullName!);
+                return DiscoveryResult.Empty;
+            }
+
+            return await discoveryService.CheckRepositoryAsync(config, entryToCheck, cancellationToken);
         }
 
         progress?.Report(new(BackupProgressStage.Discovering, null, 0, 0));
@@ -634,13 +650,17 @@ public sealed class BackupOrchestrator(
     /// </summary>
     /// <param name="items">The repositories of the configuration.</param>
     /// <param name="filter">The filter of the run.</param>
+    /// <param name="checkedId">
+    /// The ID of the entry a single-repository run checked, or <see langword="null"/>. The entry is selected by ID
+    /// because the check may have renamed it.
+    /// </param>
     /// <returns>The repositories the filter keeps, in their original order.</returns>
-    private List<BackupWorkItem> SelectIncluded(IReadOnlyList<BackupWorkItem> items, BackupRunFilter filter)
+    private List<BackupWorkItem> SelectIncluded(IReadOnlyList<BackupWorkItem> items, BackupRunFilter filter, long? checkedId)
     {
         var kept = new List<BackupWorkItem>(items.Count);
         foreach (var item in items)
         {
-            if (filter.Includes(item))
+            if (checkedId is { } id ? item.Id == id : filter.Includes(item))
             {
                 kept.Add(item);
             }
