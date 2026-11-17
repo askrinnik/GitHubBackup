@@ -240,6 +240,7 @@ public sealed class CliEndToEndTests : IDisposable
     {
         await GivenTrackedRepositoriesAsync("a", "b");
         await GivenNewRepositoryAsync("new", 3);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
 
         var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
 
@@ -248,6 +249,97 @@ public sealed class CliEndToEndTests : IDisposable
         _installation.FindArchives(_owner, "b").ShouldBeEmpty();
         Directory.Exists(_installation.CloneFolder(_owner, "b")).ShouldBeFalse();
         (await ReadBackupConfigAsync()).ShouldNotContain($"https://github.com/{_owner}/new");
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
+    [Theory]
+    [InlineData(404)]
+    [InlineData(403)]
+    public async Task Backup_SilentRepoFilterRepositoryGone_MarksUnavailableKeepsFilesExitsDiscoveryEvents(int statusCode)
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        (await _installation.RunAsync("backup", "--silent")).ExitCode.ShouldBe((int)ExitCode.Success);
+        _api.GivenRepositoryUnavailable(1, _owner, "a", statusCode);
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.DiscoveryEvents, result.ToString());
+        result.StandardOutput.ShouldContain("Failed: 0");
+        RepositoryStatuses(await ReadBackupConfigAsync()).ShouldBe(["Unavailable"]);
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+        Directory.Exists(_installation.CloneFolder(_owner, "a")).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task Backup_SilentRepoFilterUnavailableReturned_ReactivatesAndArchives()
+    {
+        await _sandbox.CreateRemoteAsync($"{_owner}/a", CancellationToken);
+        GivenCurrentUserRepository("a", 1);
+        _config.WithRepository(_owner, "a", 1, "Unavailable").WriteTo(_installation.BackupConfigPath);
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        RepositoryStatuses(await ReadBackupConfigAsync()).ShouldBe(["Active"]);
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Backup_SilentRepoFilterRenamed_UpdatesNameAndArchives()
+    {
+        await _sandbox.CreateRemoteAsync($"{_owner}/b", CancellationToken);
+        _api.GivenRepository(1, _owner, "b");
+        _config.WithRepository(_owner, "a", 1).WriteTo(_installation.BackupConfigPath);
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.DiscoveryEvents, result.ToString());
+        var config = await ReadBackupConfigAsync();
+        config.ShouldContain($"https://github.com/{_owner}/b");
+        config.ShouldNotContain($"https://github.com/{_owner}/a\"");
+        _installation.FindArchives().ShouldHaveSingleItem();
+    }
+
+    [Fact]
+    public async Task Backup_DryRunRepoFilterRepositoryGone_ShowsMissingAndKeepsConfig()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        _api.GivenRepositoryUnavailable(1, _owner, "a");
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("backup", "--dry-run", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.DiscoveryEvents, result.ToString());
+        result.StandardOutput.ShouldContain("Missing");
+        result.StandardOutput.ShouldContain("Failed: 0");
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task Backup_SilentRepoFilterApiFailure_ExitsCritical()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        _api.GivenServerError("/repositories/1");
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Critical, result.ToString());
+        _installation.FindArchives().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task Backup_SilentRepoFilterEntryWithoutId_WritesIdWithoutCheckAndArchives()
+    {
+        await _sandbox.CreateRemoteAsync($"{_owner}/a", CancellationToken);
+        GivenCurrentUserRepository("a", 5);
+        _api.GivenServerError("/repositories/5");
+        _config.WithRepositoryWithoutId(_owner, "a").WriteTo(_installation.BackupConfigPath);
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        StandaloneIds(await ReadBackupConfigAsync()).ShouldBe([5]);
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
     }
 
     [Fact]
@@ -389,6 +481,17 @@ public sealed class CliEndToEndTests : IDisposable
     /// <returns>The error.</returns>
     private string MissingConfigHint() =>
         $"The backup configuration file '{_installation.BackupConfigPath}' does not exist. Create it in the settings editor of GitHubBackup.exe.";
+
+    /// <summary>
+    /// Returns the <c>status</c> of each standalone repository of a configuration.
+    /// </summary>
+    /// <param name="json">The text of <c>backup-config.json</c>.</param>
+    /// <returns>The statuses in file order.</returns>
+    private static string?[] RepositoryStatuses(string json) =>
+    [
+        .. JsonNode.Parse(json).ShouldNotBeNull()["repositories"].ShouldNotBeNull().AsArray()
+            .Select(entry => entry?["status"]?.GetValue<string>()),
+    ];
 
     /// <summary>
     /// Returns the <c>id</c> of each standalone repository of a configuration, <c>0</c> for an entry without one.

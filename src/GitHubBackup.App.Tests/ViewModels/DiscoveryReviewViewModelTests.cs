@@ -51,6 +51,8 @@ public sealed class DiscoveryReviewViewModelTests
             ("Returned", "acme/old"),
         ]);
         viewModel.Rows.Select(row => row.IsActionable).ShouldBe([true, true, true, false, false]);
+        viewModel.Rows.Select(row => row.AutomaticAction).ShouldBe(
+            ["", "", "", "Mark unavailable (automatic)", "Mark active (automatic)"]);
     }
 
     [Fact]

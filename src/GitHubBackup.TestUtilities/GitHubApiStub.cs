@@ -16,6 +16,9 @@ public sealed class GitHubApiStub : IDisposable
     /// <summary>The priority of the 404 answer to every other request.</summary>
     private const int _fallbackPriority = 100;
 
+    /// <summary>The priority of the error answers; they win over the scenario responses.</summary>
+    private const int _errorPriority = 0;
+
     /// <summary>
     /// The identifier of the <c>/user/repos</c> response, so that setting it up again replaces the previous one.
     /// </summary>
@@ -89,6 +92,27 @@ public sealed class GitHubApiStub : IDisposable
     }
 
     /// <summary>
+    /// Answers the lookups of one repository by id and by owner and name with an error status, as GitHub does for a
+    /// repository that is deleted or no longer visible. The answers win over those of <see cref="GivenRepository"/>.
+    /// </summary>
+    /// <param name="id">The repository id.</param>
+    /// <param name="owner">The owner login.</param>
+    /// <param name="name">The repository name.</param>
+    /// <param name="statusCode">The HTTP status code, 404 or 403.</param>
+    public void GivenRepositoryUnavailable(long id, string owner, string name, int statusCode = 404)
+    {
+        GivenError($"/repositories/{id}", statusCode);
+        GivenError($"/repos/{owner}/{name}", statusCode);
+    }
+
+    /// <summary>
+    /// Answers a <c>GET</c> of <paramref name="path"/> with HTTP 500, which the client reports as an API failure. The
+    /// answer wins over those of the other scenario methods.
+    /// </summary>
+    /// <param name="path">The request path.</param>
+    public void GivenServerError(string path) => GivenError(path, 500);
+
+    /// <summary>
     /// Serves a user account and the list of its repositories.
     /// </summary>
     /// <param name="login">The account login.</param>
@@ -122,6 +146,17 @@ public sealed class GitHubApiStub : IDisposable
     /// <param name="items">The JSON objects.</param>
     /// <returns>The JSON array.</returns>
     private static string JsonArray(IEnumerable<string> items) => $"[{string.Join(",", items)}]";
+
+    /// <summary>
+    /// Answers a <c>GET</c> of <paramref name="path"/> with <paramref name="statusCode"/> and an error body.
+    /// </summary>
+    /// <param name="path">The request path.</param>
+    /// <param name="statusCode">The HTTP status code.</param>
+    private void GivenError(string path, int statusCode) =>
+        _server
+            .Given(Request.Create().WithPath(path).UsingGet())
+            .AtPriority(_errorPriority)
+            .RespondWith(Json(statusCode, """{ "message": "Error", "documentation_url": "https://docs.github.com/rest" }"""));
 
     /// <summary>
     /// Answers a <c>GET</c> of <paramref name="path"/> with 200 and <paramref name="body"/>.

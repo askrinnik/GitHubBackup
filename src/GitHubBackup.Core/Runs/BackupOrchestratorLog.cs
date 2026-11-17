@@ -151,14 +151,14 @@ internal static partial class BackupOrchestratorLog
     public static partial void WikiLookupFailed(ILogger logger, Exception exception);
 
     /// <summary>
-    /// Logs that discovery is not run because the run is limited to one repository.
+    /// Logs that the check is not run because the run is limited to one repository that has no ID or is excluded.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="repository">The repository as <c>owner/name</c>.</param>
     [LoggerMessage(
         EventId = 15,
         Level = LogLevel.Information,
-        Message = "Discovery skipped: the run is limited to the repository {Repository}")]
+        Message = "Check skipped: the run is limited to the repository {Repository}, which has no id or is excluded")]
     public static partial void DiscoverySkipped(ILogger logger, string repository);
 
     /// <summary>
@@ -210,7 +210,7 @@ internal static partial class BackupOrchestratorLog
     /// <param name="logger">The logger.</param>
     [LoggerMessage(
         EventId = 20,
-        Level = LogLevel.Information,
+        Level = LogLevel.Warning,
         Message = "Dry run: the repository is missing on GitHub and a backup run would mark it Unavailable")]
     public static partial void RepositoryMissing(ILogger logger);
 

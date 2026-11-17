@@ -85,6 +85,31 @@ public sealed class MainWindowLayoutTests : IDisposable
     }
 
     [Fact]
+    public void SummaryWithTable_SmallSavedHeightAndDragDown_KeepsTableRowAndLinesWhole()
+    {
+        _api.GivenRepositoryUnavailable(3, "octo", "mid-length-name");
+        _installation.NewBackupConfig().WithRepository("octo", "mid-length-name", 3).WriteTo(_installation.BackupConfigPath);
+        _installation.WriteUiSettings("""{ "MainWindow": { "SummaryPanelHeight": 80 } }""");
+        var session = Start();
+        var tree = session.WaitFor("RepositoryTree");
+        AppSession.WaitUntil(
+            () => tree.FindFirstDescendant(condition => condition.ByName("octo/mid-length-name")) is not null,
+            "the tree item of the repository");
+        tree.FindFirstDescendant(condition => condition.ByName("octo/mid-length-name"))!.Patterns.SelectionItem.Pattern.Select();
+        session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
+        var backup = session.WaitFor("BackupRepositoryButton");
+        AppSession.WaitUntil(() => backup.IsEnabled, "Backup repository to be enabled");
+
+        AppSession.Invoke(backup);
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+        var scale = session.WaitFor("RunLog").BoundingRectangle.Height / UiSettings.DefaultLogPanelHeight;
+
+        AppSession.WaitUntil(() => SummaryIsWhole(session, scale), "the summary to grow to its table row and lines");
+        DragVertically(session.WaitFor("LogSummarySplitter"), (int)(300 * scale));
+        AppSession.WaitUntil(() => SummaryIsWhole(session, scale), "the summary to stop at its table row and lines");
+    }
+
+    [Fact]
     public void Tree_NamesOfDifferentLength_AlignsStatusAndDateColumns()
     {
         var session = Start();
@@ -234,6 +259,24 @@ public sealed class MainWindowLayoutTests : IDisposable
     /// <returns>The height in pixels.</returns>
     private static double SummaryHeight(AppSession session) =>
         session.WaitFor("RunSummaryLogPath").BoundingRectangle.Bottom - session.WaitFor("LogSummarySplitter").BoundingRectangle.Bottom;
+
+    /// <summary>
+    /// Returns whether the summary shows its table with the column header and one row, the discovery line below the
+    /// table and the log line inside the visible part of the summary.
+    /// </summary>
+    /// <param name="session">The session.</param>
+    /// <param name="scale">The device pixels per device-independent pixel.</param>
+    /// <returns><see langword="true"/> when nothing of the summary is cut.</returns>
+    private static bool SummaryIsWhole(AppSession session, double scale)
+    {
+        var visible = session.WaitFor("RunSummaryScroll").BoundingRectangle;
+        var table = session.WaitFor("RunSummaryTable").BoundingRectangle;
+        var discovery = session.WaitFor("RunSummaryDiscovery").BoundingRectangle;
+        var log = session.WaitFor("RunSummaryLogPath").BoundingRectangle;
+        return table.Height >= (56 * scale) - _pixelTolerance
+            && discovery.Top >= table.Bottom
+            && log.Bottom <= visible.Bottom + _pixelTolerance;
+    }
 
     /// <summary>
     /// Drags <paramref name="splitter"/> up or down with the mouse.

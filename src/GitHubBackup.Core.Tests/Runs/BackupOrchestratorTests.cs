@@ -94,6 +94,8 @@ public sealed class BackupOrchestratorTests : IDisposable
         _runLock.TryAcquireAsync(Arg.Any<CancellationToken>()).Returns(_runLockHandle);
         _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(DiscoveryResult.Empty);
+        _discovery.CheckRepositoryAsync(Arg.Any<BackupConfig>(), Arg.Any<BackupWorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(DiscoveryResult.Empty);
         _stateStore.LoadAsync(Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>())
             .Returns(call => BackupState.CreateEmpty(call.ArgAt<long>(1), call.ArgAt<string>(2)));
         _nameBuilder.Build(Arg.Any<string>(), Arg.Any<string>(), BackupTarget.Repository, Arg.Any<string>())
@@ -1196,7 +1198,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_RepositoryFilter_SkipsDiscoveryAndProcessesOnlyThatRepository()
+    public async Task RunAsync_RepositoryFilter_ChecksAndProcessesOnlyThatRepository()
     {
         AddRepository("other");
 
@@ -1204,8 +1206,10 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         result.Items.Select(item => item.Repository).ShouldBe(["owner/other"]);
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _discovery.Received(1).CheckRepositoryAsync(
+            _config, Arg.Is<BackupWorkItem>(item => item.Id == 2), CancellationToken);
         await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
-        SingleRecord(_discoverySkippedEventId).GetStructuredStateValue("Repository").ShouldBe("OWNER/Other");
+        Records(_discoverySkippedEventId).ShouldBeEmpty();
     }
 
     [Fact]
@@ -1221,6 +1225,148 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_RepositoryFilterMissing_AppliesAndSkipsWithoutFailed()
+    {
+        var finding = MissingRepository();
+        SetupCheck(finding);
+        _applier.ApplyAsync(
+                Arg.Any<BackupConfig>(),
+                Arg.Any<DiscoveryResult>(),
+                Arg.Any<IDiscoveryDecisionHandler>(),
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.Arg<BackupConfig>().Repositories[0].Status = RepositoryStatus.Unavailable;
+                return Applied(markedUnavailable: ["owner/repo"]);
+            });
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        await _applier.Received(1).ApplyAsync(_config, finding, _handler, _gitPath, "secret-token", CancellationToken);
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Skipped);
+        result.Items.ShouldNotContain(item => item.Status == BackupItemStatus.Failed);
+        result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterReturned_ProcessesReactivatedEntry()
+    {
+        _config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        var finding = new DiscoveryResult(
+            [],
+            [],
+            [],
+            [new(new("owner", "repo", 1, RepositoryStatus.Unavailable, null), Repository(1, "owner", "repo"))],
+            []);
+        SetupCheck(finding);
+        _applier.ApplyAsync(
+                Arg.Any<BackupConfig>(),
+                Arg.Any<DiscoveryResult>(),
+                Arg.Any<IDiscoveryDecisionHandler>(),
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.Arg<BackupConfig>().Repositories[0].Status = RepositoryStatus.Active;
+                return Applied(reactivated: ["owner/repo"]);
+            });
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterRenamed_ProcessesEntryUnderNewName()
+    {
+        var finding = new DiscoveryResult(
+            [],
+            [],
+            [],
+            [],
+            [new(new("owner", "repo", 1, RepositoryStatus.Active, null), Repository(1, "owner", "renamed"))]);
+        SetupCheck(finding);
+        _relocator.RelocateAsync(Arg.Any<CloneRelocationRequest>(), Arg.Any<CancellationToken>()).Returns(CloneRelocation.NotPresent);
+        _applier.ApplyAsync(
+                Arg.Any<BackupConfig>(),
+                Arg.Any<DiscoveryResult>(),
+                Arg.Any<IDiscoveryDecisionHandler>(),
+                Arg.Any<string>(),
+                Arg.Any<string?>(),
+                Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                call.Arg<BackupConfig>().Repositories[0].Url = "https://github.com/owner/renamed";
+                return Applied(renamed:
+                [
+                    new("owner/repo", "owner/renamed", RenameDecision.KeepArchiveFolder, RenameDecision.KeepArchiveFolder, CloneRelocationResult.Moved, CloneRelocationResult.NotPresent),
+                ]);
+            });
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.Items.ShouldHaveSingleItem().Repository.ShouldBe("owner/renamed");
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Archived);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterCheckFails_ReturnsCritical()
+    {
+        var failure = DiscoveryFailure("server");
+        _discovery.CheckRepositoryAsync(Arg.Any<BackupConfig>(), Arg.Any<BackupWorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException<DiscoveryResult>(failure));
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
+
+        result.CriticalErrors.ShouldBe([failure.Message]);
+        result.ExitCode.ShouldBe(ExitCode.Critical);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunRepositoryFilterMissing_PlansWithoutApplyOrSave()
+    {
+        var finding = MissingRepository();
+        SetupCheck(finding);
+
+        var result = await CreateOrchestrator().RunAsync(
+            Request(BackupRunFilter.ForRepository("owner", "repo")) with { DryRun = true }, CancellationToken);
+
+        result.PlannedDiscovery.ShouldBe(finding);
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.Skipped);
+        result.Items.ShouldNotContain(item => item.Status == BackupItemStatus.Failed);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+        await _detector.DidNotReceiveWithAnyArgs().PreviewAsync(default!, CancellationToken);
+        SingleRecord(_repositoryMissingEventId).Level.ShouldBe(LogLevel.Warning);
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunRepositoryFilterReturned_ProcessesAsActive()
+    {
+        _config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+        SetupCheck(new(
+            [],
+            [],
+            [],
+            [new(new("owner", "repo", 1, RepositoryStatus.Unavailable, null), Repository(1, "owner", "repo"))],
+            []));
+
+        var result = await CreateOrchestrator().RunAsync(
+            Request(BackupRunFilter.ForRepository("owner", "repo")) with { DryRun = true }, CancellationToken);
+
+        result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.WouldArchive);
+        await _applier.DidNotReceiveWithAnyArgs().ApplyAsync(default!, default!, default!, default!, default, CancellationToken);
+    }
+
+    [Fact]
     public async Task RunAsync_RepositoryFilterMatchesExclusion_ProcessesNothing()
     {
         _config.Exclude.Add("owner/repo");
@@ -1229,6 +1375,7 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         result.Items.ShouldBeEmpty();
         result.ExitCode.ShouldBe(ExitCode.Success);
+        await _discovery.DidNotReceiveWithAnyArgs().CheckRepositoryAsync(default!, default!, CancellationToken);
         await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
     }
 
@@ -1525,7 +1672,7 @@ public sealed class BackupOrchestratorTests : IDisposable
         ]);
         await _detector.DidNotReceive().PreviewAsync(
             Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl.Contains("/repo.")), Arg.Any<CancellationToken>());
-        SingleRecord(_repositoryMissingEventId).Level.ShouldBe(LogLevel.Information);
+        SingleRecord(_repositoryMissingEventId).Level.ShouldBe(LogLevel.Warning);
         result.ExitCode.ShouldBe(ExitCode.DiscoveryEvents);
     }
 
@@ -1607,7 +1754,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_DryRunRepositoryFilter_SkipsDiscovery()
+    public async Task RunAsync_DryRunRepositoryFilter_ChecksTheRepositoryWithoutFindings()
     {
         SetupPreview(ChangeDecision.UpToDate);
 
@@ -1617,6 +1764,8 @@ public sealed class BackupOrchestratorTests : IDisposable
         result.Items.ShouldHaveSingleItem().Status.ShouldBe(BackupItemStatus.UpToDate);
         result.PlannedDiscovery.ShouldBeNull();
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _discovery.Received(1).CheckRepositoryAsync(
+            _config, Arg.Is<BackupWorkItem>(item => item.Id == 1), CancellationToken);
     }
 
     [Fact]
@@ -1865,13 +2014,14 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
-    public async Task RunAsync_RepositoryFilter_TracesNoDiscovery()
+    public async Task RunAsync_RepositoryFilter_TracesDiscoverySpanForTheCheck()
     {
         using var test = _capture.StartTest();
 
         await RunAsync(BackupRunFilter.ForRepository("owner", "repo"));
 
-        _capture.Named(BackupTelemetry.DiscoverySpanName).ShouldBeEmpty();
+        _capture.Named(BackupTelemetry.DiscoverySpanName).ShouldHaveSingleItem()
+            .ParentSpanId.ShouldBe(_capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem().SpanId);
         _capture.Named(BackupTelemetry.RepositorySpanName).ShouldHaveSingleItem()
             .ParentSpanId.ShouldBe(_capture.Named(BackupTelemetry.RunSpanName).ShouldHaveSingleItem().SpanId);
     }
@@ -2300,8 +2450,10 @@ public sealed class BackupOrchestratorTests : IDisposable
         result.Items.Select(item => item.Status).ShouldBe([BackupItemStatus.Archived]);
         _config.Repositories[0].Id.ShouldBe(9);
         await _discovery.DidNotReceiveWithAnyArgs().DiscoverAsync(default!, default, CancellationToken);
+        await _discovery.DidNotReceiveWithAnyArgs().CheckRepositoryAsync(default!, default!, CancellationToken);
         await _gitHubApi.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, CancellationToken);
         await _configStore.Received(1).SaveAsync(_config, CancellationToken);
+        SingleRecord(_discoverySkippedEventId).GetStructuredStateValue("Repository").ShouldBe("owner/repo");
     }
 
     [Fact]
@@ -2612,6 +2764,14 @@ public sealed class BackupOrchestratorTests : IDisposable
     /// <param name="result">The classified repositories.</param>
     private void SetupDiscovery(DiscoveryResult result) =>
         _discovery.DiscoverAsync(Arg.Any<BackupConfig>(), Arg.Any<string?>(), Arg.Any<CancellationToken>()).Returns(result);
+
+    /// <summary>
+    /// Makes the check of a single repository report <paramref name="result"/>.
+    /// </summary>
+    /// <param name="result">The classified repository.</param>
+    private void SetupCheck(DiscoveryResult result) =>
+        _discovery.CheckRepositoryAsync(Arg.Any<BackupConfig>(), Arg.Any<BackupWorkItem>(), Arg.Any<CancellationToken>())
+            .Returns(result);
 
     /// <summary>
     /// Makes discovery report <c>owner/repo</c> as missing, so the applier is asked, and makes the applier run

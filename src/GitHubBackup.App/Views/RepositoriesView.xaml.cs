@@ -48,10 +48,50 @@ public sealed partial class RepositoriesView : UserControl
     private void OnLogSummarySplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
         var current = SummaryRow.ActualHeight;
+        var smallest = Math.Max(SummaryRow.MinHeight, SummaryContent.MinHeight + VerticalChrome(SummaryCard));
         var largest = Math.Min(SummaryRow.MaxHeight, current + Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight));
-        var height = Math.Clamp(current - e.VerticalChange, SummaryRow.MinHeight, Math.Max(SummaryRow.MinHeight, largest));
+        var height = Math.Clamp(current - e.VerticalChange, Math.Min(smallest, current), Math.Max(smallest, largest));
         SummaryRow.Height = new GridLength(height);
     }
+
+    /// <summary>
+    /// Keeps the minimum height of the summary content equal to its fixed lines plus the smallest table, and grows
+    /// the summary panel to that height when the tree can give the space.
+    /// </summary>
+    /// <remarks>
+    /// A saved panel height can be lower than the content of the next summary; the panel then grows instead of
+    /// cutting the table or the lines below it, and scrolls only when the window has no room left.
+    /// </remarks>
+    /// <param name="sender">A part of the summary with its natural height.</param>
+    /// <param name="e">The change of its size.</param>
+    private void OnSummaryPartSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var rows = SummaryContent.RowDefinitions;
+        var fixedLines = rows.Where(row => row != SummaryTableRow).Sum(row => row.ActualHeight);
+        SummaryContent.MinHeight = fixedLines + SummaryTableRow.MinHeight;
+
+        var needed = SummaryContent.MinHeight + VerticalChrome(SummaryCard);
+        var current = SummaryRow.ActualHeight;
+        if (current >= needed)
+        {
+            return;
+        }
+
+        var spare = Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight);
+        var height = Math.Min(Math.Min(needed, current + spare), SummaryRow.MaxHeight);
+        if (height > current)
+        {
+            SummaryRow.Height = new GridLength(height);
+        }
+    }
+
+    /// <summary>
+    /// Returns the height that the border and the padding of a card add to its content.
+    /// </summary>
+    /// <param name="card">The card.</param>
+    /// <returns>The height in device-independent pixels.</returns>
+    private static double VerticalChrome(Border card) =>
+        card.BorderThickness.Top + card.BorderThickness.Bottom + card.Padding.Top + card.Padding.Bottom;
 
     /// <summary>
     /// Queues one scroll of the live log to its newest entry when entries are added.

@@ -18,4 +18,7 @@ public sealed class ReturnedDiscoveryRowViewModel(ReturnedRepository returned)
 
     /// <inheritdoc />
     public override bool IsActionable => false;
+
+    /// <inheritdoc />
+    public override string AutomaticAction => "Mark active (automatic)";
 }
