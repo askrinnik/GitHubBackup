@@ -25,6 +25,43 @@
                 </Trigger>
             </Style.Triggers>
         </Style>
+        <!-- The frame of a message the user must not miss, such as a warning or a setting that needs a restart; the
+             translucent fill keeps the text readable in the light and the dark theme. -->
+        <Style x:Key="NoticeBorderStyle" TargetType="Border">
+            <Setter Property="Background" Value="#33DAA520" />
+            <Setter Property="BorderBrush" Value="DarkGoldenrod" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="8" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <!-- A static notice with a warning glyph in the notice frame; the content is the text of the notice. A label
+             exposes that text as its UI Automation name; the theme brush keeps the text readable in the dark theme. -->
+        <Style x:Key="NoticeStyle" TargetType="Label" BasedOn="{StaticResource {x:Type Label}}">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorPrimaryBrush}" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Label">
+                        <Border Style="{StaticResource NoticeBorderStyle}">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Left"
+                                           Text="&#xE7BA;"
+                                           FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                                           Foreground="DarkGoldenrod"
+                                           FontSize="16"
+                                           VerticalAlignment="Center"
+                                           Margin="0,0,8,0"
+                                           AutomationProperties.Name="Important" />
+                                <TextBlock Text="{Binding Content, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                           FontWeight="SemiBold"
+                                           TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                            </DockPanel>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <!-- A style of a control extends the Fluent style of that control: a style without BasedOn replaces it and
              falls back to the classic template, which stays light in the dark theme. -->
         <!-- A row of a list that shows one line of text per item keeps the height of that line. -->

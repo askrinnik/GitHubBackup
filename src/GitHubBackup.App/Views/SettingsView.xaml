@@ -81,11 +81,7 @@
                    AutomationProperties.AutomationId="SettingsNewConfigMessage" />
         <Border DockPanel.Dock="Top"
                 Visibility="{Binding HasWarnings, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                Background="#33DAA520"
-                BorderBrush="DarkGoldenrod"
-                BorderThickness="1"
-                Padding="8"
-                Margin="0,0,0,8">
+                Style="{StaticResource NoticeBorderStyle}">
             <ItemsControl ItemsSource="{Binding Warnings, Mode=OneWay}"
                           AutomationProperties.AutomationId="SettingsWarnings">
                 <ItemsControl.ItemTemplate>
@@ -407,7 +403,9 @@
                       AutomationProperties.AutomationId="SettingsToolsGroup">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="The tool paths take effect after the application restarts." Style="{StaticResource LabelStyle}" Margin="0,0,0,6" />
+                        <Label Content="The tool paths take effect after the application restarts."
+                               Style="{StaticResource NoticeStyle}"
+                               AutomationProperties.AutomationId="ToolsRestartNotice" />
                         <TextBlock Text="Path of git.exe (empty: git from PATH)" Style="{StaticResource LabelStyle}" />
                         <TextBox Text="{Binding GitPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource FormTextBoxStyle}"
@@ -427,7 +425,9 @@
                       AutomationProperties.AutomationId="SettingsTelemetryGroup">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="0,0,8,0">
-                        <TextBlock Text="Telemetry settings take effect after the application restarts." Style="{StaticResource LabelStyle}" Margin="0,0,0,6" />
+                        <Label Content="Telemetry settings take effect after the application restarts."
+                               Style="{StaticResource NoticeStyle}"
+                               AutomationProperties.AutomationId="TelemetryRestartNotice" />
                         <CheckBox Content="Send telemetry (OpenTelemetry)"
                                   IsChecked="{Binding TelemetryEnabled, Mode=TwoWay}"
                                   Margin="0,0,0,6"
@@ -488,11 +488,11 @@
                                    Style="{StaticResource OptionalLineStyle}"
                                    Foreground="Firebrick"
                                    AutomationProperties.AutomationId="TelemetryHeadersError" />
-                        <TextBlock Text="{x:Static vm:SettingsViewModel.HeadersOverriddenMessage}"
-                                   Visibility="{Binding IsTelemetryHeadersOverridden, Mode=OneTime, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                   TextWrapping="Wrap"
-                                   Margin="0,4,0,0"
-                                   AutomationProperties.AutomationId="TelemetryHeadersOverriddenNote" />
+                        <Label Content="{x:Static vm:SettingsViewModel.HeadersOverriddenMessage}"
+                               Visibility="{Binding IsTelemetryHeadersOverridden, Mode=OneTime, Converter={StaticResource BooleanToVisibilityConverter}}"
+                               Style="{StaticResource NoticeStyle}"
+                               Margin="0,4,0,0"
+                               AutomationProperties.AutomationId="TelemetryHeadersOverriddenNote" />
                     </StackPanel>
                 </ScrollViewer>
             </GroupBox>
