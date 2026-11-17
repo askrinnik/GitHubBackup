@@ -9,7 +9,7 @@ using GitHubBackup.App.ViewModels;
 namespace GitHubBackup.App.Views;
 
 /// <summary>
-/// Shows the tree of accounts and repositories, the commands that start a backup and the live log of a run.
+/// Shows the tree of accounts and repositories, the commands that start a backup, the live log of a run and its results, each in its own card.
 /// </summary>
 public sealed partial class RepositoriesView : UserControl
 {
@@ -36,52 +36,52 @@ public sealed partial class RepositoriesView : UserControl
     private void OnLoaded(object sender, RoutedEventArgs e) => (DataContext as RepositoriesViewModel)?.RefreshCommand.Execute(null);
 
     /// <summary>
-    /// Resizes the summary panel by the vertical movement of the splitter above it; the tree gives or takes the
+    /// Resizes the results panel by the vertical movement of the splitter above it; the tree gives or takes the
     /// difference and keeps its minimum height.
     /// </summary>
     /// <remarks>
     /// The new height goes to the row, whose two-way binding hands it to the preferences that are saved when the
-    /// window closes.
+    /// window closes. The totals card below the results panel keeps its content height and is not resized.
     /// </remarks>
     /// <param name="sender">The splitter.</param>
     /// <param name="e">The vertical movement since the last call.</param>
-    private void OnLogSummarySplitterDragDelta(object sender, DragDeltaEventArgs e)
+    private void OnLogResultsSplitterDragDelta(object sender, DragDeltaEventArgs e)
     {
-        var current = SummaryRow.ActualHeight;
-        var smallest = Math.Max(SummaryRow.MinHeight, SummaryContent.MinHeight + VerticalChrome(SummaryCard));
-        var largest = Math.Min(SummaryRow.MaxHeight, current + Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight));
+        var current = ResultsRow.ActualHeight;
+        var smallest = Math.Max(ResultsRow.MinHeight, ResultsContent.MinHeight + VerticalChrome(ResultsCard));
+        var largest = Math.Min(ResultsRow.MaxHeight, current + Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight));
         var height = Math.Clamp(current - e.VerticalChange, Math.Min(smallest, current), Math.Max(smallest, largest));
-        SummaryRow.Height = new GridLength(height);
+        ResultsRow.Height = new GridLength(height);
     }
 
     /// <summary>
-    /// Keeps the minimum height of the summary content equal to its fixed lines plus the smallest table, and grows
-    /// the summary panel to that height when the tree can give the space.
+    /// Keeps the minimum height of the results content equal to its fixed lines plus the smallest table, and grows
+    /// the results panel to that height when the tree can give the space.
     /// </summary>
     /// <remarks>
-    /// A saved panel height can be lower than the content of the next summary; the panel then grows instead of
+    /// A saved panel height can be lower than the content of the next results panel; the panel then grows instead of
     /// cutting the table or the lines below it, and scrolls only when the window has no room left.
     /// </remarks>
-    /// <param name="sender">A part of the summary with its natural height.</param>
+    /// <param name="sender">A part of the results panel with its natural height.</param>
     /// <param name="e">The change of its size.</param>
-    private void OnSummaryPartSizeChanged(object sender, SizeChangedEventArgs e)
+    private void OnResultsPartSizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var rows = SummaryContent.RowDefinitions;
-        var fixedLines = rows.Where(row => row != SummaryTableRow).Sum(row => row.ActualHeight);
-        SummaryContent.MinHeight = fixedLines + SummaryTableRow.MinHeight;
+        var rows = ResultsContent.RowDefinitions;
+        var fixedLines = rows.Where(row => row != ResultsTableRow).Sum(row => row.ActualHeight);
+        ResultsContent.MinHeight = fixedLines + ResultsTableRow.MinHeight;
 
-        var needed = SummaryContent.MinHeight + VerticalChrome(SummaryCard);
-        var current = SummaryRow.ActualHeight;
+        var needed = ResultsContent.MinHeight + VerticalChrome(ResultsCard);
+        var current = ResultsRow.ActualHeight;
         if (current >= needed)
         {
             return;
         }
 
         var spare = Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight);
-        var height = Math.Min(Math.Min(needed, current + spare), SummaryRow.MaxHeight);
+        var height = Math.Min(Math.Min(needed, current + spare), ResultsRow.MaxHeight);
         if (height > current)
         {
-            SummaryRow.Height = new GridLength(height);
+            ResultsRow.Height = new GridLength(height);
         }
     }
 

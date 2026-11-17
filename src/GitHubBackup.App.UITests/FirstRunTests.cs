@@ -76,6 +76,19 @@ public sealed class FirstRunTests : IDisposable
         File.Exists(_installation.BackupConfigPath).ShouldBeFalse();
     }
 
+    [Fact]
+    public void Start_WithoutConfig_ShowsFirstRunMessageInsideTreePanel()
+    {
+        var panel = _session.WaitFor("RepositoryTreePanel").BoundingRectangle;
+        var message = _session.WaitFor("ConfigMissingMessage").BoundingRectangle;
+        var button = _session.WaitFor("OpenSettingsFromFirstRunButton").BoundingRectangle;
+
+        message.Left.ShouldBeGreaterThanOrEqualTo(panel.Left);
+        message.Right.ShouldBeLessThanOrEqualTo(panel.Right);
+        message.Top.ShouldBeGreaterThanOrEqualTo(panel.Top);
+        button.Bottom.ShouldBeLessThanOrEqualTo(panel.Bottom);
+    }
+
     /// <summary>
     /// Stops the application, then deletes the installation and stops the API stub.
     /// </summary>

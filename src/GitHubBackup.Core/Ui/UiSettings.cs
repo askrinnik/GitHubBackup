@@ -7,7 +7,7 @@ namespace GitHubBackup.Core.Ui;
 /// <param name="Theme">The colour mode.</param>
 /// <param name="MainWindow">The placement of the main window, or <see langword="null"/> for the default placement.</param>
 /// <param name="LogPanelHeight">The height of the live log panel of the main window.</param>
-/// <param name="SummaryPanelHeight">The height of the run summary panel of the main window.</param>
+/// <param name="SummaryPanelHeight">The height of the results panel of the main window, the card with the run header and the result table.</param>
 public sealed record UiSettings(
     UiTheme Theme,
     WindowPlacement? MainWindow,

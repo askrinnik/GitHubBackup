@@ -210,7 +210,7 @@ Only the desktop app reads and writes this optional file; the console app never 
 | `MainWindow:Height` | 300 to 10000 | the default position and size |
 | `MainWindow:IsMaximized` | `true`, `false` | `false` |
 | `MainWindow:LogPanelHeight` | 60 to 2000 | 160 |
-| `MainWindow:SummaryPanelHeight` | 80 to 2000 | 220 |
+| `MainWindow:SummaryPanelHeight` | 80 to 2000; the height of the results card | 220 |
 
 ### backup-config.json
 
@@ -576,10 +576,10 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 
 `GitHubBackup.exe` uses the same configuration and the same core as the console app.
 
-- **Main window.** A tree "accounts, repositories" with a group for single repositories. Each item shows its status and the date of the last archive, in columns aligned across the whole tree. Below the tree are the live log and, after a run, the summary: drag the line above the log or above the summary to change its height, and the tree takes the rest of the window. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
+- **Main window.** A tree "accounts, repositories" with a group for single repositories. An icon in front of each name shows the kind of the node: account, group of single repositories or repository. Each repository shows its status and the date of the last archive, in columns aligned across the whole tree. The tree, the live log and, after a run, the results and the totals each stand in a separate card with a gap between the cards. Drag the gap above the log or above the results to change the height of the card below it, and the tree takes the rest of the window. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
 - **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table. Missing and returned rows have no choice: the Action column shows what happens to them automatically (marked unavailable or active again).
 - **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files.
-- **Summary.** The same information as the console summary when the run ends. A long result table or list of found repositories scrolls inside the summary. A found repository `id` is saved without a question, also in a dry run.
+- **Summary.** The same information as the console summary when the run ends. The results card holds the run header and the result table. The totals card below it holds the list of found repositories, the counters and the path of the log; it takes the height of its content. A long result table or list of found repositories scrolls inside its card. A found repository `id` is saved without a question, also in a dry run.
 - **History.** The tab **Runs** lists the runs with filters (period, status, mode) and run details. The tab **Archives** shows the archives of the repositories (see [Archive history](#archive-history)).
 
 ### Archive history
@@ -625,7 +625,7 @@ Files go only to the Windows Recycle Bin, from which you can restore them; the p
 
 The desktop app uses the Fluent theme of Windows. The list **Theme** in the section **General** of the settings editor offers **System** (follows the light or dark mode of Windows; the default), **Light** and **Dark**. The choice applies at once to every window and is saved to `ui-settings.json` right away; **Save** and **Cancel** of the editor do not affect it, and the list works even when `backup-config.json` cannot be read.
 
-When the main window closes, the app saves its position and size, whether it is maximized, and the heights of the live log and the summary. The next start opens the window the same way. A window closed while minimized opens in its normal size. If the saved position is on no connected monitor, the window opens at the default position, maximized on the primary monitor if it was maximized. If the file cannot be written, the app writes the error to the log and closes anyway.
+When the main window closes, the app saves its position and size, whether it is maximized, and the heights of the live log and the results card. The next start opens the window the same way. A window closed while minimized opens in its normal size. If the saved position is on no connected monitor, the window opens at the default position, maximized on the primary monitor if it was maximized. If the file cannot be written, the app writes the error to the log and closes anyway.
 
 ### Settings editor
 
