@@ -1,0 +1,83 @@
+{
+  "run": "2026-11-17-11-47_issue-kit-0-1-2-testextra-verifier-testa",
+  "note": "issue-kit 0.1.2 testExtra verifier testAuthor keys empty",
+  "harness": "3",
+  "mcp": "none",
+  "started": "2026-11-17 11:47",
+  "commit": "c7fc276f",
+  "dirty": "no",
+  "model": "claude-sonnet-5-5",
+  "effort": "medium",
+  "sessions": [
+    {
+      "test": "bench-base",
+      "rep": 1,
+      "session": "c999ba5c-abe0-4f74-be24-4f04508e8a04",
+      "hash": "5b64bc8a",
+      "judged": false
+    },
+    {
+      "test": "bench-cs",
+      "rep": 1,
+      "session": "ec0b48bf-8508-43f1-9102-8a8d616e91f9",
+      "hash": "0fb0cbfb",
+      "judged": false
+    },
+    {
+      "test": "bench-test",
+      "rep": 1,
+      "session": "1e4a0677-5bb3-4d01-af3a-bf6fcf373a31",
+      "hash": "cdc276b0",
+      "judged": false
+    },
+    {
+      "test": "bench-xaml",
+      "rep": 1,
+      "session": "50630a07-4f3c-4dfe-b383-f8506d3e14ce",
+      "hash": "4ba3cdec",
+      "judged": false
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 1,
+      "session": "a534397f-be6f-43a4-9293-a7311195ec83",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 2,
+      "session": "7543abae-9342-4c5f-9682-831e866e8402",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-prd-first",
+      "rep": 3,
+      "session": "ef642217-c48c-4526-b6af-e7c840b3eb7b",
+      "hash": "bcddb96e",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 1,
+      "session": "bc1e41b7-8e37-48cc-9161-9bd906b3cc79",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 2,
+      "session": "8ac3635d-f676-4556-b212-85ea8269a63e",
+      "hash": "4adcb057",
+      "judged": true
+    },
+    {
+      "test": "quality-service-convention",
+      "rep": 3,
+      "session": "241a9e48-2106-4a70-882c-101d8d91fa2b",
+      "hash": "4adcb057",
+      "judged": true
+    }
+  ]
+}
