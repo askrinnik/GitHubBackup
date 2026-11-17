@@ -7,7 +7,8 @@ This guide covers building, testing, publishing and maintaining GitHubBackup. Fo
 ```
 assets/    icon/: the application icon, its vector source (GitHubBackup.Icon.xaml) and the rendered GitHubBackup.ico
 docs/      documentation: PRD, implementation plans per issue, the AI harness description (docs/ai/), this guide
-scripts/   publish.ps1: publishes the application folder; render-icon.ps1: renders the application icon
+scripts/   publish.ps1: publishes the application folder; render-icon.ps1: renders the application icon;
+           test-bench.ps1: starts a temporary copy of the WPF application against a stubbed GitHub API
 src/       the GitHubBackup.slnx solution: projects and paired test projects
 .claude/ .ai/   AI harness for Claude Code (see docs/ai/README.md)
 ```
@@ -25,6 +26,7 @@ You need the .NET SDK 10.0.100 or a newer feature band of the same major version
 | Run the WPF application | `dotnet run --project src/GitHubBackup.App` |
 | Publish the application folder | `pwsh -File scripts/publish.ps1` |
 | Render the application icon | `pwsh -File scripts/render-icon.ps1` |
+| Start the test bench | `pwsh -File scripts/test-bench.ps1 -Scenario missing-repository` |
 
 With `dotnet run`, pass the application arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`.
 
@@ -66,6 +68,54 @@ The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` 
 - git in `PATH` and 7-Zip in `C:\Program Files\7-Zip\7z.exe` (the discovery dialog scenario uses them).
 
 The tests run one at a time. A failing test saves screenshots of the application windows to the folder from the variable `UI_TEST_SCREENSHOTS`; without it, they go to `Screenshots` next to the test assembly.
+
+#### Screenshot tests
+
+`MainWindowScreenshotTests` and `DiscoveryDialogScreenshotTests` capture a window in a given state, in the light and the dark theme, and measure the capture. There are no reference images: each check measures one capture.
+
+| Check | What it measures |
+|---|---|
+| One baseline per row | The top of the text of every cell of a table row lies on the same pixel row, within 2 device-independent pixels. A cell with two lines of text is left out. |
+| Nothing is cut | The text of every cell, of the column header and of the totals card keeps at least 1 pixel from the top and the bottom of its region. At the smallest results panel height (80), the column header and one whole table row are visible. |
+| Borders stand out | The borders of the four cards and the line above the result table differ from the background on both sides by a calibrated contrast. |
+| Selection stays readable | The text of a selected row of the discovery dialog keeps a calibrated contrast to the selection. |
+
+The states are a dry run with one row, a dry run with many rows and discovery lines, the smallest results panel height, and the discovery dialog with a New, a Renamed, a Missing and a Returned row. The scenarios come from `UiScenarios` in `GitHubBackup.TestUtilities`; the test bench starts the same scenarios by name.
+
+The contrast limits are half of the lowest value measured on the current layout in both themes. They and their measured values are in `ScreenshotAssert`. `LayoutMeasurementTests` checks the measurements on synthetic images and needs no desktop.
+
+Windows does not render windows while the workstation is locked, the session is minimized or disconnected. A capture is then one color, and the test fails with a message that says so. Run the screenshot tests on an unlocked interactive desktop:
+
+```bash
+dotnet test --project src/GitHubBackup.App.UITests/GitHubBackup.App.UITests.csproj --no-build -p:RunUITests=true --filter-class "*ScreenshotTests"
+```
+
+### Test bench
+
+`scripts/test-bench.ps1` starts a temporary copy of the WPF application with one command, to check a window by hand or with the `netwright` MCP server:
+
+```bash
+pwsh -File scripts/test-bench.ps1 -Scenario missing-repository
+```
+
+The script builds and runs `GitHubBackup.TestBench`. The bench:
+
+1. copies the build folder of `GitHubBackup.App` to a new folder under `%TEMP%\GitHubBackup.Tests`;
+2. starts a WireMock stub of the GitHub API on loopback with the scenario;
+3. writes `appsettings.json` with the stub address and a test token that grants nothing, `backup-config.json` of the scenario and, when asked, `ui-settings.json`;
+4. starts the application from that folder in the `Production` environment, without inherited `GitHubBackup__*` and `GIT_*` variables, with git redirected from `https://github.com/` to an empty local folder;
+5. stops the application and the stub and deletes the folder when the application exits, Enter is pressed or Ctrl+C is pressed.
+
+The real installation, its settings, Windows Credential Manager and the network are never used.
+
+| Parameter | Effect |
+|---|---|
+| `-Scenario` | `missing-repository` (default), `renamed-repository`, `new-repositories`, `discovery-review` or `many-rows`; `-List` describes them |
+| `-Theme` | `light`, `dark` or `system`; by default the application follows Windows |
+| `-SummaryPanelHeight` | the saved height of the results panel, such as the minimum 80 |
+| `-NoLaunch` | prepares the folder and the stub and prints the path of the executable and the git variables without starting the application |
+| `-Keep` | leaves the folder in place when the bench stops |
+| `-NoBuild`, `-Configuration` | skip the build or choose the configuration (default `Debug`) |
 
 ## Application icon
 

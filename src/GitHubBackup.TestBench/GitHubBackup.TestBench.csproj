@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A developer tool, not a product: it starts a temporary copy of the desktop app against a stubbed GitHub API, so it
+    shares the test helpers and is never published. scripts/test-bench.ps1 builds and runs it.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+    <!-- Parser messages stay English whatever the UI culture; the localized resource assemblies of System.CommandLine are not needed. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GitHubBackup.TestUtilities\GitHubBackup.TestUtilities.csproj" />
+    <!-- Built first so that its output folder, which the bench copies, is current; nothing of it is referenced. -->
+    <ProjectReference Include="..\GitHubBackup.App\GitHubBackup.App.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.CommandLine" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The bench copies the output folder of the WPF project unless the command line names another folder. -->
+    <AssemblyMetadata Include="GitHubBackupAppOutputPath" Value="$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\GitHubBackup.App\bin\$(Configuration)\$(TargetFramework)'))" />
+  </ItemGroup>
+
+</Project>

@@ -4,7 +4,7 @@ using FlaUI.Core.Capturing;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Tools;
 using FlaUI.UIA3;
-using GitHubBackup.Infrastructure.Hosting;
+using GitHubBackup.TestUtilities;
 
 namespace GitHubBackup.App.UITests;
 
@@ -48,34 +48,14 @@ internal sealed class AppSession : IDisposable
         _mainWindow ??= WaitUntilFound(() => FindWindow(MainWindowId), MainWindowId, UiTimeouts.Launch);
 
     /// <summary>
-    /// Starts the executable of <paramref name="installation"/> in its folder.
+    /// Starts the executable of <paramref name="installation"/> in its folder, isolated from the configuration of the
+    /// machine by <see cref="IsolatedAppProcess"/>.
     /// </summary>
-    /// <remarks>
-    /// The process gets the environment of the test process without the variables that configure the application or
-    /// git, so that a value set on the developer's machine cannot change the scenario, plus the variables of the
-    /// installation.
-    /// </remarks>
     /// <param name="installation">The installation to run.</param>
     /// <returns>The session.</returns>
-    public static AppSession Start(AppInstallation installation)
-    {
-        var startInfo = new ProcessStartInfo(installation.ExecutablePath)
-        {
-            WorkingDirectory = installation.FolderPath,
-            UseShellExecute = false,
-        };
-        foreach (var name in startInfo.Environment.Keys.Where(IsInheritedConfiguration).ToList())
-        {
-            startInfo.Environment.Remove(name);
-        }
-
-        foreach (var (name, value) in installation.Environment)
-        {
-            startInfo.Environment[name] = value;
-        }
-
-        return new(Process.Start(startInfo)!);
-    }
+    public static AppSession Start(AppInstallation installation) =>
+        new(Process.Start(IsolatedAppProcess.Create(
+            installation.ExecutablePath, installation.FolderPath, installation.Environment))!);
 
     /// <summary>
     /// Waits until an element of the main window with <paramref name="automationId"/> is shown.
@@ -283,15 +263,6 @@ internal sealed class AppSession : IDisposable
         _process.Dispose();
         _automation.Dispose();
     }
-
-    /// <summary>
-    /// Returns whether <paramref name="name"/> configures the application or git.
-    /// </summary>
-    /// <param name="name">The name of an environment variable.</param>
-    /// <returns><see langword="true"/> for a <c>GitHubBackup__</c> or a <c>GIT_</c> variable.</returns>
-    private static bool IsInheritedConfiguration(string name) =>
-        name.StartsWith(GitHubBackupHostBuilder.EnvironmentVariablePrefix, StringComparison.OrdinalIgnoreCase)
-        || name.StartsWith("GIT_", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Polls <paramref name="find"/> until it returns an element.
