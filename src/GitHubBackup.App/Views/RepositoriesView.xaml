@@ -247,7 +247,8 @@
                    DragDelta="OnLogSummarySplitterDragDelta"
                    AutomationProperties.AutomationId="LogSummarySplitter" />
             <!-- The frame and the card fill set the summary of the last run apart from the live log above it. -->
-            <Border Grid.Row="4"
+            <Border x:Name="SummaryCard"
+                    Grid.Row="4"
                     Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
                     BorderBrush="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
                     BorderThickness="1"
@@ -255,15 +256,35 @@
                     Padding="8,6"
                     Visibility="{Binding HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                     AutomationProperties.AutomationId="RunSummary">
-                <!-- The result table takes the height the splitter gives the summary and scrolls inside it;
-                     the lines above and below it keep their natural height. -->
-                <Grid DataContext="{Binding Summary, Mode=OneWay}">
+                <!-- The result table takes the height the splitter gives the summary and scrolls inside it; the lines
+                     above and below it keep their natural height. The table never shrinks below its header and one
+                     row: when the card is lower than that, the whole card scrolls instead of cutting text. -->
+                <ScrollViewer x:Name="SummaryScroll"
+                              VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled"
+                              Focusable="False"
+                              AutomationProperties.AutomationId="RunSummaryScroll">
+                <Grid x:Name="SummaryContent"
+                      DataContext="{Binding Summary, Mode=OneWay}"
+                      Height="{Binding ViewportHeight, ElementName=SummaryScroll, Mode=OneWay}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
+                    <RowDefinition x:Name="SummaryTableRow" Height="*">
+                        <RowDefinition.Style>
+                            <Style TargetType="RowDefinition">
+                                <Setter Property="MinHeight" Value="56" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding HasItems, Mode=OneWay}" Value="False">
+                                        <Setter Property="MinHeight" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </RowDefinition.Style>
+                    </RowDefinition>
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                <StackPanel Grid.Row="0">
+                <StackPanel Grid.Row="0" Margin="0,0,0,4" SizeChanged="OnSummaryPartSizeChanged">
                     <TextBlock Text="{Binding Header, Mode=OneWay}"
                                Style="{StaticResource OptionalLineStyle}"
                                AutomationProperties.AutomationId="RunSummaryHeader" />
@@ -307,7 +328,15 @@
                             </GridView>
                         </ListView.View>
                     </ListView>
-                <StackPanel Grid.Row="2">
+                <!-- The line sets the table apart from the discovery, totals and log lines below it. -->
+                <Border Grid.Row="2"
+                        Height="1"
+                        Margin="0,6"
+                        Background="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
+                        Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                        SizeChanged="OnSummaryPartSizeChanged"
+                        AutomationProperties.AutomationId="RunSummarySeparator" />
+                <StackPanel Grid.Row="3" SizeChanged="OnSummaryPartSizeChanged">
                     <TextBlock Text="{Binding NoRepositoriesLine, Mode=OneWay}"
                                Style="{StaticResource OptionalLineStyle}"
                                AutomationProperties.AutomationId="RunSummaryNoRepositories" />
@@ -335,6 +364,7 @@
                                AutomationProperties.AutomationId="RunSummaryLogPath" />
                 </StackPanel>
                 </Grid>
+                </ScrollViewer>
             </Border>
         </Grid>
     </DockPanel>
