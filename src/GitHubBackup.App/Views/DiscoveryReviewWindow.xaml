@@ -11,6 +11,13 @@
         ShowInTaskbar="False"
         Icon="pack://application:,,,/GitHubBackup.App;component/Assets/GitHubBackup.ico"
         AutomationProperties.AutomationId="DiscoveryReviewWindow">
+    <Window.Resources>
+        <!-- A text column places its text at the top of the cell; the action, branch and folder cells hold controls
+             that fill the row height, so every text is centred to share one baseline across the row. -->
+        <Style x:Key="CellTextStyle" TargetType="TextBlock" BasedOn="{x:Static DataGridTextColumn.DefaultElementStyle}">
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Window.Resources>
     <Window.InputBindings>
         <KeyBinding Key="Escape" Command="{Binding CancelCommand, Mode=OneWay}" />
     </Window.InputBindings>
@@ -69,10 +76,10 @@
                   VirtualizingPanel.VirtualizationMode="Recycling"
                   AutomationProperties.AutomationId="DiscoveryTable">
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Kind" Binding="{Binding Kind, Mode=OneWay}" />
-                <DataGridTextColumn Header="Repository" Binding="{Binding Repository, Mode=OneWay}" />
-                <DataGridTextColumn Header="Account" Binding="{Binding Account, Mode=OneWay}" />
-                <DataGridTextColumn Header="ID" Binding="{Binding Id, Mode=OneWay}" />
+                <DataGridTextColumn Header="Kind" Binding="{Binding Kind, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Repository" Binding="{Binding Repository, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Account" Binding="{Binding Account, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="ID" Binding="{Binding Id, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
                 <DataGridTemplateColumn Header="Action" MinWidth="180">
                     <DataGridTemplateColumn.CellTemplate>
                         <DataTemplate>
@@ -157,7 +164,7 @@
                                         </TextBox>
                                     </DataTemplate>
                                     <DataTemplate DataType="{x:Type vm:RenamedDiscoveryRowViewModel}">
-                                        <StackPanel>
+                                        <StackPanel VerticalAlignment="Center">
                                             <TextBlock Text="{Binding CurrentArchiveFolder, Mode=OneWay, StringFormat='b) {0}'}" />
                                             <TextBlock Text="{Binding RenamedArchiveFolder, Mode=OneWay, StringFormat='a) {0}'}"
                                                        Visibility="{Binding CanChooseVariant, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" />
@@ -171,14 +178,14 @@
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>
-                <DataGridTextColumn Header="Details" Binding="{Binding Note, Mode=OneWay}" />
-                <DataGridTextColumn Header="URL" Binding="{Binding Url, Mode=OneWay}" />
-                <DataGridTextColumn Header="Owner" Binding="{Binding Owner, Mode=OneWay}" />
-                <DataGridTextColumn Header="Visibility" Binding="{Binding Visibility, Mode=OneWay}" />
-                <DataGridTextColumn Header="Fork" Binding="{Binding Fork, Mode=OneWay}" />
-                <DataGridTextColumn Header="Archived" Binding="{Binding Archived, Mode=OneWay}" />
-                <DataGridTextColumn Header="Default branch" Binding="{Binding DefaultBranch, Mode=OneWay}" />
-                <DataGridTextColumn Header="Wiki" Binding="{Binding Wiki, Mode=OneWay}" />
+                <DataGridTextColumn Header="Details" Binding="{Binding Note, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="URL" Binding="{Binding Url, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Owner" Binding="{Binding Owner, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Visibility" Binding="{Binding Visibility, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Fork" Binding="{Binding Fork, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Archived" Binding="{Binding Archived, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Default branch" Binding="{Binding DefaultBranch, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
+                <DataGridTextColumn Header="Wiki" Binding="{Binding Wiki, Mode=OneWay}" ElementStyle="{StaticResource CellTextStyle}" />
             </DataGrid.Columns>
         </DataGrid>
     </DockPanel>
