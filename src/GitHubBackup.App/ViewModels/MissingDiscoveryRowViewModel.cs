@@ -18,4 +18,7 @@ public sealed class MissingDiscoveryRowViewModel(TrackedRepository tracked)
 
     /// <inheritdoc />
     public override bool IsActionable => false;
+
+    /// <inheritdoc />
+    public override string AutomaticAction => "Mark unavailable (automatic)";
 }

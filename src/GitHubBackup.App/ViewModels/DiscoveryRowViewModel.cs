@@ -49,6 +49,11 @@ public abstract class DiscoveryRowViewModel : ObservableObject
     /// <summary>Gets whether the user chooses an action for the row.</summary>
     public abstract bool IsActionable { get; }
 
+    /// <summary>
+    /// Gets the action that applies to the row without a choice, or an empty text for a row the user decides.
+    /// </summary>
+    public virtual string AutomaticAction => string.Empty;
+
     /// <summary>Gets whether a value of the row is not valid, so the decisions cannot be applied.</summary>
     public virtual bool HasErrors => false;
 

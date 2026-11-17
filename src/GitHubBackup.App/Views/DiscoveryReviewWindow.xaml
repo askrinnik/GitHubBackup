@@ -94,7 +94,10 @@
                                                   AutomationProperties.AutomationId="RenameVariant" />
                                     </DataTemplate>
                                     <DataTemplate DataType="{x:Type vm:DiscoveryRowViewModel}">
-                                        <TextBlock Text="No action" Foreground="Gray" VerticalAlignment="Center" />
+                                        <TextBlock Text="{Binding AutomaticAction, Mode=OneWay}"
+                                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                                                   VerticalAlignment="Center"
+                                                   AutomationProperties.AutomationId="AutomaticAction" />
                                     </DataTemplate>
                                 </ContentControl.Resources>
                             </ContentControl>
