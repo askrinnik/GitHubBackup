@@ -107,7 +107,7 @@
             <TextBlock Text="{Binding ProgressOperation, Mode=OneWay}"
                        AutomationProperties.AutomationId="RunProgressOperation" />
         </StackPanel>
-        <Grid>
+        <Grid x:Name="PanelsGrid" LayoutUpdated="OnPanelsLayoutUpdated">
             <Grid.RowDefinitions>
                 <RowDefinition x:Name="TreeRow" Height="*" MinHeight="60" />
                 <RowDefinition Height="Auto" />
@@ -115,7 +115,8 @@
                                MinHeight="{x:Static ui:UiSettings.MinLogPanelHeight}"
                                MaxHeight="{x:Static ui:UiSettings.MaxLogPanelHeight}" />
                 <RowDefinition Height="Auto" />
-                <!-- The results row takes no space until a run has a summary; its height is the saved summary height. -->
+                <!-- The results row takes no space until a run has a summary; its height is the saved summary height.
+                     The code-behind lowers its maximum when the window has no room for it and the totals card. -->
                 <RowDefinition x:Name="ResultsRow">
                     <RowDefinition.Height>
                         <MultiBinding Mode="TwoWay" Converter="{StaticResource OptionalRowHeightConverter}">

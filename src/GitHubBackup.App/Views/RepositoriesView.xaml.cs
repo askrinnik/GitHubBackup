@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Threading;
 using GitHubBackup.App.ViewModels;
+using GitHubBackup.Core.Ui;
 
 namespace GitHubBackup.App.Views;
 
@@ -13,6 +14,9 @@ namespace GitHubBackup.App.Views;
 /// </summary>
 public sealed partial class RepositoriesView : UserControl
 {
+    /// <summary>The smallest change, in device-independent pixels, of the results row limit that is applied.</summary>
+    private const double _layoutTolerance = 0.5;
+
     /// <summary>Whether a scroll of the live log to its newest entry is queued and has not run yet.</summary>
     private bool _scrollToNewestQueued;
 
@@ -77,12 +81,55 @@ public sealed partial class RepositoriesView : UserControl
             return;
         }
 
-        var spare = Math.Max(0, TreeRow.ActualHeight - TreeRow.MinHeight);
-        var height = Math.Min(Math.Min(needed, current + spare), ResultsRow.MaxHeight);
+        var height = Math.Min(Math.Min(needed, Math.Max(current, AvailableResultsHeight())), UiSettings.MaxSummaryPanelHeight);
         if (height > current)
         {
             ResultsRow.Height = new GridLength(height);
         }
+    }
+
+    /// <summary>
+    /// Limits the results panel to the room that the window leaves it, so that the totals card below it is never cut.
+    /// </summary>
+    /// <remarks>
+    /// The limit is the maximum height of the row, not its height: the saved panel height stays as the user set it
+    /// and comes back when the window grows. The panel gives way down to its smallest height, the fixed lines and
+    /// the smallest table, and its table scrolls inside. The limit depends on every row but the results row, so
+    /// setting it causes one more layout pass and no loop.
+    /// </remarks>
+    /// <param name="sender">The grid of the panels.</param>
+    /// <param name="e">No data.</param>
+    private void OnPanelsLayoutUpdated(object? sender, EventArgs e)
+    {
+        if (!ResultsCard.IsVisible)
+        {
+            return;
+        }
+
+        var smallest = Math.Max(ResultsRow.MinHeight, ResultsContent.MinHeight + VerticalChrome(ResultsCard));
+        var limit = Math.Min(UiSettings.MaxSummaryPanelHeight, Math.Max(smallest, AvailableResultsHeight()));
+        if (Math.Abs(ResultsRow.MaxHeight - limit) > _layoutTolerance)
+        {
+            ResultsRow.MaxHeight = limit;
+        }
+    }
+
+    /// <summary>
+    /// Returns the height that the results row can take while the tree keeps its minimum height and every other row,
+    /// the totals card included, keeps its own.
+    /// </summary>
+    /// <remarks>
+    /// The arranged slot of the grid is the room the window gives it; the grid itself reports a larger height when
+    /// its rows do not fit.
+    /// </remarks>
+    /// <returns>The height in device-independent pixels, never negative.</returns>
+    private double AvailableResultsHeight()
+    {
+        var room = LayoutInformation.GetLayoutSlot(PanelsGrid).Height - PanelsGrid.Margin.Top - PanelsGrid.Margin.Bottom;
+        var taken = PanelsGrid.RowDefinitions
+            .Where(row => row != TreeRow && row != ResultsRow)
+            .Sum(row => row.ActualHeight);
+        return Math.Max(0, room - taken - TreeRow.MinHeight);
     }
 
     /// <summary>

@@ -18,6 +18,9 @@ public sealed class MainWindowLayoutTests : IDisposable
     /// <summary>The tolerance, in pixels, of bounds compared after rounding to device pixels.</summary>
     private const int _pixelTolerance = 3;
 
+    /// <summary>The minimum height of the tree row of the main window in device-independent pixels.</summary>
+    private const double _treeMinHeight = 60;
+
     /// <summary>The elements that are hidden until a run has a summary.</summary>
     private static readonly string[] _hiddenWithoutSummary = ["RunResultsPanel", "RunTotalsPanel", "LogSummarySplitter"];
 
@@ -180,6 +183,35 @@ public sealed class MainWindowLayoutTests : IDisposable
     }
 
     [Fact]
+    public void DryRun_ManyRowsAtNormalWindowHeight_KeepsTotalsInsideWindowAndTreeAndLogHeights()
+    {
+        UiScenarios.ManyRows.Prepare(_api, _installation.ArchivesPath, _installation.BackupConfigPath);
+        _installation.WriteUiSettings(new UiSettingsJson { WindowSize = (1000, 720) }.Build());
+        var session = Start();
+        session.WaitFor("RepositoryTree");
+        var log = session.WaitFor("RunLogPanel").BoundingRectangle.Height;
+        var scale = log / UiSettings.DefaultLogPanelHeight;
+        session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
+
+        session.Invoke("BackupAllButton");
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+        AppSession.WaitUntil(() => SummaryIsWhole(session, scale), "the results panel to show its table row");
+
+        var client = WindowClientArea.Bounds(session.MainWindow);
+        var totals = session.WaitFor("RunTotalsPanel").BoundingRectangle;
+        var gap = (int)Math.Floor(4 * scale);
+        totals.Bottom.ShouldBeLessThanOrEqualTo(client.Bottom - gap, "the totals card ends above the window edge with a gap");
+        Inside(session, "RunSummaryLogPath", totals);
+        Inside(session, "RunSummaryTotals", totals);
+        var results = session.WaitFor("RunResultsPanel").BoundingRectangle;
+        totals.Top.ShouldBeGreaterThan(results.Bottom, "a gap between the results and the totals cards");
+        ((double)results.Height).ShouldBeLessThan(UiSettings.DefaultSummaryPanelHeight * scale, "the results panel gives way");
+        ((double)session.WaitFor("RunLogPanel").BoundingRectangle.Height).ShouldBe(log, _pixelTolerance);
+        ((double)session.WaitFor("RepositoryTreePanel").BoundingRectangle.Height)
+            .ShouldBeGreaterThanOrEqualTo((_treeMinHeight * scale) - _pixelTolerance, "the tree keeps its minimum height");
+    }
+
+    [Fact]
     public void Tree_AfterExpanding_ShowsAlignedIconBeforeEachNodeName()
     {
         var session = Start();
@@ -210,7 +242,9 @@ public sealed class MainWindowLayoutTests : IDisposable
     public async Task OldUiSettingsFile_Start_RestoresLogAndResultsHeights()
     {
         _installation.NewBackupConfig().WriteTo(_installation.BackupConfigPath);
-        _installation.WriteUiSettings("""{ "MainWindow": { "LogPanelHeight": 200, "SummaryPanelHeight": 300 } }""");
+        // The window is tall enough for both saved heights; a lower window would limit the results panel.
+        _installation.WriteUiSettings(
+            """{ "MainWindow": { "Left": 0, "Top": 0, "Width": 1000, "Height": 900, "LogPanelHeight": 200, "SummaryPanelHeight": 300 } }""");
         var session = Start();
         session.WaitFor("EmptyTreeMessage");
         var scale = session.WaitFor("RunLogPanel").BoundingRectangle.Height / 200.0;

@@ -55,7 +55,7 @@ public sealed class MainWindowScreenshotTests : IDisposable
     [InlineData("dark")]
     public void DryRun_ManyRowsWithDiscoveryLines_AlignsEveryWholeRowAndKeepsTotalsInside(string theme)
     {
-        var shot = DryRun(UiScenarios.ManyRows, theme, logPanelHeight: 80);
+        var shot = DryRun(UiScenarios.ManyRows, theme, logPanelHeight: 160);
 
         var rows = shot.Table.WholeRows();
 
