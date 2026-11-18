@@ -70,7 +70,7 @@ docs/
 |---|---|---|
 | `csharp.md` | `**/*.cs` | Слои, DI и options, TimeProvider и IFileSystem, async и отмена, ошибки, логирование, гигиена комментариев, стиль C# 14 |
 | `tests.md` | тестовые проекты | Слои тестов, xUnit v3, Shouldly, NSubstitute, WireMock, FlaUI, проверка логов через `FakeLogger`, детерминированность |
-| `wpf-mvvm.md` | `GitHubBackup.App/**`, `*.xaml` | MVVM на CommunityToolkit.Mvvm, команды с отменой, виртуализация, AutomationId, правила визуального дизайна (карточки, разделители, выравнивание строк таблиц, выделение, отсутствие обрезки), проверка запущенного приложения через `netwright` со скриншотами до и после в обеих темах и попиксельной сверкой |
+| `wpf-mvvm.md` | `GitHubBackup.App/**`, `*.xaml` | MVVM на CommunityToolkit.Mvvm, команды с отменой, виртуализация, AutomationId, правила визуального дизайна (карточки, разделители, выравнивание строк таблиц, выделение, отсутствие обрезки), проверка запущенного приложения на тестовом стенде (`scripts/test-bench.ps1`: временная копия, заглушка GitHub API, тестовый токен) через `netwright` со скриншотами до и после в обеих темах и попиксельной сверкой; скриншотные UI-тесты главного окна и окна обнаружения |
 | `cli.md` | `GitHubBackup.Cli/**` | System.CommandLine, Spectre.Console, коды возврата, `--silent`, `--dry-run` |
 | `external-processes.md` | `GitHubBackup.Infrastructure/**` | Запуск git и 7-Zip, передача токена через окружение, коды возврата, логирование вывода, отмена, проверка клона перед обновлением и переносом |
 | `security.md` | все основные проекты | Каталог рисков с идентификаторами S/I/F/P/D и уровнями серьёзности |
@@ -115,7 +115,7 @@ docs/
 | `context7` | Документация сторонних библиотек (Octokit, Serilog, Spectre.Console, WireMock…) |
 | `microsoft-learn` | Официальная документация Microsoft (.NET, WPF, System.CommandLine, EF Core, MSBuild) |
 | `nuget` | Версии, уязвимости и сведения о пакетах NuGet; запускается через `dnx` из .NET 10 SDK |
-| `netwright` | Автоматизация WPF-приложения на шаге проверки UI-задач: запуск `GitHubBackup.App` из `.csproj`, проверки элементов по `AutomationId`, скриншоты; запускается через `dnx`, версия закреплена (`Netwright@2.1.0`), флаг `--allow GitHubBackup*` не даёт трогать другие приложения |
+| `netwright` | Автоматизация WPF-приложения на шаге проверки UI-задач: запуск `GitHubBackup.App.exe` из папки тестового стенда (`scripts/test-bench.ps1 -NoLaunch`), проверки элементов по `AutomationId`, скриншоты; запускается через `dnx`, версия закреплена (`Netwright@2.1.0`), флаг `--allow GitHubBackup*` не даёт трогать другие приложения |
 
 Не подключены сознательно: GitHub MCP (всё нужное делает `gh` без дополнительного токена и без десятков инструментов в контексте), Playwright (только браузер, для WPF бесполезен), Figma.
 

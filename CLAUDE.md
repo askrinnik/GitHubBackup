@@ -27,6 +27,7 @@ docs/
 scripts/
   publish.ps1            publishes both hosts into one application folder (NFR-8)
   render-icon.ps1        renders assets/icon/GitHubBackup.Icon.xaml into GitHubBackup.ico (FR-12.8)
+  test-bench.ps1         starts a temporary copy of the WPF app against a stubbed GitHub API, by scenario
 src/
   GitHubBackup.slnx
   Directory.Build.props, Directory.Packages.props, .editorconfig
@@ -35,7 +36,8 @@ src/
   GitHubBackup.Cli (+ .Tests)                  console host
   GitHubBackup.App (+ .Tests, .UITests)        WPF host (MVVM)
   GitHubBackup.ArchitectureTests               layer dependency rules and direct file system access
-  GitHubBackup.TestUtilities                   helpers shared by test projects (TemporaryContentRoot, LocalGitSandbox)
+  GitHubBackup.TestUtilities                   helpers shared by test projects and the test bench (TemporaryContentRoot, LocalGitSandbox, UiScenarios)
+  GitHubBackup.TestBench                       developer tool behind scripts/test-bench.ps1; not a product, not published
 .ai/
   benchmarks/harness/    harness benchmark: fixtures, history, reports
 compose.yaml             local .NET Aspire Dashboard that receives the OTLP telemetry (README, Telemetry)
@@ -44,7 +46,7 @@ profile-session.config.json   harness-kit session profile settings
 ```
 
 - Dependencies point inward only: `Cli`, `App` → `Infrastructure` → `Core`. `Core` references none of the others and no I/O library; `GitHubBackup.ArchitectureTests` enforces it.
-- Every production project has its test project next to it (`<Project>.Tests`). `GitHubBackup.TestUtilities` is a helper library referenced only by test projects; it is not a product and has no test project of its own.
+- Every production project has its test project next to it (`<Project>.Tests`). `GitHubBackup.TestUtilities` is a helper library referenced only by test projects and `GitHubBackup.TestBench`; neither is a product, and neither has a test project of its own.
 - `Core` and `Infrastructure` reach the disk only through `IFileSystem`; `GitHubBackup.ArchitectureTests` forbids `File`, `Directory`, `FileInfo`, `DirectoryInfo` and `FileStream` there.
 - `GitHubBackup.Core` and `GitHubBackup.Core.Tests` target `net10.0`; every other project targets `net10.0-windows`. Shared settings live in `src/Directory.Build.props`, package versions only in `src/Directory.Packages.props`.
 - `global.json` (repository root) pins the SDK band (`10.0.100`, `rollForward: latestFeature`) and selects Microsoft.Testing.Platform as the `dotnet test` runner.
@@ -61,6 +63,8 @@ Run from the repository root, each as a separate command:
 | Test one class | `dotnet test --project src/<Project>/<Project>.csproj --no-build --filter-class "*<Class>"` |
 | Test without smoke (as CI does) | `dotnet test --solution src/GitHubBackup.slnx --no-build --filter-not-trait "Category=Smoke"` |
 | UI tests (build and test both with the property) | `dotnet build src/GitHubBackup.slnx -p:RunUITests=true`, then `dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --filter-trait "Category=UI" --ignore-exit-code 8` |
+| Screenshot UI tests (unlocked desktop; light and dark theme) | `dotnet test --project src/GitHubBackup.App.UITests/GitHubBackup.App.UITests.csproj --no-build -p:RunUITests=true --filter-class "*ScreenshotTests"` |
+| Start the test bench: a temporary app copy with a stubbed API (`-Theme`, `-SummaryPanelHeight`, `-NoLaunch`, `-Keep`, `-List`) | `pwsh -File scripts/test-bench.ps1 -Scenario missing-repository` |
 | Format check | `dotnet format src/GitHubBackup.slnx --verify-no-changes` |
 | Publish the application folder (default `artifacts\publish`; `-OutputPath`, `-Clean`) | `pwsh -File scripts/publish.ps1` |
 | Render the application icon after changing its XAML source (commit the `.ico`) | `pwsh -File scripts/render-icon.ps1` |

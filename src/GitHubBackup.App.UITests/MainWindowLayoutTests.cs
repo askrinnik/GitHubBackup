@@ -10,13 +10,22 @@ using GitHubBackup.TestUtilities;
 namespace GitHubBackup.App.UITests;
 
 /// <summary>
-/// Checks the layout of the main window: the splitters between the tree, the live log and the summary, the columns of
+/// Checks the layout of the main window: the cards and the splitters between the tree, the live log and the results, the columns of
 /// the tree, and the placement and panel heights restored at the next start.
 /// </summary>
 public sealed class MainWindowLayoutTests : IDisposable
 {
     /// <summary>The tolerance, in pixels, of bounds compared after rounding to device pixels.</summary>
     private const int _pixelTolerance = 3;
+
+    /// <summary>The minimum height of the tree row of the main window in device-independent pixels.</summary>
+    private const double _treeMinHeight = 60;
+
+    /// <summary>The elements that are hidden until a run has a summary.</summary>
+    private static readonly string[] _hiddenWithoutSummary = ["RunResultsPanel", "RunTotalsPanel", "LogSummarySplitter"];
+
+    /// <summary>The automation ids of the four panels, top to bottom.</summary>
+    private static readonly string[] _panelsTopToBottom = ["RepositoryTreePanel", "RunLogPanel", "RunResultsPanel", "RunTotalsPanel"];
 
     private readonly GitHubApiStub _api = new();
     private readonly AppInstallation _installation;
@@ -39,14 +48,14 @@ public sealed class MainWindowLayoutTests : IDisposable
     {
         var session = Start();
         session.WaitFor("RepositoryTree");
-        var before = session.WaitFor("RunLog").BoundingRectangle.Height;
+        var before = session.WaitFor("RunLogPanel").BoundingRectangle.Height;
         var scale = before / UiSettings.DefaultLogPanelHeight;
 
         DragVertically(session.WaitFor("TreeLogSplitter"), -(int)(100 * scale));
 
         AppSession.WaitUntil(
-            () => session.WaitFor("RunLog").BoundingRectangle.Height > before + (50 * scale), "the live log to grow");
-        var resized = session.WaitFor("RunLog").BoundingRectangle.Height;
+            () => session.WaitFor("RunLogPanel").BoundingRectangle.Height > before + (50 * scale), "the live log to grow");
+        var resized = session.WaitFor("RunLogPanel").BoundingRectangle.Height;
         await CloseAsync(session);
         _installation.ReadMainWindowSettings().GetProperty("LogPanelHeight").GetDouble()
             .ShouldBe(resized / scale, _pixelTolerance);
@@ -54,7 +63,7 @@ public sealed class MainWindowLayoutTests : IDisposable
         var next = Start();
         next.WaitFor("RepositoryTree");
         AppSession.WaitUntil(
-            () => Math.Abs(next.WaitFor("RunLog").BoundingRectangle.Height - resized) <= _pixelTolerance,
+            () => Math.Abs(next.WaitFor("RunLogPanel").BoundingRectangle.Height - resized) <= _pixelTolerance,
             "the live log to open at the saved height");
     }
 
@@ -69,7 +78,7 @@ public sealed class MainWindowLayoutTests : IDisposable
         session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
         session.Invoke("BackupAllButton");
         session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
-        var log = session.WaitFor("RunLog").BoundingRectangle.Height;
+        var log = session.WaitFor("RunLogPanel").BoundingRectangle.Height;
         var scale = log / UiSettings.DefaultLogPanelHeight;
         var before = SummaryHeight(session);
 
@@ -77,7 +86,7 @@ public sealed class MainWindowLayoutTests : IDisposable
 
         AppSession.WaitUntil(() => SummaryHeight(session) >= before + (50 * scale), "the summary to grow");
         var resized = SummaryHeight(session);
-        ((double)session.WaitFor("RunLog").BoundingRectangle.Height).ShouldBe(log, _pixelTolerance);
+        ((double)session.WaitFor("RunLogPanel").BoundingRectangle.Height).ShouldBe(log, _pixelTolerance);
         await CloseAsync(session);
         _installation.ReadMainWindowSettings().GetProperty("SummaryPanelHeight").GetDouble()
             .ShouldBeGreaterThan(UiSettings.DefaultSummaryPanelHeight + 40);
@@ -102,7 +111,7 @@ public sealed class MainWindowLayoutTests : IDisposable
 
         AppSession.Invoke(backup);
         session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
-        var scale = session.WaitFor("RunLog").BoundingRectangle.Height / UiSettings.DefaultLogPanelHeight;
+        var scale = session.WaitFor("RunLogPanel").BoundingRectangle.Height / UiSettings.DefaultLogPanelHeight;
 
         AppSession.WaitUntil(() => SummaryIsWhole(session, scale), "the summary to grow to its table row and lines");
         DragVertically(session.WaitFor("LogSummarySplitter"), (int)(300 * scale));
@@ -126,6 +135,126 @@ public sealed class MainWindowLayoutTests : IDisposable
         FindAll(tree, "RepositoryLastArchiveText").Select(text => text.BoundingRectangle.Left).Distinct().Count().ShouldBe(1);
         var longName = FindAll(tree, "RepositoryNameText").Max(text => text.BoundingRectangle.Right);
         FindAll(tree, "RepositoryStatusText")[0].BoundingRectangle.Left.ShouldBeGreaterThan(longName);
+    }
+
+    [Fact]
+    public void Start_WithoutSummary_ShowsOnlyTreeAndLogPanels()
+    {
+        var session = Start();
+        session.WaitFor("RepositoryTree");
+
+        var tree = session.WaitFor("RepositoryTreePanel").BoundingRectangle;
+        var log = session.WaitFor("RunLogPanel").BoundingRectangle;
+        log.Top.ShouldBeGreaterThan(tree.Bottom);
+        foreach (var id in _hiddenWithoutSummary)
+        {
+            var hidden = session.MainWindow.FindFirstDescendant(condition => condition.ByAutomationId(id));
+            (hidden is null || hidden.IsOffscreen).ShouldBeTrue($"{id} is hidden without a summary");
+        }
+    }
+
+    [Fact]
+    public void DryRun_AfterRun_ShowsFourSeparatedPanelsWithTheirContent()
+    {
+        _api.GivenRepositoryUnavailable(3, "octo", "mid-length-name");
+        _installation.NewBackupConfig().WithRepository("octo", "mid-length-name", 3).WriteTo(_installation.BackupConfigPath);
+        var session = Start();
+
+        RunDryRunOfUnavailableRepository(session);
+
+        var panels = _panelsTopToBottom
+            .Select(id => session.WaitFor(id).BoundingRectangle)
+            .ToArray();
+        for (var index = 1; index < panels.Length; index++)
+        {
+            (panels[index].Top - panels[index - 1].Bottom).ShouldBeGreaterThan(0, $"a gap above panel {index}");
+            ((double)panels[index].Left).ShouldBe(panels[0].Left, _pixelTolerance);
+            ((double)panels[index].Right).ShouldBe(panels[0].Right, _pixelTolerance);
+        }
+
+        var window = session.MainWindow.BoundingRectangle;
+        panels[0].Left.ShouldBeGreaterThan(window.Left);
+        panels[^1].Right.ShouldBeLessThan(window.Right);
+        panels[^1].Bottom.ShouldBeLessThan(window.Bottom);
+        Inside(session, "RunSummaryHeader", panels[2]);
+        Inside(session, "RunSummaryTable", panels[2]);
+        Inside(session, "RunSummaryTotals", panels[3]);
+        Inside(session, "RunSummaryLogPath", panels[3]);
+    }
+
+    [Fact]
+    public void DryRun_ManyRowsAtNormalWindowHeight_KeepsTotalsInsideWindowAndTreeAndLogHeights()
+    {
+        UiScenarios.ManyRows.Prepare(_api, _installation.ArchivesPath, _installation.BackupConfigPath);
+        _installation.WriteUiSettings(new UiSettingsJson { WindowSize = (1000, 720) }.Build());
+        var session = Start();
+        session.WaitFor("RepositoryTree");
+        var log = session.WaitFor("RunLogPanel").BoundingRectangle.Height;
+        var scale = log / UiSettings.DefaultLogPanelHeight;
+        session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
+
+        session.Invoke("BackupAllButton");
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+        AppSession.WaitUntil(() => SummaryIsWhole(session, scale), "the results panel to show its table row");
+
+        var client = WindowClientArea.Bounds(session.MainWindow);
+        var totals = session.WaitFor("RunTotalsPanel").BoundingRectangle;
+        var gap = (int)Math.Floor(4 * scale);
+        totals.Bottom.ShouldBeLessThanOrEqualTo(client.Bottom - gap, "the totals card ends above the window edge with a gap");
+        Inside(session, "RunSummaryLogPath", totals);
+        Inside(session, "RunSummaryTotals", totals);
+        var results = session.WaitFor("RunResultsPanel").BoundingRectangle;
+        totals.Top.ShouldBeGreaterThan(results.Bottom, "a gap between the results and the totals cards");
+        ((double)results.Height).ShouldBeLessThan(UiSettings.DefaultSummaryPanelHeight * scale, "the results panel gives way");
+        ((double)session.WaitFor("RunLogPanel").BoundingRectangle.Height).ShouldBe(log, _pixelTolerance);
+        ((double)session.WaitFor("RepositoryTreePanel").BoundingRectangle.Height)
+            .ShouldBeGreaterThanOrEqualTo((_treeMinHeight * scale) - _pixelTolerance, "the tree keeps its minimum height");
+    }
+
+    [Fact]
+    public void Tree_AfterExpanding_ShowsAlignedIconBeforeEachNodeName()
+    {
+        var session = Start();
+        var tree = session.WaitFor("RepositoryTree");
+        AppSession.WaitUntil(() => tree.FindAllChildren().Length == 2, "the account and the group of standalone repositories");
+        foreach (var node in tree.FindAllChildren())
+        {
+            node.Patterns.ExpandCollapse.Pattern.Expand();
+        }
+
+        AppSession.WaitUntil(() => FindAll(tree, "RepositoryNodeIcon").Length == 3, "three repository icons");
+
+        var account = session.WaitFor("AccountNodeIcon").BoundingRectangle;
+        var group = session.WaitFor("RepositoryGroupNodeIcon").BoundingRectangle;
+        ((double)account.Left).ShouldBe(group.Left, _pixelTolerance);
+        ((double)account.Width).ShouldBe(group.Width, _pixelTolerance);
+        var icons = FindAll(tree, "RepositoryNodeIcon");
+        icons.Select(icon => icon.BoundingRectangle.Left).Distinct().Count().ShouldBe(1);
+        icons[0].BoundingRectangle.Left.ShouldBeGreaterThan(account.Left);
+        var names = FindAll(tree, "RepositoryNameText");
+        for (var index = 0; index < icons.Length; index++)
+        {
+            icons[index].BoundingRectangle.Right.ShouldBeLessThanOrEqualTo(names[index].BoundingRectangle.Left + _pixelTolerance);
+        }
+    }
+
+    [Fact]
+    public async Task OldUiSettingsFile_Start_RestoresLogAndResultsHeights()
+    {
+        _installation.NewBackupConfig().WriteTo(_installation.BackupConfigPath);
+        // The window is tall enough for both saved heights; a lower window would limit the results panel.
+        _installation.WriteUiSettings(
+            """{ "MainWindow": { "Left": 0, "Top": 0, "Width": 1000, "Height": 900, "LogPanelHeight": 200, "SummaryPanelHeight": 300 } }""");
+        var session = Start();
+        session.WaitFor("EmptyTreeMessage");
+        var scale = session.WaitFor("RunLogPanel").BoundingRectangle.Height / 200.0;
+        session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
+        session.Invoke("BackupAllButton");
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+
+        ((double)SummaryHeight(session)).ShouldBe(300 * scale, _pixelTolerance);
+        await CloseAsync(session);
+        _installation.ReadMainWindowSettings().GetProperty("SummaryPanelHeight").GetDouble().ShouldBe(300, 1);
     }
 
     [Fact]
@@ -252,30 +381,60 @@ public sealed class MainWindowLayoutTests : IDisposable
         root.FindAllDescendants(condition => condition.ByAutomationId(automationId));
 
     /// <summary>
-    /// Measures the summary panel from the splitter above it to its last line, the log path, because the panel itself
-    /// is a layout element that UI Automation does not expose.
+    /// Measures the results panel, the card that the log and results splitter resizes.
     /// </summary>
     /// <param name="session">The running application.</param>
     /// <returns>The height in pixels.</returns>
-    private static double SummaryHeight(AppSession session) =>
-        session.WaitFor("RunSummaryLogPath").BoundingRectangle.Bottom - session.WaitFor("LogSummarySplitter").BoundingRectangle.Bottom;
+    private static double SummaryHeight(AppSession session) => session.WaitFor("RunResultsPanel").BoundingRectangle.Height;
 
     /// <summary>
-    /// Returns whether the summary shows its table with the column header and one row, the discovery line below the
-    /// table and the log line inside the visible part of the summary.
+    /// Returns whether the results panel shows the header and the table with its column header and
+    /// one row inside the visible part of its scroll area.
     /// </summary>
     /// <param name="session">The session.</param>
     /// <param name="scale">The device pixels per device-independent pixel.</param>
-    /// <returns><see langword="true"/> when nothing of the summary is cut.</returns>
+    /// <returns><see langword="true"/> when nothing of the results is cut.</returns>
     private static bool SummaryIsWhole(AppSession session, double scale)
     {
-        var visible = session.WaitFor("RunSummaryScroll").BoundingRectangle;
+        var visible = session.WaitFor("RunResultsScroll").BoundingRectangle;
+        var header = session.WaitFor("RunSummaryHeader").BoundingRectangle;
         var table = session.WaitFor("RunSummaryTable").BoundingRectangle;
-        var discovery = session.WaitFor("RunSummaryDiscovery").BoundingRectangle;
-        var log = session.WaitFor("RunSummaryLogPath").BoundingRectangle;
         return table.Height >= (56 * scale) - _pixelTolerance
-            && discovery.Top >= table.Bottom
-            && log.Bottom <= visible.Bottom + _pixelTolerance;
+            && table.Top > header.Bottom
+            && table.Bottom <= visible.Bottom + _pixelTolerance;
+    }
+
+    /// <summary>
+    /// Runs a dry run of the repository that the API stub reports as unavailable, so that the summary shows a table row.
+    /// </summary>
+    /// <param name="session">The running application.</param>
+    private static void RunDryRunOfUnavailableRepository(AppSession session)
+    {
+        var tree = session.WaitFor("RepositoryTree");
+        AppSession.WaitUntil(
+            () => tree.FindFirstDescendant(condition => condition.ByName("octo/mid-length-name")) is not null,
+            "the tree item of the repository");
+        tree.FindFirstDescendant(condition => condition.ByName("octo/mid-length-name"))!.Patterns.SelectionItem.Pattern.Select();
+        session.WaitFor("DryRunToggle").Patterns.Toggle.Pattern.Toggle();
+        var backup = session.WaitFor("BackupRepositoryButton");
+        AppSession.WaitUntil(() => backup.IsEnabled, "Backup repository to be enabled");
+        AppSession.Invoke(backup);
+        session.WaitFor("RunSummaryTotals", UiTimeouts.Run);
+    }
+
+    /// <summary>
+    /// Asserts that the element with <paramref name="automationId"/> lies inside <paramref name="panel"/>.
+    /// </summary>
+    /// <param name="session">The running application.</param>
+    /// <param name="automationId">The automation id of the element.</param>
+    /// <param name="panel">The bounds of the panel.</param>
+    private static void Inside(AppSession session, string automationId, Rectangle panel)
+    {
+        var bounds = session.WaitFor(automationId).BoundingRectangle;
+        bounds.Top.ShouldBeGreaterThanOrEqualTo(panel.Top, $"{automationId} top");
+        bounds.Bottom.ShouldBeLessThanOrEqualTo(panel.Bottom + _pixelTolerance, $"{automationId} bottom");
+        bounds.Left.ShouldBeGreaterThanOrEqualTo(panel.Left, $"{automationId} left");
+        bounds.Right.ShouldBeLessThanOrEqualTo(panel.Right + _pixelTolerance, $"{automationId} right");
     }
 
     /// <summary>

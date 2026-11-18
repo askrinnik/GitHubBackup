@@ -3,7 +3,6 @@ using System.Text.Json;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.TestUtilities;
 using GitHubBackup.TestUtilities.Git;
-using Microsoft.Extensions.Hosting;
 
 namespace GitHubBackup.App.UITests;
 
@@ -20,7 +19,7 @@ namespace GitHubBackup.App.UITests;
 internal sealed class AppInstallation : IDisposable
 {
     /// <summary>The token the settings of the installation configure.</summary>
-    public const string Token = "ghp_UiTestTokenValue0123456789abcdefABCD";
+    public const string Token = AppSettingsJson.Token;
 
     /// <summary>
     /// The environment variable that names a published application folder; when it is set, the installation copies
@@ -81,14 +80,10 @@ internal sealed class AppInstallation : IDisposable
         BuildOutput.CopyTo(source, FolderPath, _executableName);
         if (writeAppSettings)
         {
-            WriteAppSettings(ValidAppSettings(apiBaseUrl));
+            WriteAppSettings(AppSettingsJson.Valid(apiBaseUrl));
         }
 
-        Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase)
-        {
-            // Production skips the user secrets of the developer, which could supply another token or API address.
-            [GitHubBackupHostSettings.EnvironmentVariableName] = Environments.Production,
-        };
+        Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase);
         if (!writeAppSettings)
         {
             environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__Token"] = Token;
@@ -117,7 +112,10 @@ internal sealed class AppInstallation : IDisposable
     /// <summary>Gets the absolute path of the executable.</summary>
     public string ExecutablePath => Path.Combine(FolderPath, _executableName);
 
-    /// <summary>Gets the environment variables the executable is started with.</summary>
+    /// <summary>
+    /// Gets the environment variables of the installation, which <see cref="IsolatedAppProcess"/> sets on top of the
+    /// isolated environment of the executable.
+    /// </summary>
     public IReadOnlyDictionary<string, string> Environment { get; }
 
     /// <summary>Gets the absolute path of <c>backup-config.json</c>, which the application reads by default.</summary>
@@ -185,21 +183,4 @@ internal sealed class AppInstallation : IDisposable
     /// Deletes the installation folder and everything the application created in it.
     /// </summary>
     public void Dispose() => TemporaryFolder.Delete(FolderPath);
-
-    /// <summary>
-    /// Builds valid settings with <see cref="Token"/>, git from <c>PATH</c> and 7-Zip in its default location.
-    /// </summary>
-    /// <param name="apiBaseUrl">The address of the GitHub API.</param>
-    /// <returns>The content of <c>appsettings.json</c>.</returns>
-    private static string ValidAppSettings(string apiBaseUrl) =>
-        $$"""
-        {
-          "GitHub": { "ApiBaseUrl": {{JsonSerializer.Serialize(apiBaseUrl)}}, "Token": "{{Token}}" },
-          "Tools": { "GitPath": null, "SevenZipPath": "C:\\Program Files\\7-Zip\\7z.exe" },
-          "Backup": { "ConfigPath": "backup-config.json", "ShortHashLength": 10, "VerifyArchive": true },
-          "History": { "DatabasePath": "data\\history.db" },
-          "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317" },
-          "Serilog": { "MinimumLevel": { "Default": "Information" } }
-        }
-        """;
 }
