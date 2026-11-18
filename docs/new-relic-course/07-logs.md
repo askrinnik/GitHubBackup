@@ -1,6 +1,6 @@
-# Урок 10. Поиск и анализ логов
+# Урок 7. Логи: поиск и анализ
 
-**Коротко.** Логи можно искать двумя способами: строкой поиска в разделе **Logs** и запросом NRQL `FROM Log`. Строка поиска удобна, чтобы найти запись. NRQL удобен, чтобы посчитать, сгруппировать и построить график. Урок дополнительный: он расширяет раздел Logs урока 6.
+**Коротко.** Логи можно искать двумя способами: строкой поиска в разделе **Logs** и запросом NRQL `FROM Log`. Строка поиска удобна, чтобы найти запись. NRQL удобен, чтобы посчитать, сгруппировать и построить график. Как выполнить NRQL-запрос, описано в уроке 6.
 
 ```
 Logs (раздел)
@@ -8,8 +8,15 @@ Logs (раздел)
   ├─ панель атрибутов   — фильтр щелчком по значению
   ├─ Patterns           — похожие строки, собранные в шаблоны
   └─ Live tail          — записи в реальном времени
-FROM Log (NRQL)         — счёт, группировка, графики, разбор текста, алерты
+FROM Log (NRQL)         — счёт, группировка, графики, разбор текста
 ```
+
+## Где открыть логи
+
+- В сервисе `GitHubBackup` откройте **Logs**. Там только логи этого сервиса.
+- Раздел **Logs** в левом меню показывает логи всего аккаунта.
+
+Колонка `level` в списке показывает уровень записи. Программа кладёт уровень в атрибут `level`; OpenTelemetry передаёт его ещё и в `severity.text`. У записей, отправленных до появления атрибута `level`, уровень есть только в `severity.text`, и колонка `level` у них пустая. Чтобы видеть уровень и у таких записей, нажмите `+` над таблицей и добавьте колонку `severity.text`.
 
 ## Какие атрибуты есть у логов GitHubBackup
 
@@ -60,7 +67,7 @@ FROM Log SELECT keyset() WHERE service.name = 'GitHubBackup' SINCE 1 day ago
 
 ## Панель атрибутов
 
-Нажмите на запись лога. Справа откроются её атрибуты. Нажмите на значение атрибута, например `Repository`. New Relic добавит фильтр по этому значению в строку поиска. Так удобно строить фильтр, не вспоминая синтаксис.
+Нажмите на запись лога. Справа откроются её атрибуты. Нажмите на значение атрибута, например `Repository` или `level`. New Relic добавит фильтр по этому значению в строку поиска, например `"level":"Warning"`. Так удобно строить фильтр, не вспоминая синтаксис.
 
 ## Логи в контексте трейса
 
@@ -106,6 +113,16 @@ WHERE service.name = 'GitHubBackup' AND message RLIKE r'git exited with code [1-
 SINCE 7 days ago
 ```
 
+**Предупреждения и ошибки:**
+
+```sql
+FROM Log SELECT timestamp, level, message, Repository, Operation
+WHERE service.name = 'GitHubBackup' AND level IN ('Warning', 'Error', 'Critical')
+SINCE 1 day ago LIMIT 100
+```
+
+Если запрос пуст, посмотрите реальные значения уровня: `FROM Log SELECT uniques(level) WHERE service.name = 'GitHubBackup' SINCE 1 day ago`.
+
 **Уровни по дням:**
 
 ```sql
@@ -127,23 +144,13 @@ FROM Log SELECT count(*) WHERE service.name = 'GitHubBackup' AND message LIKE 'g
 FACET capture(message, r'git exited with code (?P<code>\d+) after .*') SINCE 7 days ago
 ```
 
-**Какие записи занимают больше места.** Логи — основная часть расхода (урок 7). `bytecountestimate()` оценивает объём записей в байтах. Запрос сравнивает строки вывода git с остальными:
+**Какие записи занимают больше места.** Логи — основная часть расхода (урок 10). `bytecountestimate()` оценивает объём записей в байтах. Запрос сравнивает строки вывода git с остальными:
 
 ```sql
 FROM Log SELECT bytecountestimate() / 1e6 AS 'MB'
 WHERE service.name = 'GitHubBackup'
 FACET if(message LIKE 'git stdout:%', 'git stdout', 'other') SINCE 7 days ago
 ```
-
-## Алерт по логам
-
-Условие можно строить и по `FROM Log`. Пример: в логах появилась ошибка.
-
-```sql
-FROM Log SELECT count(*) WHERE service.name = 'GitHubBackup' AND level = 'Error'
-```
-
-Настройки — как у алерта на сбой в уроке 7: **Event timer**, порог **above 0 at least once in** 5 minutes, политика `GitHubBackup`.
 
 ## Как сократить объём логов
 
