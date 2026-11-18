@@ -347,8 +347,7 @@
                                 Margin="0,0,0,6"
                                 Background="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}"
                                 Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                SizeChanged="OnResultsPartSizeChanged"
-                                AutomationProperties.AutomationId="RunSummarySeparator" />
+                                SizeChanged="OnResultsPartSizeChanged" />
                         <ListView Grid.Row="2"
                                   ItemsSource="{Binding Rows, Mode=OneWay}"
                                   Visibility="{Binding HasItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"

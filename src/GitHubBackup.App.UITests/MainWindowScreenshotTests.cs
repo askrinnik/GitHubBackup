@@ -109,8 +109,15 @@ public sealed class MainWindowScreenshotTests : IDisposable
                 .ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinBorderContrast, $"{shot.Description}: border of {card}");
         }
 
-        LayoutMeasurement.LineContrast(shot.Image, shot.Bounds("RunSummarySeparator"), shot.Scale)
-            .ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinLineContrast, $"{shot.Description}: separator above the table");
+        // The separator is a plain Border, which UI Automation does not expose; it sits in the margin above the table,
+        // so the strongest horizontal line in that margin is the separator.
+        var inside = shot.Inside("RunResultsPanel");
+        var tableTop = shot.Bounds("RunSummaryTable").Top;
+        var margin = (int)Math.Ceiling(12 * shot.Scale);
+        var separatorContrast = Enumerable.Range(tableTop - margin, margin)
+            .Select(y => LayoutMeasurement.LineContrast(shot.Image, new Rectangle(inside.Left, y, inside.Width, 1), shot.Scale))
+            .Max();
+        separatorContrast.ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinLineContrast, $"{shot.Description}: separator above the table");
     }
 
     /// <summary>
