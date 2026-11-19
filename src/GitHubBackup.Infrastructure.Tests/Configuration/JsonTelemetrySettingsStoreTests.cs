@@ -26,6 +26,11 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
 
     private readonly AppSettingsFile _file;
 
+    private readonly IOtlpHeadersStore _headersStore = Substitute.For<IOtlpHeadersStore>();
+
+    /// <summary>The headers the configuration reads from Windows Credential Manager, or <see langword="null"/>.</summary>
+    private string? _credentialHeaders;
+
     /// <summary>
     /// Creates the content root and the settings file of the store.
     /// </summary>
@@ -78,8 +83,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
             {
               "OpenTelemetry": {
                 "Enabled": true,
-                "OtlpEndpoint": "http://otel:4317",
-                "Headers": null
+                "OtlpEndpoint": "http://otel:4317"
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
@@ -108,7 +112,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
             }
             """));
 
-        await CreateStore().SaveAsync(new(false, "http://new:4317", "x"), TestContext.Current.CancellationToken);
+        await CreateStore().SaveAsync(new(false, "http://new:4317", "x=y"), TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
@@ -117,8 +121,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
               },
               "OpenTelemetry": {
                 "Enabled": false,
-                "OtlpEndpoint": "http://new:4317",
-                "Headers": "x"
+                "OtlpEndpoint": "http://new:4317"
               },
               "Serilog": {
                 "MinimumLevel": {
@@ -140,6 +143,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
 
         exception.Message.ShouldStartWith(TelemetrySettings.OtlpEndpointKey);
         _fileSystem.File.Exists(_filePath).ShouldBeFalse();
+        _headersStore.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
@@ -220,11 +224,11 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task SaveAsync_Headers_WritesKeyAndKeepsBackup()
+    public async Task SaveAsync_Headers_WritesStoreAndRemovesKeyFromFileKeepingBackup()
     {
         _fileSystem.AddFile(_filePath, new MockFileData("""
             {
-              "OpenTelemetry": { "Enabled": false }
+              "OpenTelemetry": { "Enabled": false, "Headers": "api-key=old-secret" }
             }
             """));
 
@@ -232,30 +236,31 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
             new(true, "https://otlp.nr-data.net:4317", "api-key=new-secret"),
             TestContext.Current.CancellationToken);
 
+        await _headersStore.Received(1).WriteAsync("api-key=new-secret", Arg.Any<CancellationToken>());
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
               "OpenTelemetry": {
                 "Enabled": true,
-                "OtlpEndpoint": "https://otlp.nr-data.net:4317",
-                "Headers": "api-key=new-secret"
+                "OtlpEndpoint": "https://otlp.nr-data.net:4317"
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
-        _fileSystem.File.Exists(_filePath + ".bak").ShouldBeTrue();
+        _fileSystem.File.ReadAllText(_filePath + ".bak").ShouldContain("old-secret");
     }
 
     [Theory]
     [InlineData(null)]
     [InlineData("")]
     [InlineData("   ")]
-    public async Task SaveAsync_BlankHeaders_WritesNull(string? headers)
+    public async Task SaveAsync_BlankHeaders_DeletesStoreEntryAndRemovesKey(string? headers)
     {
         _fileSystem.AddFile(_filePath, new MockFileData("""{ "OpenTelemetry": { "Headers": "api-key=old-secret" } }"""));
 
         await CreateStore().SaveAsync(new(false, null, headers), TestContext.Current.CancellationToken);
 
-        _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"Headers\": null");
-        _fileSystem.File.ReadAllText(_filePath).ShouldNotContain("old-secret");
+        await _headersStore.Received(1).DeleteAsync(Arg.Any<CancellationToken>());
+        await _headersStore.DidNotReceive().WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        _fileSystem.File.ReadAllText(_filePath).ShouldNotContain("Headers");
     }
 
     [Fact]
@@ -263,7 +268,25 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
     {
         await CreateStore().SaveAsync(new(false, null, "  api-key=new-secret  "), TestContext.Current.CancellationToken);
 
-        _fileSystem.File.ReadAllText(_filePath).ShouldContain("\"Headers\": \"api-key=new-secret\"");
+        await _headersStore.Received(1).WriteAsync("api-key=new-secret", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task SaveAsync_StoreFails_LeavesFileUnchangedAndKeepsCurrent()
+    {
+        const string original = """{ "OpenTelemetry": { "Enabled": false, "Headers": "api-key=old-secret" } }""";
+        _fileSystem.AddFile(_filePath, new MockFileData(original));
+        _headersStore.WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromException(new OtlpHeadersStoreException("Cannot save the credential 'x'.")));
+        var store = CreateStore(appSettings: original);
+
+        await Should.ThrowAsync<OtlpHeadersStoreException>(() => store.SaveAsync(
+            new(true, "https://otlp.nr-data.net:4317", "api-key=new-secret"), TestContext.Current.CancellationToken));
+
+        _fileSystem.File.ReadAllText(_filePath).ShouldBe(original);
+        _fileSystem.File.Exists(_filePath + ".bak").ShouldBeFalse();
+        store.HeadersInAppSettings.ShouldBeTrue();
+        store.Current.Headers.ShouldBe("api-key=old-secret");
     }
 
     [Fact]
@@ -274,11 +297,56 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
             "{}",
             "--OpenTelemetry:Headers=api-key=override-secret");
 
-        await store.SaveAsync(new(true, "https://otlp.nr-data.net:4317", null), TestContext.Current.CancellationToken);
+        await store.SaveAsync(
+            new(true, "https://otlp.nr-data.net:4317", "api-key=field-secret"), TestContext.Current.CancellationToken);
 
-        var text = _fileSystem.File.ReadAllText(_filePath);
-        text.ShouldContain("\"Headers\": null");
-        text.ShouldNotContain("override-secret");
+        await _headersStore.Received(1).WriteAsync("api-key=field-secret", Arg.Any<CancellationToken>());
+        _fileSystem.File.ReadAllText(_filePath).ShouldNotContain("override-secret");
+    }
+
+    [Fact]
+    public void Current_CredentialHeaders_ReturnsCredentialValueOverFileValue()
+    {
+        _credentialHeaders = "api-key=credential-secret";
+
+        var store = CreateStore(
+            new() { Headers = "api-key=credential-secret" },
+            """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""");
+
+        store.Current.Headers.ShouldBe("api-key=credential-secret");
+        store.HeadersOverridden.ShouldBeFalse();
+        store.HeadersInAppSettings.ShouldBeTrue();
+    }
+
+    [Theory]
+    [InlineData("{}", false)]
+    [InlineData("""{ "OpenTelemetry": { "Headers": null } }""", false)]
+    [InlineData("""{ "OpenTelemetry": { "Headers": "  " } }""", false)]
+    [InlineData("""{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""", true)]
+    public void HeadersInAppSettings_ReflectsFile(string appSettings, bool expected) =>
+        CreateStore(appSettings: appSettings).HeadersInAppSettings.ShouldBe(expected);
+
+    [Fact]
+    public async Task HeadersInAppSettings_AfterSave_IsFalse()
+    {
+        var store = CreateStore(appSettings: """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""");
+
+        await store.SaveAsync(new(false, null, "api-key=file-secret"), TestContext.Current.CancellationToken);
+
+        store.HeadersInAppSettings.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Constructor_CredentialHeaders_RegistersThemWithMasker()
+    {
+        _credentialHeaders = "api-key=credential-secret";
+
+        CreateStore(
+            new() { Headers = "api-key=override-secret" },
+            "{}",
+            "--OpenTelemetry:Headers=api-key=override-secret");
+
+        _masker.Mask("Sent credential-secret.").ShouldBe("Sent ***.");
     }
 
     [Fact]
@@ -306,6 +374,7 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
         exception.Message.ShouldNotContain("first-secret");
         _masker.Mask("api-key first-secret").ShouldBe("***");
         _fileSystem.File.Exists(_filePath).ShouldBeFalse();
+        _headersStore.ReceivedCalls().ShouldBeEmpty();
     }
 
     [Fact]
@@ -387,7 +456,8 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
 
     /// <summary>
     /// Creates the subject over the mock file system, <paramref name="options"/> and a configuration with
-    /// <paramref name="appSettings"/> as the settings file and <paramref name="arguments"/> as the command line.
+    /// <paramref name="appSettings"/> as the settings file, <see cref="_credentialHeaders"/> as Windows Credential
+    /// Manager and <paramref name="arguments"/> as the command line.
     /// </summary>
     /// <param name="options">The telemetry options, or <see langword="null"/> for the defaults.</param>
     /// <param name="appSettings">The JSON text of the settings file the configuration reads.</param>
@@ -404,8 +474,9 @@ public sealed class JsonTelemetrySettingsStoreTests : IDisposable
                 GitHubBackupHostBuilder.AppSettingsFileName,
                 optional: true,
                 reloadOnChange: false)
+            .Add(new CredentialManagerConfigurationSource(() => _credentialHeaders, new ConfigurationWarnings()))
             .AddCommandLine(arguments)
             .Build();
-        return new(Options.Create(options ?? new()), configuration, _masker, _file);
+        return new(Options.Create(options ?? new()), configuration, _masker, _file, _headersStore);
     }
 }

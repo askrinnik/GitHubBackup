@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using GitHubBackup.Infrastructure.Hosting;
+using GitHubBackup.TestUtilities;
 
 namespace GitHubBackup.Cli.Tests;
 
@@ -37,7 +38,8 @@ internal static class CliProcess
     /// Standard input stays open and unwritten while the process runs: the process sees redirected input, and a
     /// process that waits for input never exits and is killed on timeout. Standard output and standard error are read
     /// concurrently, so a full pipe never blocks the process. The child gets the environment of the test process
-    /// without the variables that configure the application or git, plus <paramref name="environment"/>.
+    /// without the variables that configure the application or git, with a unique OTLP headers credential that holds
+    /// nothing, so the process never reads the credential of the user, plus <paramref name="environment"/>.
     /// </remarks>
     /// <param name="executablePath">
     /// The absolute path of the executable, or a bare file name that is looked up on <c>PATH</c> and runs in the
@@ -77,6 +79,8 @@ internal static class CliProcess
             startInfo.Environment.Remove(name);
         }
 
+        startInfo.Environment[GitHubBackupHostSettings.OtlpHeadersCredentialTargetVariableName] =
+            OtlpHeadersTestCredential.CreateTarget();
         foreach (var (name, value) in environment)
         {
             startInfo.Environment[name] = value;

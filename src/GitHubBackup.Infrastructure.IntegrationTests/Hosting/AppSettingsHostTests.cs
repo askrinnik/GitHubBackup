@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
@@ -21,6 +22,11 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Hosting;
 /// </summary>
 public sealed class AppSettingsHostTests
 {
+    /// <summary>
+    /// The Win32 error a process without a logon session gets from Credential Manager, as on some CI runners.
+    /// </summary>
+    private const int _noSuchLogonSession = 1312;
+
     /// <summary>The name of a settings file that the application neither reads nor writes.</summary>
     private const string _legacyUserSettingsFileName = "user-settings.json";
 
@@ -208,20 +214,121 @@ public sealed class AppSettingsHostTests
     }
 
     [Fact]
-    public async Task SaveAsync_TelemetryHeaders_NewHostReadsSavedHeaders()
+    public async Task SaveAsync_TelemetryHeadersInAppSettings_MovesThemToCredentialManager()
     {
-        using var contentRoot = new TemporaryContentRoot(_appSettings);
+        using var credential = new OtlpHeadersTestCredential();
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "OpenTelemetry": { "Enabled": false, "Headers": "api-key=file-secret" } }""", credential.Target);
         using (var host = contentRoot.BuildHost())
         {
-            await host.Services.GetRequiredService<ITelemetrySettingsStore>()
-                .SaveAsync(new(false, null, "api-key=saved-secret"), TestContext.Current.CancellationToken);
+            var store = host.Services.GetRequiredService<ITelemetrySettingsStore>();
+            store.HeadersInAppSettings.ShouldBeTrue();
+            store.Current.Headers.ShouldBe("api-key=file-secret");
+            await SaveOrSkipAsync(store, new(false, null, "api-key=saved-secret"));
         }
 
         using var nextHost = contentRoot.BuildHost();
 
-        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().Current.Headers.ShouldBe("api-key=saved-secret");
-        nextHost.Services.GetRequiredService<ITelemetrySettingsStore>().HeadersOverridden.ShouldBeFalse();
+        credential.Read().ShouldBe("api-key=saved-secret");
+        var appSettingsPath = Path.Combine(contentRoot.FolderPath, GitHubBackupHostBuilder.AppSettingsFileName);
+        File.ReadAllText(appSettingsPath).ShouldNotContain("Headers");
+        File.ReadAllText(appSettingsPath + ".bak").ShouldContain("file-secret");
+        var nextStore = nextHost.Services.GetRequiredService<ITelemetrySettingsStore>();
+        nextStore.Current.Headers.ShouldBe("api-key=saved-secret");
+        nextStore.HeadersOverridden.ShouldBeFalse();
+        nextStore.HeadersInAppSettings.ShouldBeFalse();
         nextHost.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBe("api-key=saved-secret");
+    }
+
+    [Fact]
+    public async Task SaveAsync_BlankTelemetryHeaders_DeletesCredential()
+    {
+        using var credential = new OtlpHeadersTestCredential();
+        WriteOrSkip(credential, "api-key=credential-secret");
+        using var contentRoot = new TemporaryContentRoot(otlpHeadersCredentialTarget: credential.Target);
+        using (var host = contentRoot.BuildHost())
+        {
+            await SaveOrSkipAsync(host.Services.GetRequiredService<ITelemetrySettingsStore>(), new(false, null, " "));
+        }
+
+        credential.Read().ShouldBeNull();
+        using var nextHost = contentRoot.BuildHost();
+        nextHost.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBeNull();
+    }
+
+    [Fact]
+    public void BuildHost_CredentialHeaders_OverrideFileAndAreMasked()
+    {
+        using var credential = new OtlpHeadersTestCredential();
+        WriteOrSkip(credential, "api-key=credential-secret");
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "OpenTelemetry": { "Headers": "api-key=file-secret" } }""", credential.Target);
+
+        using var host = contentRoot.BuildHost();
+
+        host.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBe("api-key=credential-secret");
+        var store = host.Services.GetRequiredService<ITelemetrySettingsStore>();
+        store.Current.Headers.ShouldBe("api-key=credential-secret");
+        store.HeadersOverridden.ShouldBeFalse();
+        store.HeadersInAppSettings.ShouldBeTrue();
+        host.Services.GetRequiredService<ISecretMasker>()
+            .Mask("Sent credential-secret and file-secret.").ShouldBe("Sent *** and ***.");
+    }
+
+    [Fact]
+    public void BuildHost_CommandLineHeaders_OverrideCredential()
+    {
+        using var credential = new OtlpHeadersTestCredential();
+        WriteOrSkip(credential, "api-key=credential-secret");
+        using var contentRoot = new TemporaryContentRoot(otlpHeadersCredentialTarget: credential.Target);
+
+        using var host = contentRoot.BuildHost("--OpenTelemetry:Headers=api-key=cli-secret");
+
+        host.Services.GetRequiredService<IOptions<OpenTelemetryOptions>>().Value.Headers.ShouldBe("api-key=cli-secret");
+        var store = host.Services.GetRequiredService<ITelemetrySettingsStore>();
+        store.Current.Headers.ShouldBe("api-key=credential-secret");
+        store.HeadersOverridden.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task StartAsync_MalformedCredentialHeadersWhileEnabled_FailsValidationWithoutValue()
+    {
+        using var credential = new OtlpHeadersTestCredential();
+        WriteOrSkip(credential, "api-key credential-secret");
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "OpenTelemetry": { "Enabled": true, "OtlpEndpoint": "https://otlp.example:4317" } }""",
+            credential.Target);
+        using var host = contentRoot.BuildHost();
+
+        var exception = await Should.ThrowAsync<OptionsValidationException>(
+            () => host.StartAsync(TestContext.Current.CancellationToken));
+
+        exception.Message.ShouldContain(OpenTelemetryOptions.HeadersKey);
+        exception.Message.ShouldNotContain("credential-secret");
+    }
+
+    [Fact]
+    public void BuildHost_NoCredentialTarget_HasNoCredentialManagerSource()
+    {
+        using var contentRoot = new TemporaryContentRoot();
+
+        using var host = contentRoot.BuildHost();
+
+        var configuration = (IConfigurationRoot)host.Services.GetRequiredService<IConfiguration>();
+        configuration.Providers.OfType<CredentialManagerConfigurationProvider>().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void BuildHost_CredentialTarget_AddsCredentialManagerSourceAfterAppSettings()
+    {
+        using var contentRoot = new TemporaryContentRoot(otlpHeadersCredentialTarget: OtlpHeadersTestCredential.CreateTarget());
+
+        using var host = contentRoot.BuildHost();
+
+        var providers = ((IConfigurationRoot)host.Services.GetRequiredService<IConfiguration>()).Providers.ToList();
+        var fileIndex = providers.FindIndex(provider => provider is FileConfigurationProvider);
+        var credentialIndex = providers.FindIndex(provider => provider is CredentialManagerConfigurationProvider);
+        credentialIndex.ShouldBe(fileIndex + 1);
     }
 
     [Fact]
@@ -288,4 +395,42 @@ public sealed class AppSettingsHostTests
     /// <param name="json">The JSON text of the file.</param>
     private static void WriteFile(TemporaryContentRoot contentRoot, string fileName, string json) =>
         File.WriteAllText(Path.Combine(contentRoot.FolderPath, fileName), json);
+
+    /// <summary>
+    /// Saves <paramref name="credential"/>, or skips the test when the process has no logon session to keep
+    /// credentials in.
+    /// </summary>
+    /// <param name="credential">The test credential.</param>
+    /// <param name="headers">The headers to save.</param>
+    private static void WriteOrSkip(OtlpHeadersTestCredential credential, string headers)
+    {
+        try
+        {
+            credential.Write(headers);
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == _noSuchLogonSession)
+        {
+            Assert.Skip("Windows Credential Manager is not available without a logon session.");
+        }
+    }
+
+    /// <summary>
+    /// Saves <paramref name="settings"/> through <paramref name="store"/>, or skips the test when the process has no
+    /// logon session to keep credentials in.
+    /// </summary>
+    /// <param name="store">The telemetry settings store of a host.</param>
+    /// <param name="settings">The settings to save.</param>
+    /// <returns>A task that completes when the settings are saved.</returns>
+    private static async Task SaveOrSkipAsync(ITelemetrySettingsStore store, TelemetrySettings settings)
+    {
+        try
+        {
+            await store.SaveAsync(settings, TestContext.Current.CancellationToken);
+        }
+        catch (OtlpHeadersStoreException exception)
+            when (exception.InnerException is Win32Exception { NativeErrorCode: _noSuchLogonSession })
+        {
+            Assert.Skip("Windows Credential Manager is not available without a logon session.");
+        }
+    }
 }

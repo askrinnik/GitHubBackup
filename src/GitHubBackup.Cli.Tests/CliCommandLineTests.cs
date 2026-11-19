@@ -14,6 +14,7 @@ public sealed class CliCommandLineTests
     [InlineData(nameof(CliCommand.Backup), "backup")]
     [InlineData(nameof(CliCommand.Validate), "validate")]
     [InlineData(nameof(CliCommand.SetToken), "set-token")]
+    [InlineData(nameof(CliCommand.SetOtlpHeaders), "set-otlp-headers")]
     [InlineData(nameof(CliCommand.None))]
     [InlineData(nameof(CliCommand.Information), "--help")]
     [InlineData(nameof(CliCommand.Information), "--version")]
@@ -180,6 +181,7 @@ public sealed class CliCommandLineTests
     [Theory]
     [InlineData("validate", "--GitHub:Token=abc")]
     [InlineData("set-token", "--GitHub:Token=abc")]
+    [InlineData("set-otlp-headers", "--GitHub:Token=abc")]
     public void Parse_ConfigurationKeyOfAnyCommand_IsAccepted(params string[] args)
     {
         var arguments = CliCommandLine.Parse(args);
@@ -193,6 +195,7 @@ public sealed class CliCommandLineTests
     [InlineData("Unrecognized option '--bogus'.", "backup", "--bogus")]
     [InlineData("Unrecognized option '--account'.", "validate", "--account", "octocat")]
     [InlineData("Unrecognized option '--silent'.", "set-token", "--silent")]
+    [InlineData("Unrecognized option '--silent'.", "set-otlp-headers", "--silent")]
     [InlineData("Unrecognized option '--dry-run'.", "validate", "--dry-run")]
     public void Parse_UnknownTokens_ReturnsErrors(string firstError, params string[] args)
     {
@@ -209,6 +212,16 @@ public sealed class CliCommandLineTests
         var arguments = CliCommandLine.Parse(["set-token", argument]);
 
         arguments.Errors.ShouldBe([CliCommandLine.SetTokenArgumentMessage]);
+    }
+
+    [Theory]
+    [InlineData("api-key=secret-value")]
+    [InlineData("x")]
+    public void Parse_SetOtlpHeadersWithArgument_ReturnsOneErrorWithoutIt(string argument)
+    {
+        var arguments = CliCommandLine.Parse(["set-otlp-headers", argument]);
+
+        arguments.Errors.ShouldBe([CliCommandLine.SetOtlpHeadersArgumentMessage]);
     }
 
     [Fact]

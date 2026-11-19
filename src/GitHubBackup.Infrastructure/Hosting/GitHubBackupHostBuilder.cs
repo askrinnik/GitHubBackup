@@ -1,5 +1,6 @@
 using GitHubBackup.Core;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Telemetry;
 using Microsoft.Extensions.Configuration;
@@ -13,8 +14,9 @@ namespace GitHubBackup.Infrastructure.Hosting;
 /// </summary>
 /// <remarks>
 /// The host starts without the framework defaults so that only the documented sources are read, in this order of
-/// increasing priority: the defaults of the options classes, the optional <see cref="AppSettingsFileName"/>, user
-/// secrets (<see cref="Environments.Development"/> only), environment variables with <see cref="EnvironmentVariablePrefix"/>, the <c>--Section:Key=value</c> arguments of
+/// increasing priority: the defaults of the options classes, the optional <see cref="AppSettingsFileName"/>, the OTLP
+/// headers in Windows Credential Manager (<see cref="GitHubBackupHostSettings.OtlpHeadersCredentialTarget"/>, only
+/// the key <c>OpenTelemetry:Headers</c>), user secrets (<see cref="Environments.Development"/> only), environment variables with <see cref="EnvironmentVariablePrefix"/>, the <c>--Section:Key=value</c> arguments of
 /// <see cref="GitHubBackupHostSettings.ConfigurationArguments"/>, and
 /// <see cref="GitHubBackupHostSettings.BackupConfigPath"/>, which sets <see cref="BackupOptions.ConfigPath"/>.
 /// Unprefixed variables, <c>appsettings.{Environment}.json</c> and <see cref="UiSettingsFileName"/> are not read.
@@ -64,9 +66,14 @@ public static class GitHubBackupHostBuilder
 
         var configuration = builder.Configuration;
         var fileProvider = settings.ConfigurationFileProvider ?? builder.Environment.ContentRootFileProvider;
+        var warnings = new ConfigurationWarnings();
         try
         {
             configuration.AddJsonFile(fileProvider, AppSettingsFileName, optional: true, reloadOnChange: false);
+            if (settings.OtlpHeadersCredentialTarget is { } credentialTarget)
+            {
+                ((IConfigurationBuilder)configuration).Add(new CredentialManagerConfigurationSource(credentialTarget, warnings));
+            }
 
             if (builder.Environment.IsDevelopment())
             {
@@ -91,9 +98,11 @@ public static class GitHubBackupHostBuilder
             ValidateScopes = true,
         }));
 
+        builder.Services.AddSingleton(warnings);
+        builder.Services.AddHostedService<ConfigurationWarningsLogger>();
         builder.Services
             .AddGitHubBackupCore()
-            .AddGitHubBackupInfrastructure(configuration)
+            .AddGitHubBackupInfrastructure(configuration, settings.OtlpHeadersCredentialTarget)
             .AddGitHubBackupLogging(configuration)
             .AddGitHubBackupTelemetry(configuration);
 

@@ -28,6 +28,7 @@ internal static class BenchSession
     public static async Task<int> RunAsync(BenchSettings settings, CancellationToken cancellationToken)
     {
         var folder = TemporaryFolder.Create();
+        using var otlpHeadersCredential = new OtlpHeadersTestCredential();
         Process? app = null;
         try
         {
@@ -53,7 +54,11 @@ internal static class BenchSession
 
             settings.Scenario.Prepare(api, Path.Combine(folder, "archives"), Path.Combine(folder, "backup-config.json"));
             var remotes = Directory.CreateDirectory(Path.Combine(folder, "remotes")).FullName;
-            var environment = new GitRemoteRedirect(folder, remotes).EnvironmentVariables();
+            var environment = new Dictionary<string, string>(
+                new GitRemoteRedirect(folder, remotes).EnvironmentVariables(), StringComparer.OrdinalIgnoreCase);
+
+            // The app keeps the OTLP headers of the bench in a credential of its own, deleted when the bench stops.
+            otlpHeadersCredential.AddTo(environment);
             var executable = Path.Combine(folder, _executableName);
 
             Console.WriteLine($"Scenario:   {settings.Scenario.Name}");
@@ -69,7 +74,7 @@ internal static class BenchSession
             }
             else
             {
-                Console.WriteLine("Start the executable from its folder with these variables, so that git stays local:");
+                Console.WriteLine("Start the executable from its folder with these variables, so that git stays local and the user's credentials stay untouched:");
                 foreach (var (name, value) in environment)
                 {
                     Console.WriteLine($"            {name}={value}");

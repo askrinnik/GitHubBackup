@@ -25,9 +25,16 @@ internal static class CliCommandLine
     /// <summary>The name of the set-token command.</summary>
     public const string SetTokenCommandName = "set-token";
 
+    /// <summary>The name of the set-otlp-headers command.</summary>
+    public const string SetOtlpHeadersCommandName = "set-otlp-headers";
+
     /// <summary>The error for an argument of <c>set-token</c>, which would be the token itself.</summary>
     public const string SetTokenArgumentMessage =
         "The set-token command does not accept arguments; the token is never taken from the command line.";
+
+    /// <summary>The error for an argument of <c>set-otlp-headers</c>, which would be the headers themselves.</summary>
+    public const string SetOtlpHeadersArgumentMessage =
+        "The set-otlp-headers command does not accept arguments; the headers are never taken from the command line.";
 
     /// <summary>The error for <c>--account</c> and <c>--repo</c> given together.</summary>
     public const string AccountAndRepositoryMessage = "The --account and --repo options cannot be used together.";
@@ -114,6 +121,14 @@ internal static class CliCommandLine
             TreatUnmatchedTokensAsErrors = false,
         };
 
+        var setOtlpHeaders = new Command(
+            SetOtlpHeadersCommandName,
+            "Stores the OTLP headers (OpenTelemetry:Headers); they are read from hidden input, never from an argument. "
+            + "Empty input removes them.")
+        {
+            TreatUnmatchedTokensAsErrors = false,
+        };
+
         var root = new RootCommand("Keeps local clones of GitHub repositories and archives them when they change.")
         {
             TreatUnmatchedTokensAsErrors = false,
@@ -121,6 +136,7 @@ internal static class CliCommandLine
         root.Subcommands.Add(backup);
         root.Subcommands.Add(validate);
         root.Subcommands.Add(setToken);
+        root.Subcommands.Add(setOtlpHeaders);
 
         // The commands get placeholder actions so the parser accepts a command line without a command; the
         // application runs the commands itself and invokes the parser only for informational options.
@@ -128,19 +144,25 @@ internal static class CliCommandLine
         backup.SetAction(_ => 0);
         validate.SetAction(_ => 0);
         setToken.SetAction(_ => 0);
+        setOtlpHeaders.SetAction(_ => 0);
 
         var parseResult = root.Parse(args, new ParserConfiguration { ResponseFileTokenReplacer = null });
         var parsed = parseResult.CommandResult.Command;
         IReadOnlyList<string> errors =
         [
             .. parseResult.Errors.Select(error => error.Message),
-            .. DescribeUnmatchedTokens(parseResult.UnmatchedTokens, parsed == setToken),
+            .. DescribeUnmatchedTokens(
+                parseResult.UnmatchedTokens,
+                parsed == setToken ? SetTokenArgumentMessage
+                    : parsed == setOtlpHeaders ? SetOtlpHeadersArgumentMessage
+                    : null),
         ];
 
         var command = parseResult.Action != parsed.Action ? CliCommand.Information
             : parsed == backup ? CliCommand.Backup
             : parsed == validate ? CliCommand.Validate
             : parsed == setToken ? CliCommand.SetToken
+            : parsed == setOtlpHeaders ? CliCommand.SetOtlpHeaders
             : CliCommand.None;
         var arguments = new CliArguments(command, errors, parseResult);
         if (errors.Count > 0)
@@ -283,19 +305,22 @@ internal static class CliCommandLine
     /// Describes the tokens that are neither a command, an option value nor a configuration key.
     /// </summary>
     /// <param name="tokens">The unmatched tokens.</param>
-    /// <param name="forSetToken">Whether the command is <c>set-token</c>, whose arguments are never quoted.</param>
+    /// <param name="secretArgumentMessage">
+    /// The error for any argument of a command that reads a secret, whose arguments are never quoted, or
+    /// <see langword="null"/> for any other command.
+    /// </param>
     /// <returns>The error messages, one per distinct problem.</returns>
-    private static IEnumerable<string> DescribeUnmatchedTokens(IReadOnlyList<string> tokens, bool forSetToken)
+    private static IEnumerable<string> DescribeUnmatchedTokens(IReadOnlyList<string> tokens, string? secretArgumentMessage)
     {
         var rejected = tokens.Where(token => !IsConfigurationArgument(token)).ToList();
-        foreach (var token in rejected.Where(token => token.StartsWith('-') || !forSetToken))
+        foreach (var token in rejected.Where(token => token.StartsWith('-') || secretArgumentMessage is null))
         {
             yield return DescribeUnmatchedToken(token);
         }
 
-        if (forSetToken && rejected.Any(token => !token.StartsWith('-')))
+        if (secretArgumentMessage is not null && rejected.Any(token => !token.StartsWith('-')))
         {
-            yield return SetTokenArgumentMessage;
+            yield return secretArgumentMessage;
         }
     }
 

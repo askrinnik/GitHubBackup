@@ -84,6 +84,7 @@ internal sealed class AppInstallation : IDisposable
         }
 
         Dictionary<string, string> environment = new(StringComparer.OrdinalIgnoreCase);
+        OtlpHeadersCredential.AddTo(environment);
         if (!writeAppSettings)
         {
             environment[GitHubBackupHostBuilder.EnvironmentVariablePrefix + "GitHub__Token"] = Token;
@@ -108,6 +109,12 @@ internal sealed class AppInstallation : IDisposable
 
     /// <summary>Gets the absolute path of the installation folder.</summary>
     public string FolderPath { get; }
+
+    /// <summary>
+    /// Gets the Windows Credential Manager credential where the executable keeps the OTLP headers; it is deleted with
+    /// the installation.
+    /// </summary>
+    public OtlpHeadersTestCredential OtlpHeadersCredential { get; } = new();
 
     /// <summary>Gets the absolute path of the executable.</summary>
     public string ExecutablePath => Path.Combine(FolderPath, _executableName);
@@ -180,7 +187,11 @@ internal sealed class AppInstallation : IDisposable
     }
 
     /// <summary>
-    /// Deletes the installation folder and everything the application created in it.
+    /// Deletes the installation folder, everything the application created in it, and its OTLP headers credential.
     /// </summary>
-    public void Dispose() => TemporaryFolder.Delete(FolderPath);
+    public void Dispose()
+    {
+        OtlpHeadersCredential.Dispose();
+        TemporaryFolder.Delete(FolderPath);
+    }
 }

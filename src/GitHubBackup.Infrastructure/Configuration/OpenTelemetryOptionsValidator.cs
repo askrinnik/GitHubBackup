@@ -6,7 +6,7 @@ namespace GitHubBackup.Infrastructure.Configuration;
 /// Validates <see cref="OpenTelemetryOptions"/>; each failure names the configuration key and never its value.
 /// </summary>
 /// <remarks>The values are checked only while export is enabled, so a disabled section may hold any value.</remarks>
-internal sealed class OpenTelemetryOptionsValidator : IValidateOptions<OpenTelemetryOptions>
+public sealed class OpenTelemetryOptionsValidator : IValidateOptions<OpenTelemetryOptions>
 {
     /// <summary>The configuration key of <see cref="OpenTelemetryOptions.OtlpEndpoint"/>.</summary>
     private const string _endpointKey = OpenTelemetryOptions.SectionName + ":" + nameof(OpenTelemetryOptions.OtlpEndpoint);
@@ -33,7 +33,7 @@ internal sealed class OpenTelemetryOptionsValidator : IValidateOptions<OpenTelem
     /// headers are not well-formed <c>name=value</c> pairs, or the headers are set and the endpoint is neither
     /// <c>https</c> nor loopback <c>http</c>.
     /// </returns>
-    public static List<string> Validate(bool enabled, string? otlpEndpoint, string? headers)
+    internal static List<string> Validate(bool enabled, string? otlpEndpoint, string? headers)
     {
         if (!enabled)
         {
@@ -54,13 +54,25 @@ internal sealed class OpenTelemetryOptionsValidator : IValidateOptions<OpenTelem
                 + $"{OpenTelemetryOptions.HeadersKey} is set.");
         }
 
-        if (!string.IsNullOrWhiteSpace(headers) && !OtlpHeaders.TryParse(headers, out _))
+        if (!string.IsNullOrWhiteSpace(headers) && ValidateHeadersFormat(headers) is { } headersFailure)
         {
-            failures.Add(
-                $"{OpenTelemetryOptions.HeadersKey} must be a comma-separated list of name=value pairs with a header "
-                + "name and a value in each pair.");
+            failures.Add(headersFailure);
         }
 
         return failures;
     }
+
+    /// <summary>
+    /// Checks that <paramref name="headers"/> are well-formed <c>name=value</c> pairs, whether export is enabled or not.
+    /// </summary>
+    /// <param name="headers">The OTLP headers, not empty or white space.</param>
+    /// <returns>
+    /// <see langword="null"/> when the headers are well formed; otherwise the failure, which starts with the key and
+    /// never quotes the value.
+    /// </returns>
+    public static string? ValidateHeadersFormat(string headers) =>
+        OtlpHeaders.TryParse(headers, out _)
+            ? null
+            : $"{OpenTelemetryOptions.HeadersKey} must be a comma-separated list of name=value pairs with a header "
+                + "name and a value in each pair.";
 }

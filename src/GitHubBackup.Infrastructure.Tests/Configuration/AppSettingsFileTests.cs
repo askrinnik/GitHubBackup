@@ -270,6 +270,61 @@ public sealed class AppSettingsFileTests : IDisposable
             """));
     }
 
+    [Fact]
+    public async Task WriteSectionValuesAsync_RemovedKey_DropsItAndKeepsOtherKeys()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            { "OpenTelemetry": { "Enabled": false, "headers": "api-key=secret", "Extra": 1 } }
+            """));
+
+        await _file.WriteSectionValuesAsync(
+            "OpenTelemetry",
+            [AppSettingValue.FromFlag("Enabled", true), AppSettingValue.Remove("Headers")],
+            TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "OpenTelemetry": {
+                "Enabled": true,
+                "Extra": 1
+              }
+            }
+            """));
+    }
+
+    [Fact]
+    public async Task WriteSectionValuesAsync_RemovedKeyInSecondOccurrence_DropsItThere()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            { "OpenTelemetry": { "Enabled": false }, "OpenTelemetry": { "Headers": "api-key=secret", "Extra": 1 } }
+            """));
+
+        await _file.WriteSectionValuesAsync(
+            "OpenTelemetry",
+            [AppSettingValue.FromFlag("Enabled", true), AppSettingValue.Remove("Headers")],
+            TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldNotContain("Headers");
+        ReadFile().ShouldContain("\"Extra\": 1");
+    }
+
+    [Fact]
+    public async Task WriteSectionValuesAsync_RemovedKeyMissing_IsNotAdded()
+    {
+        await _file.WriteSectionValuesAsync(
+            "OpenTelemetry",
+            [AppSettingValue.FromFlag("Enabled", false), AppSettingValue.Remove("Headers")],
+            TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "OpenTelemetry": {
+                "Enabled": false
+              }
+            }
+            """));
+    }
+
     /// <summary>
     /// Writes the two tool paths through the subject: a set Git path and a cleared 7-Zip path.
     /// </summary>

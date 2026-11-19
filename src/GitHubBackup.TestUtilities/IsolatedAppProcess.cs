@@ -20,7 +20,9 @@ public static class IsolatedAppProcess
     /// The process gets the environment of the caller without the variables that configure the application or git,
     /// so that a value set on the developer's machine cannot change the scenario, and with the Production
     /// environment, which skips the user secrets of the developer that could supply another token or API address.
-    /// <paramref name="environment"/> is applied last.
+    /// The OTLP headers credential is a unique one that holds nothing, so the process never reads or writes the
+    /// credential of the user; a caller that lets the process save headers passes the target of an
+    /// <see cref="OtlpHeadersTestCredential"/> instead. <paramref name="environment"/> is applied last.
     /// </remarks>
     /// <param name="executablePath">The absolute path of the executable.</param>
     /// <param name="workingDirectory">The folder the process starts in, usually the installation folder.</param>
@@ -40,6 +42,8 @@ public static class IsolatedAppProcess
         }
 
         startInfo.Environment[GitHubBackupHostSettings.EnvironmentVariableName] = Environments.Production;
+        startInfo.Environment[GitHubBackupHostSettings.OtlpHeadersCredentialTargetVariableName] =
+            OtlpHeadersTestCredential.CreateTarget();
         foreach (var (name, value) in environment)
         {
             startInfo.Environment[name] = value;

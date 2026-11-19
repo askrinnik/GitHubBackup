@@ -129,4 +129,22 @@ public sealed class OpenTelemetryOptionsValidatorTests
         result.Failures.ShouldHaveSingleItem()
             .ShouldBe("OpenTelemetry:OtlpEndpoint must be an absolute URI when OpenTelemetry:Enabled is true.");
     }
+
+    [Theory]
+    [InlineData("api-key=secret-value")]
+    [InlineData("api-key=secret-value, x-other = a=b")]
+    public void ValidateHeadersFormat_WellFormed_ReturnsNull(string headers) =>
+        OpenTelemetryOptionsValidator.ValidateHeadersFormat(headers).ShouldBeNull();
+
+    [Theory]
+    [InlineData("api-key=secret-value,,x=y")]
+    [InlineData("api-key secret-value")]
+    [InlineData("api-key=secretvalue")]
+    public void ValidateHeadersFormat_Malformed_ReturnsFailureNamingKeyWithoutValue(string headers)
+    {
+        var failure = OpenTelemetryOptionsValidator.ValidateHeadersFormat(headers).ShouldNotBeNull();
+
+        failure.ShouldStartWith("OpenTelemetry:Headers");
+        failure.ShouldNotContain("secret");
+    }
 }

@@ -46,6 +46,9 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
     /// missing from it are appended.
     /// </para>
     /// <para>
+    /// A key made by <see cref="AppSettingValue.Remove"/> is dropped from the section and not added.
+    /// </para>
+    /// <para>
     /// The keys are removed from every other object occurrence of the section, which the configuration would merge
     /// with the first one, so that no copy left there overrides the value written.
     /// </para>
@@ -144,7 +147,7 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
                 {
                     property.WriteTo(json);
                 }
-                else if (written.Add(value.Key))
+                else if (written.Add(value.Key) && !value.IsRemoval)
                 {
                     json.WritePropertyName(value.Key);
                     value.WriteValue(json);
@@ -152,7 +155,7 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
             }
         }
 
-        foreach (var value in values.Where(value => !written.Contains(value.Key)))
+        foreach (var value in values.Where(value => !value.IsRemoval && !written.Contains(value.Key)))
         {
             json.WritePropertyName(value.Key);
             value.WriteValue(json);

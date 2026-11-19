@@ -246,7 +246,7 @@ public sealed class SettingsEditorTests : IDisposable
     }
 
     [Fact]
-    public void Save_TelemetryHeadersTyped_WritesHeadersToAppSettings()
+    public void Save_TelemetryHeadersTyped_WritesHeadersToCredentialManager()
     {
         OpenSettings();
         SelectSection(SettingsSection.Telemetry);
@@ -256,9 +256,44 @@ public sealed class SettingsEditorTests : IDisposable
 
         _session.WaitFor("RepositoryTree");
         _session.WaitUntilGone("SaveSettingsButton");
+        _installation.OtlpHeadersCredential.Read().ShouldBe("api-key=ui-test-secret");
         using var document = JsonDocument.Parse(File.ReadAllText(_installation.AppSettingsPath));
-        document.RootElement.GetProperty("OpenTelemetry").GetProperty("Headers").GetString().ShouldBe("api-key=ui-test-secret");
-        File.Exists(_installation.AppSettingsPath + ".bak").ShouldBeTrue();
+        document.RootElement.GetProperty("OpenTelemetry").TryGetProperty("Headers", out _).ShouldBeFalse();
+        File.ReadAllText(_installation.AppSettingsPath).ShouldNotContain(_headersSecret);
+    }
+
+    [Fact]
+    public void Open_HeadersInAppSettings_ShowsMigrationNote()
+    {
+        using var api = new GitHubApiStub();
+        using var installation = new AppInstallation(api.Url);
+        installation.WriteAppSettings($$"""
+            {
+              "GitHub": { "ApiBaseUrl": {{Json(api.Url)}}, "Token": "{{AppInstallation.Token}}" },
+              "Tools": { "SevenZipPath": {{Json(_sevenZip)}} },
+              "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317", "Headers": "api-key=file-secret" }
+            }
+            """);
+        installation.NewBackupConfig().WriteTo(installation.BackupConfigPath);
+        using var session = AppSession.Start(installation);
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionTelemetry");
+
+        session.WaitFor("TelemetryHeadersInAppSettingsNote").Name.ShouldBe(SettingsViewModel.HeadersInAppSettingsMessage);
+        AssertNoElementExposes(session.MainWindow, "file-secret");
+
+        AppSession.Invoke(save);
+        var messageBox = session.WaitForMessageBox(SettingsViewModel.HeadersMovedTitle);
+        AppSession.MessageText(messageBox).ShouldBe(SettingsViewModel.HeadersMovedMessage);
+        AppSession.Close(messageBox);
+
+        session.WaitFor("RepositoryTree");
+        installation.OtlpHeadersCredential.Read().ShouldBe("api-key=file-secret");
+        File.ReadAllText(installation.AppSettingsPath).ShouldNotContain("file-secret");
+        File.ReadAllText(installation.AppSettingsPath + ".bak").ShouldContain("file-secret");
     }
 
     [Fact]

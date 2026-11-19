@@ -194,8 +194,8 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     public void AddGitHubBackupInfrastructure_HostedServices_IncludeHistoryDatabaseInitializerOnce()
     {
         var services = new ServiceCollection()
-            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build())
-            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build());
+            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build(), otlpHeadersCredentialTarget: null)
+            .AddGitHubBackupInfrastructure(new ConfigurationBuilder().Build(), otlpHeadersCredentialTarget: null);
 
         services.Where(descriptor => descriptor.ServiceType == typeof(IHostedService))
             .Select(descriptor => descriptor.ImplementationType)
@@ -281,6 +281,30 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupInfrastructure_CredentialTarget_RegistersOtlpHeadersStoreOverTarget()
+    {
+        using var provider = BuildProvider(new(), "GitHubBackup.Tests:target");
+
+        var store = provider.GetRequiredService<IOtlpHeadersStore>().ShouldBeOfType<CredentialManagerOtlpHeadersStore>();
+
+        store.Target.ShouldBe("GitHubBackup.Tests:target");
+        provider.GetRequiredService<IOtlpHeadersStore>().ShouldBeSameAs(store);
+    }
+
+    [Fact]
+    public async Task AddGitHubBackupInfrastructure_NoCredentialTarget_RegistersStoreThatKeepsNothing()
+    {
+        using var provider = BuildProvider(new());
+
+        var store = provider.GetRequiredService<IOtlpHeadersStore>().ShouldBeOfType<UnavailableOtlpHeadersStore>();
+
+        (await store.ReadAsync(TestContext.Current.CancellationToken)).ShouldBeNull();
+        await store.DeleteAsync(TestContext.Current.CancellationToken);
+        await Should.ThrowAsync<OtlpHeadersStoreException>(
+            () => store.WriteAsync("api-key=secret", TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public void AddGitHubBackupInfrastructure_TokenProvider_IsOneInstancePerProvider()
     {
         using var provider = BuildProvider(new());
@@ -313,8 +337,10 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
     /// together with logging and a host environment whose content root is <c>C:\app\</c>.
     /// </summary>
     /// <param name="values">The configuration keys and values.</param>
+    /// <param name="otlpHeadersCredentialTarget">The Credential Manager target of the OTLP headers, or <see langword="null"/>.</param>
     /// <returns>The service provider; the caller disposes it.</returns>
-    private static ServiceProvider BuildProvider(Dictionary<string, string?> values)
+    private static ServiceProvider BuildProvider(
+        Dictionary<string, string?> values, string? otlpHeadersCredentialTarget = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
         var environment = Substitute.For<IHostEnvironment>();
@@ -324,7 +350,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
             .AddSingleton(environment)
             .AddLogging()
             .AddGitHubBackupCore()
-            .AddGitHubBackupInfrastructure(configuration)
+            .AddGitHubBackupInfrastructure(configuration, otlpHeadersCredentialTarget)
             .BuildServiceProvider(new ServiceProviderOptions { ValidateOnBuild = true, ValidateScopes = true });
     }
 }

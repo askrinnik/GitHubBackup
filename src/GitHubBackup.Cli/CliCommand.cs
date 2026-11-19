@@ -17,6 +17,9 @@ internal enum CliCommand
     /// <summary>The <c>set-token</c> command.</summary>
     SetToken,
 
+    /// <summary>The <c>set-otlp-headers</c> command.</summary>
+    SetOtlpHeaders,
+
     /// <summary>An informational option such as <c>--help</c> or <c>--version</c>, answered without starting the host.</summary>
     Information,
 }
