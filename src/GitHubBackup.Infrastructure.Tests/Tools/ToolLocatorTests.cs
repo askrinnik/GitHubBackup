@@ -52,7 +52,7 @@ public sealed class ToolLocatorTests
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
 
         var records = _logger.Collector.GetSnapshot();
-        records.ShouldAllBe(record => record.Id.Id == _toolFoundEventId && record.Level == LogLevel.Information);
+        records.ShouldAllBe(record => record.Id.Id == _toolFoundEventId && record.Level == LogLevel.Debug);
         records.Select(record => (
             record.GetStructuredStateValue("Tool"),
             record.GetStructuredStateValue("Version"),
