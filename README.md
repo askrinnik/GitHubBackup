@@ -146,8 +146,7 @@ The file is optional and is not published. Every key has a default in the progra
   },
   "OpenTelemetry": {
     "Enabled": false,
-    "OtlpEndpoint": "http://localhost:4317",
-    "Headers": null
+    "OtlpEndpoint": "http://localhost:4317"
   },
   "Serilog": {
     "MinimumLevel": {
@@ -170,7 +169,7 @@ The file is optional and is not published. Every key has a default in the progra
 | `History:DatabasePath` | `data\history.db` | Path to the history database. Must not be empty. |
 | `OpenTelemetry:Enabled` | `false` | Turns telemetry on (see [Telemetry](#telemetry-opentelemetry)). |
 | `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. When `OpenTelemetry:Headers` is set, the scheme must be `https`, or `http` for a loopback address, so the key of the receiver never crosses the network unencrypted. |
-| `OpenTelemetry:Headers` | `null` | OTLP headers sent with every export, as `name=value` pairs separated by commas, for example `api-key=<license key>` for New Relic (see [Send telemetry to New Relic](#send-telemetry-to-new-relic)). The value is split from the name at the first `=`; spaces around names and values are dropped. Checked when telemetry is on: each pair needs a header name and a value, and an empty pair (`a=b,,c=d`, a trailing comma) is an error. The value is a secret and is masked as `***`. The settings editor of the desktop app writes it too. Prefer the variable `GitHubBackup__OpenTelemetry__Headers`: other processes can read the command line, and the file keeps the value in plain text. |
+| `OpenTelemetry:Headers` | `null` | OTLP headers sent with every export, as `name=value` pairs separated by commas, for example `api-key=<license key>` for New Relic (see [Send telemetry to New Relic](#send-telemetry-to-new-relic)). The value is split from the name at the first `=`; spaces around names and values are dropped. Checked when telemetry is on: each pair needs a header name and a value, and an empty pair (`a=b,,c=d`, a trailing comma) is an error. The value is a secret and is masked as `***`. Keep it in the Windows Credential Manager (see [OTLP headers in the Credential Manager](#otlp-headers-in-the-credential-manager)), not in this file: the file keeps the value in plain text. For automation, the variable `GitHubBackup__OpenTelemetry__Headers` works too; avoid the command line, which other processes can read. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
 | `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. |
 
@@ -180,15 +179,16 @@ The program reads its configuration from these sources. A later source overrides
 
 1. The defaults in the program.
 2. `appsettings.json` next to the exe, if it exists. If the file is not a valid JSON object, the program exits with code `2` and names the file and the position of the error. An empty file is not a valid JSON object either: delete it or write `{}` into it.
-3. user secrets, only in the `Development` environment.
-4. Environment variables with the prefix `GitHubBackup__`, for example `GitHubBackup__Backup__ShortHashLength`. Variables without the prefix and files `appsettings.{Environment}.json` are not read.
-5. The command line: `--Section:Key=value`.
+3. The Windows Credential Manager, only for the key `OpenTelemetry:Headers` (the generic credential `GitHubBackup:OpenTelemetry:Headers`). Without that credential, this source adds nothing. If the Credential Manager cannot be read, the program starts without this source and writes a warning without the value to the log.
+4. user secrets, only in the `Development` environment.
+5. Environment variables with the prefix `GitHubBackup__`, for example `GitHubBackup__Backup__ShortHashLength`. Variables without the prefix and files `appsettings.{Environment}.json` are not read.
+6. The command line: `--Section:Key=value`.
 
 No other file next to the exe is part of the configuration: `ui-settings.json` belongs to the desktop app alone (see [ui-settings.json](#ui-settingsjson)).
 
 The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Production`.
 
-**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled`, `OpenTelemetry:OtlpEndpoint` and `OpenTelemetry:Headers`, and both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these five keys, adds the keys and sections that are missing and keeps every other key and section. The value of `OpenTelemetry:Headers` is stored in plain text in the file and in `appsettings.json.bak`; after you clear the field, the previous value stays in `.bak` until the next **Save**. Prefer the variable `GitHubBackup__OpenTelemetry__Headers` for the key of a receiver. When the variable, the command line or user secrets set `OpenTelemetry:Headers`, the value in the file has no effect, and the editor says so. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
+**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and removes `OpenTelemetry:Headers`: the editor keeps the OTLP headers in the Windows Credential Manager. Both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these four keys, adds the keys and sections that are missing and keeps every other key and section. A key `OpenTelemetry:Headers` that you write into the file by hand takes effect, but it is stored in plain text; **Save** in the editor moves it to the Credential Manager, and the previous value stays in `appsettings.json.bak` until the next **Save**. When the variable, the command line or user secrets set `OpenTelemetry:Headers`, the values in the Credential Manager and in the file have no effect, and the editor says so. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
 
 ### ui-settings.json
 
@@ -376,9 +376,10 @@ Check the result: the archive folder holds a `.zip` per repository, `sources\` h
 | `GitHubBackup.Cli backup --dry-run` | Shows what a normal run would do and changes nothing except saving found `id` values (see [Dry run](#dry-run---dry-run)); works with `--account`, `--repo` and `--silent` |
 | `GitHubBackup.Cli validate [--config <path>]` | Checks `backup-config.json`, git, git-lfs, 7-Zip and the token source without calling GitHub and without changes; prints the token source name (`Token: ...`), never the value; exit code `0` or `2` |
 | `GitHubBackup.Cli set-token` | Asks for the token with hidden input and stores it in the Windows Credential Manager (`GitHubBackup:https://github.com`); exit code `0`. If the input is redirected or the write fails, it prints one error line and exits with `2`. The token is not accepted as an argument |
-| `GitHubBackup.Cli --help` | Help for commands and options (also `backup --help`, `validate --help`, `set-token --help`) |
+| `GitHubBackup.Cli set-otlp-headers` | Asks for the OTLP headers (`OpenTelemetry:Headers`) with hidden input and stores them in the Windows Credential Manager (`GitHubBackup:OpenTelemetry:Headers`); empty input removes them; exit code `0`. Headers that are not `name=value` pairs print one error line that names the key without the value, and exit with `2`; so do redirected input and a failed write. If `appsettings.json` also sets the key, it prints a warning: the file keeps the value in plain text. The command does not change `appsettings.json`, and the headers are not accepted as an argument |
+| `GitHubBackup.Cli --help` | Help for commands and options (also `backup --help`, `validate --help`, `set-token --help`, `set-otlp-headers --help`) |
 
-With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` it never appears.
+With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` and `set-otlp-headers` it never appears.
 
 Only one `backup` run (including `--dry-run`) can run on the machine at a time. If another run is active, the second run changes nothing, writes `Error: A backup is already running.` and the log path to stderr, and exits with `2`. The lock is the system mutex `Global\GitHubBackup.BackupRun`, shared by all users and sessions. If a previous run crashed without releasing the lock, the next run takes it and writes a warning to the log. The cleanup of old archives in the desktop app takes the same lock (see [Deleting old archives](#deleting-old-archives)).
 
@@ -426,7 +427,7 @@ Ctrl+C cancels the run. The program stops the current git or 7-Zip process and d
 - the unprocessed repositories with the status `Skipped` and the reason `Not processed: the run was cancelled.`;
 - the line `Cancelled: the run was stopped before it finished.`; the totals then count `Cancelled` too.
 
-If the cancel comes during discovery or the questions, there is no table. The cancel line and the totals remain. Cancelling `validate` and `set-token` prints one line `Error: The operation was cancelled.` to stderr. In every case, the exit code is `2`.
+If the cancel comes during discovery or the questions, there is no table. The cancel line and the totals remain. Cancelling `validate`, `set-token` and `set-otlp-headers` prints one line `Error: The operation was cancelled.` to stderr. In every case, the exit code is `2`.
 
 ### Exit codes
 
@@ -647,9 +648,9 @@ One button, **Save**, shared by all sections, saves every group that you changed
 
 First run: without `backup-config.json`, see [First run](#first-run).
 
-In the section **Tools**, the paths to git and 7-Zip go to `appsettings.json` (see [Who writes the file](#appsettingsjson)). In the section **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and the field **OTLP headers** holds `OpenTelemetry:Headers`; **Save** writes them to the same file and keeps every other key and section of it. The checkbox and the endpoint show the values you saved last; before your first save they show the values the program uses now, including values you wrote into `appsettings.json` by hand.
+In the section **Tools**, the paths to git and 7-Zip go to `appsettings.json` (see [Who writes the file](#appsettingsjson)). In the section **Telemetry**, the checkbox **Send telemetry (OpenTelemetry)** and the field **OTLP endpoint (gRPC)** hold the keys `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and **Save** writes them to the same file and keeps every other key and section of it. The field **OTLP headers** holds `OpenTelemetry:Headers`, which **Save** writes to the Windows Credential Manager (`GitHubBackup:OpenTelemetry:Headers`), like `set-otlp-headers`. The checkbox and the endpoint show the values you saved last; before your first save they show the values the program uses now, including values you wrote into `appsettings.json` by hand.
 
-The field **OTLP headers** is hidden like the token field; the checkbox **Show** next to it reveals the value while it is checked, and the value is hidden again whenever you open the editor. The field shows only the value of `appsettings.json`: the value you saved last, or before your first save the value the file held at start. A value from the variable `GitHubBackup__OpenTelemetry__Headers`, the command line or user secrets is never shown and never written to the file; while such a source sets the key, the editor shows a note under the field that the value saved here has no effect. An empty field, or one with only spaces, means the key is not set, and **Save** writes `null`. When the checkbox is on, the headers must be `name=value` pairs (see [Settings](#appsettingsjson)), and when headers are set in the field or by a source that overrides the file, the endpoint must be `https`, or `http` for a loopback address, as at start. Otherwise the editor shows the error at the field and writes nothing; the error names the key and never the value. From the moment of **Save** the value is masked as `***` in the live log, the log files and error messages. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
+The field **OTLP headers** is hidden like the token field; the checkbox **Show** next to it reveals the value while it is checked, and the value is hidden again whenever you open the editor. The field shows the value of the Credential Manager: the value you saved last, or before your first save the value read at start. If the Credential Manager holds no value but `appsettings.json` sets `OpenTelemetry:Headers`, the field shows the value of the file with a note that the file keeps it in plain text and **Save** moves it to the Credential Manager; the telemetry settings then count as changed. **Save** writes a value to the Credential Manager and removes the key from `appsettings.json`; after such a move, a dialog says that the previous value stays in `appsettings.json.bak` until the next **Save**. An empty field, or one with only spaces, means the key is not set, and **Save** removes both the credential and the key in the file. A value from the variable `GitHubBackup__OpenTelemetry__Headers`, the command line or user secrets is never shown and never saved; while such a source sets the key, the editor shows a note under the field that the value saved here has no effect. When the checkbox is on, the headers must be `name=value` pairs (see [Settings](#appsettingsjson)), and when headers are set in the field or by a source that overrides the Credential Manager, the endpoint must be `https`, or `http` for a loopback address, as at start. Otherwise the editor shows the error at the field and writes nothing; the error names the key and never the value. If the Credential Manager cannot be written, the editor shows the error in a dialog, leaves `appsettings.json` unchanged and stays open. From the moment of **Save** the value is masked as `***` in the live log, the log files and error messages. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
 The section **GitHub token**:
 
@@ -677,7 +678,16 @@ The history of runs and archives sits in the SQLite database `data\history.db` n
 
 Telemetry is off by default (`OpenTelemetry:Enabled=false`): the OpenTelemetry SDK and exporter are not registered. With `OpenTelemetry:Enabled=true`, the program sends traces, metrics and logs over OTLP (gRPC) to the address `OpenTelemetry:OtlpEndpoint` (default `http://localhost:4317`). The resource is named `GitHubBackup`.
 
-Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the section **Telemetry** has a checkbox and the OTLP endpoint field, and the settings apply after you restart the program. The editor writes them to `appsettings.json` (see [appsettings.json](#appsettingsjson)); environment variables and the command line still override them. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
+Both executables send telemetry. Turn it on in `appsettings.json`, or in the settings editor of `GitHubBackup.exe`: the section **Telemetry** has a checkbox, the OTLP endpoint field and the OTLP headers field, and the settings apply after you restart the program. The editor writes the checkbox and the endpoint to `appsettings.json` (see [appsettings.json](#appsettingsjson)) and the headers to the Windows Credential Manager; environment variables and the command line still override them.
+
+#### OTLP headers in the Credential Manager
+
+A receiver that needs a key gets it in `OpenTelemetry:Headers`. Keep that value in the Windows Credential Manager, as the generic credential `GitHubBackup:OpenTelemetry:Headers`: it then appears in no file and no command line. Two ways write it:
+
+- Console: run `GitHubBackup.Cli.exe set-otlp-headers`. The program asks for the headers with hidden input, checks that they are `name=value` pairs and stores them. Empty input removes the credential. The headers are never accepted as an argument.
+- Desktop app: type the headers into the field **OTLP headers** of the settings editor and select **Save** (see [Settings editor](#settings-editor)).
+
+Both read and write the credential of the current Windows user, so a scheduled task must run as that user. The variable `GitHubBackup__OpenTelemetry__Headers`, user secrets and the command line rank above the Credential Manager (see the list of sources in [appsettings.json](#appsettingsjson)); the variable is the choice for automation where no one can type the value. The console app sends its metrics when the run ends. The desktop app sends metrics periodically (at the default export interval of OpenTelemetry) and when the app closes, not only at the end of a run.
 
 Traces:
 
@@ -730,7 +740,7 @@ An attribute is absent when its value is unknown. A repository that is skipped o
 - `githubbackup.run.outcome`: `completed`, `stopped` (critical error), `cancelled` or `failed` (unexpected exception).
 - An error sets the status `Error` and the tag `error.type` (the exception type name). Traces hold neither the exception text nor the token.
 - A wiki that is enabled but has no git repository on the server (it has no pages) is skipped, not failed: its `ls-remote refs`, `clone` or `fetch` span ends without the status `Error`, and the wiki appears in the summary and the run history as `Skipped` with the reason `Wiki has no pages`. The exit code does not change.
-- The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector in `OpenTelemetry:Headers`, preferably with the variable `GitHubBackup__OpenTelemetry__Headers`, not in `OtlpEndpoint`. The standard variables `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` have no effect, also with the prefix `GitHubBackup__` or on the command line.
+- The tag `githubbackup.repository` holds repository names (`owner/name`), private ones included. An address with the scheme `http` sends them unencrypted, so connect a remote collector over `https`. Set the credentials of the collector in `OpenTelemetry:Headers`, preferably in the Windows Credential Manager (`set-otlp-headers`), not in `OtlpEndpoint`. The standard variables `OTEL_EXPORTER_OTLP_HEADERS` and `OTEL_EXPORTER_OTLP_<SIGNAL>_HEADERS` have no effect, also with the prefix `GitHubBackup__` or on the command line.
 - Repositories that were not processed (not started because of a cancel, missing in a dry run, new and unconfirmed) appear only in the metrics.
 
 Metrics (meter `GitHubBackup`):
@@ -802,13 +812,17 @@ Common problems:
 New Relic receives OTLP over gRPC and needs a license key in the header `api-key`. The program sends the key with every export from the setting `OpenTelemetry:Headers`.
 
 1. In New Relic, create an API key of the type **INGEST - LICENSE** (**API keys** in the user menu).
-2. Set the key in the variable `GitHubBackup__OpenTelemetry__Headers`, not in `appsettings.json` and not on the command line, which other processes can read:
+2. Store the key in the Windows Credential Manager, not in `appsettings.json` and not on the command line, which other processes can read. Run the command below and type `api-key=<license key>` when it asks, or type the same value into the field **OTLP headers** of the settings editor and select **Save** (see [Settings editor](#settings-editor)):
+
+   ```
+   GitHubBackup.Cli.exe set-otlp-headers
+   ```
+
+   For automation, you can set the variable `GitHubBackup__OpenTelemetry__Headers` instead; it ranks above the Credential Manager:
 
    ```
    setx GitHubBackup__OpenTelemetry__Headers "api-key=<license key>"
    ```
-
-   Instead of the variable, you can type the key into the field **OTLP headers** of the settings editor (see [Settings editor](#settings-editor)); the editor then stores it in plain text in `appsettings.json` and `appsettings.json.bak`.
 
    `setx` applies to programs started later: open a new console. It stores the key in plain text in your user environment, and every program you start afterwards inherits it; GitHubBackup itself removes `GitHubBackup__` variables from the environment of git and 7-Zip. For a narrower scope, set the variable only in the console session (`$env:GitHubBackup__OpenTelemetry__Headers = "api-key=<license key>"` in PowerShell) or only for the scheduled task that runs the backup. A key with a comma or a percent sign must be percent-encoded (`%2C`, `%25`), because the exporter decodes the value.
 3. Set the endpoint of your region and turn telemetry on, in `appsettings.json` or in the settings editor:

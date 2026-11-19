@@ -227,6 +227,8 @@ internal sealed class CliApplication(
             CliCommand.Backup => await services.GetRequiredService<BackupCommandHandler>().RunAsync(arguments.Backup, cancellationToken),
             CliCommand.Validate => await services.GetRequiredService<ValidateCommandHandler>().RunAsync(cancellationToken),
             CliCommand.SetToken => await services.GetRequiredService<SetTokenCommandHandler>().RunAsync(cancellationToken),
+            CliCommand.SetOtlpHeaders =>
+                await services.GetRequiredService<SetOtlpHeadersCommandHandler>().RunAsync(cancellationToken),
             _ => ExitCode.Success,
         };
 

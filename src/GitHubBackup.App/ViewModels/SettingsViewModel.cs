@@ -57,12 +57,24 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     public const string TokenRejectedMessage = "GitHub rejected the token: it is invalid or expired (HTTP 401).";
 
     /// <summary>
-    /// The note shown at the OTLP headers field while a source with a higher priority than <c>appsettings.json</c> sets
-    /// the key.
+    /// The note shown at the OTLP headers field while a source with a higher priority than Windows Credential Manager
+    /// sets the key.
     /// </summary>
     public const string HeadersOverriddenMessage =
         "OpenTelemetry:Headers is set by an environment variable, the command line or user secrets, which take priority "
-        + "over appsettings.json; the value saved here does not take effect while that source sets it.";
+        + "over Windows Credential Manager; the value saved here does not take effect while that source sets it.";
+
+    /// <summary>The note shown at the OTLP headers field while <c>appsettings.json</c> holds the key.</summary>
+    public const string HeadersInAppSettingsMessage =
+        "OpenTelemetry:Headers is stored in appsettings.json in plain text; Save moves it to Windows Credential Manager.";
+
+    /// <summary>The title of the dialog that tells the OTLP headers were moved out of <c>appsettings.json</c>.</summary>
+    public const string HeadersMovedTitle = "OTLP headers moved";
+
+    /// <summary>The message of the dialog that tells the OTLP headers were moved out of <c>appsettings.json</c>.</summary>
+    public const string HeadersMovedMessage =
+        "OpenTelemetry:Headers was removed from appsettings.json and is kept in Windows Credential Manager. The previous "
+        + "value stays in appsettings.json.bak in plain text until the next save.";
 
     /// <summary>The message shown when the user cancels the token check.</summary>
     public const string TokenCheckCancelledMessage = "The token check was cancelled.";
@@ -275,6 +287,10 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         _otlpEndpoint = telemetry.OtlpEndpoint ?? string.Empty;
         _telemetryHeaders = telemetry.Headers ?? string.Empty;
         IsTelemetryHeadersOverridden = telemetrySettingsStore.HeadersOverridden;
+        IsTelemetryHeadersInAppSettings = telemetrySettingsStore.HeadersInAppSettings;
+
+        // Headers in plain text in the file are a change to save: Save moves them to the header store.
+        _telemetryDirty = IsTelemetryHeadersInAppSettings;
 
         GeneralSection = new(SettingsSection.General, "General", "\uE713") { IsSelected = true };
         AccountsSection = new(SettingsSection.Accounts, "Accounts", "\uE716");
@@ -336,6 +352,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// editor shows <see cref="HeadersOverriddenMessage"/>.
     /// </summary>
     public bool IsTelemetryHeadersOverridden { get; }
+
+    /// <summary>
+    /// Gets whether <c>appsettings.json</c> holds the OTLP headers in plain text when the editor opens, so that the
+    /// editor shows <see cref="HeadersInAppSettingsMessage"/> and counts the telemetry settings as changed.
+    /// </summary>
+    public bool IsTelemetryHeadersInAppSettings { get; }
 
     /// <summary>Gets whether errors that belong to no field are shown.</summary>
     public bool HasGeneralErrors => GeneralErrors.Count > 0;
@@ -476,6 +498,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             return;
         }
 
+        var headersMoved = false;
         try
         {
             if (config is not null)
@@ -494,6 +517,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
             if (telemetry is not null)
             {
+                headersMoved = _telemetrySettingsStore.HeadersInAppSettings;
                 await _telemetrySettingsStore.SaveAsync(telemetry, cancellationToken);
                 _telemetryDirty = false;
             }
@@ -516,11 +540,21 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
             _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
             return;
         }
+        catch (OtlpHeadersStoreException exception)
+        {
+            _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
+            return;
+        }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             AppLog.SettingsSaveFailed(_logger, exception);
             _dialogs.ShowError(SaveFailedTitle, _secretMasker.Mask(exception.Message));
             return;
+        }
+
+        if (headersMoved)
+        {
+            _dialogs.ShowInformation(HeadersMovedTitle, HeadersMovedMessage);
         }
 
         if (token is not null)

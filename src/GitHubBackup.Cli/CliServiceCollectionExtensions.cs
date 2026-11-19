@@ -24,6 +24,7 @@ internal static class CliServiceCollectionExtensions
             services.AddSingleton<BackupCommandHandler>();
             services.AddSingleton<ValidateCommandHandler>();
             services.AddSingleton<SetTokenCommandHandler>();
+            services.AddSingleton<SetOtlpHeadersCommandHandler>();
             return services;
         }
     }

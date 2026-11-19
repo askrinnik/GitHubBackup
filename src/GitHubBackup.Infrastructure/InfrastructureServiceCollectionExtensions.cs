@@ -51,7 +51,7 @@ public static class InfrastructureServiceCollectionExtensions
         /// <summary>
         /// Adds the infrastructure services, including the <see cref="ISecretMasker"/> that knows the configured
         /// token, the <see cref="ITokenStore"/> in Windows Credential Manager, the <see cref="ITokenProvider"/> with the
-        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IGitHubTokenInspector"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IToolPathsStore"/> and the <see cref="IUiSettingsStore"/> over one user settings file, the <see cref="IBackupStateStore"/>, the <see cref="IRecycleBin"/> of the Windows Shell, the <see cref="ICloneLocationStore"/>, the <see cref="IRunHistoryStore"/> with the
+        /// token chain (configuration, Credential Manager, GitHub CLI), the <see cref="IFileSystem"/>, the <see cref="IProcessRunner"/>, the <see cref="IToolLocator"/>, the <see cref="IGitClient"/>, the <see cref="IGitHubApi"/>, the <see cref="IGitHubTokenInspector"/>, the <see cref="IArchiver"/>, the <see cref="IRunLock"/>, the <see cref="IBackupConfigStore"/>, the <see cref="IToolPathsStore"/> and the <see cref="IUiSettingsStore"/> over one user settings file, the <see cref="ITelemetrySettingsStore"/> with the <see cref="IOtlpHeadersStore"/> in Windows Credential Manager, the <see cref="IBackupStateStore"/>, the <see cref="IRecycleBin"/> of the Windows Shell, the <see cref="ICloneLocationStore"/>, the <see cref="IRunHistoryStore"/> with the
         /// hosted service that creates and migrates its database when the host starts, and the
         /// <see cref="IRepositoryPathResolver"/> with its default clone root in the content root, and binds <see cref="BackupOptions"/>,
         /// <see cref="GitHubOptions"/>, <see cref="ToolsOptions"/>, <see cref="HistoryOptions"/> and
@@ -65,8 +65,13 @@ public static class InfrastructureServiceCollectionExtensions
         /// <see cref="IProcessRunner"/> and <see cref="IGitHubApi"/> need are registered by <c>AddGitHubBackupCore</c>.
         /// </remarks>
         /// <param name="configuration">The application configuration.</param>
+        /// <param name="otlpHeadersCredentialTarget">
+        /// The Windows Credential Manager target of the <see cref="IOtlpHeadersStore"/>, or <see langword="null"/> for
+        /// a store that keeps nothing.
+        /// </param>
         /// <returns>The same service collection, for chaining.</returns>
-        public IServiceCollection AddGitHubBackupInfrastructure(IConfiguration configuration)
+        public IServiceCollection AddGitHubBackupInfrastructure(
+            IConfiguration configuration, string? otlpHeadersCredentialTarget)
         {
             services.TryAddSingleton<ISecretMasker>(_ => HostSecretMasker.Create(configuration));
             services.TryAddSingleton<ITokenStore>(
@@ -91,11 +96,15 @@ public static class InfrastructureServiceCollectionExtensions
             services.TryAddSingleton<AppSettingsFile>();
             services.TryAddSingleton<UiSettingsFile>();
             services.TryAddSingleton<IToolPathsStore, JsonToolPathsStore>();
+            services.TryAddSingleton<IOtlpHeadersStore>(_ => otlpHeadersCredentialTarget is null
+                ? new UnavailableOtlpHeadersStore()
+                : new CredentialManagerOtlpHeadersStore(otlpHeadersCredentialTarget));
             services.TryAddSingleton<ITelemetrySettingsStore>(provider => new JsonTelemetrySettingsStore(
                 provider.GetRequiredService<IOptions<OpenTelemetryOptions>>(),
                 configuration,
                 provider.GetRequiredService<ISecretMasker>(),
-                provider.GetRequiredService<AppSettingsFile>()));
+                provider.GetRequiredService<AppSettingsFile>(),
+                provider.GetRequiredService<IOtlpHeadersStore>()));
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.TryAddSingleton<IRecycleBin, ShellRecycleBin>();

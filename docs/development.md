@@ -48,6 +48,15 @@ They take the folder from the environment variable `PUBLISHED_APP_PATH`. Without
 
 The tests against the real GitHub will get the category `Smoke`. Select a set with a filter, for example `--filter-not-trait "Category=Smoke"`.
 
+### OTLP headers credential in tests
+
+Both executables read `OpenTelemetry:Headers` from the Windows Credential Manager credential `GitHubBackup:OpenTelemetry:Headers`, and the settings editor and `set-otlp-headers` write it. No test may read or write that credential of the developer:
+
+- A host built in the test process takes its target from `GitHubBackupHostSettings.OtlpHeadersCredentialTarget`. Without a target (the default of `TemporaryContentRoot` and of settings created in a test), the host has no Credential Manager source, and its header store saves nothing. A test that needs the real Credential Manager creates an `OtlpHeadersTestCredential` (`GitHubBackup.TestUtilities`), which names a unique target and deletes the credential on dispose.
+- An executable started by a test (UI tests, CLI end-to-end tests, the test bench) gets the environment variable `GITHUBBACKUP_OTLP_HEADERS_CREDENTIAL_TARGET` with a unique target. `GitHubBackupHostSettings.ForCurrentProcess` uses that target in place of the default one, but only when it starts with `GitHubBackup.Tests:`; any other value is ignored, so the variable cannot point the headers at another credential, such as the GitHub token. The name lies outside the `GitHubBackup__` prefix, so the variable never becomes a configuration key. `IsolatedAppProcess` and `CliProcess` set it on every start; `AppInstallation` and the test bench own an `OtlpHeadersTestCredential` and delete it when they are disposed or stop.
+
+The variable is a test aid only; the application does not document it for users.
+
 ### UI tests
 
 The UI tests (`GitHubBackup.App.UITests`) drive the running WPF application, so the normal solution run skips them. To run them, pass the property `RunUITests` to both the build and the tests:
@@ -62,7 +71,7 @@ dotnet test --solution src/GitHubBackup.slnx --no-build -p:RunUITests=true --fil
 
 Exit code 8 means that no test ran in a project. With `--filter-trait`, every project except the selected one ends this way, so this command ignores code 8. The normal run and CI do not ignore it: a project in which no test ran fails the run.
 
-The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` to a temporary folder and starts the application from there. If the variable `PUBLISHED_APP_PATH` is set, the test copies the published folder and starts `GitHubBackup.exe`; the UI test workflow does this. The token comes from `GitHub:Token` in the `appsettings.json` the test writes, or from the variable `GitHubBackup__GitHub__Token` when a test starts without the file, and WireMock on loopback replaces the GitHub API. The tests therefore do not read Windows Credential Manager and do not use the network. A run needs:
+The UI tests use FlaUI. Each test copies the build folder of `GitHubBackup.App` to a temporary folder and starts the application from there. If the variable `PUBLISHED_APP_PATH` is set, the test copies the published folder and starts `GitHubBackup.exe`; the UI test workflow does this. The token comes from `GitHub:Token` in the `appsettings.json` the test writes, or from the variable `GitHubBackup__GitHub__Token` when a test starts without the file, and WireMock on loopback replaces the GitHub API. The tests therefore do not read the token from Windows Credential Manager and do not use the network; the OTLP headers go to a credential of the test (see [OTLP headers credential in tests](#otlp-headers-credential-in-tests)). A run needs:
 
 - an interactive desktop (the tests open windows; do not lock the screen and do not minimize the session);
 - git in `PATH` and 7-Zip in `C:\Program Files\7-Zip\7z.exe` (the discovery dialog scenario uses them).
@@ -103,10 +112,10 @@ The script builds and runs `GitHubBackup.TestBench`. The bench:
 1. copies the build folder of `GitHubBackup.App` to a new folder under `%TEMP%\GitHubBackup.Tests`;
 2. starts a WireMock stub of the GitHub API on loopback with the scenario;
 3. writes `appsettings.json` with the stub address and a test token that grants nothing, `backup-config.json` of the scenario and, when asked, `ui-settings.json`;
-4. starts the application from that folder in the `Production` environment, without inherited `GitHubBackup__*` and `GIT_*` variables, with git redirected from `https://github.com/` to an empty local folder;
+4. starts the application from that folder in the `Production` environment, without inherited `GitHubBackup__*` and `GIT_*` variables, with git redirected from `https://github.com/` to an empty local folder and with an OTLP headers credential of its own (see [OTLP headers credential in tests](#otlp-headers-credential-in-tests));
 5. stops the application and the stub and deletes the folder when the application exits, Enter is pressed or Ctrl+C is pressed.
 
-The real installation, its settings, Windows Credential Manager and the network are never used.
+The real installation, its settings, the credentials of the user in Windows Credential Manager and the network are never used.
 
 | Parameter | Effect |
 |---|---|

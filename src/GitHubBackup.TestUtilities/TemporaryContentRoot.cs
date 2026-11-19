@@ -18,8 +18,13 @@ public sealed class TemporaryContentRoot : IDisposable
     /// The JSON text of the settings file, or <see langword="null"/> for an empty folder, where the host runs with the
     /// defaults of the options classes.
     /// </param>
-    public TemporaryContentRoot(string? appSettings = null)
+    /// <param name="otlpHeadersCredentialTarget">
+    /// The Windows Credential Manager target of the OTLP headers of the hosts, such as
+    /// <see cref="OtlpHeadersTestCredential.Target"/>, or <see langword="null"/> for hosts without that source.
+    /// </param>
+    public TemporaryContentRoot(string? appSettings = null, string? otlpHeadersCredentialTarget = null)
     {
+        OtlpHeadersCredentialTarget = otlpHeadersCredentialTarget;
         FolderPath = TemporaryFolder.Create();
         if (appSettings is not null)
         {
@@ -29,6 +34,12 @@ public sealed class TemporaryContentRoot : IDisposable
 
     /// <summary>Gets the absolute path of the folder.</summary>
     public string FolderPath { get; }
+
+    /// <summary>
+    /// Gets the Windows Credential Manager target of the OTLP headers of the hosts, or <see langword="null"/> when
+    /// they have none.
+    /// </summary>
+    public string? OtlpHeadersCredentialTarget { get; }
 
     /// <summary>Gets the absolute path of the log folder inside the content root.</summary>
     public string LogsPath => Path.Combine(FolderPath, LogFiles.FolderName);
@@ -44,6 +55,7 @@ public sealed class TemporaryContentRoot : IDisposable
             ConfigurationArguments = configurationArguments,
             ContentRootPath = FolderPath,
             EnvironmentName = Environments.Production,
+            OtlpHeadersCredentialTarget = OtlpHeadersCredentialTarget,
         }).Build();
 
     /// <summary>

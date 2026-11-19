@@ -1081,6 +1081,80 @@ public sealed class SettingsViewModelTests
         reopened.IsTelemetryHeadersShown.ShouldBeFalse();
     }
 
+    [Fact]
+    public void Constructor_HeadersInAppSettings_ShowsNoteAndMarksTelemetryChanged()
+    {
+        _telemetryStore.HeadersInAppSettings.Returns(true);
+
+        var viewModel = CreateViewModel();
+
+        viewModel.IsTelemetryHeadersInAppSettings.ShouldBeTrue();
+        viewModel.HasUnsavedChanges.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void Constructor_HeadersNotInAppSettings_HidesNoteAndLeavesTelemetryUnchanged()
+    {
+        _viewModel.IsTelemetryHeadersInAppSettings.ShouldBeFalse();
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void HeadersMessages_NameKeyAndCredentialManager()
+    {
+        SettingsViewModel.HeadersOverriddenMessage.ShouldContain("Windows Credential Manager");
+        SettingsViewModel.HeadersInAppSettingsMessage.ShouldStartWith(TelemetrySettings.HeadersKey);
+        SettingsViewModel.HeadersInAppSettingsMessage.ShouldContain("Windows Credential Manager");
+        SettingsViewModel.HeadersMovedMessage.ShouldContain("appsettings.json.bak");
+    }
+
+    [Fact]
+    public async Task Save_HeadersInAppSettings_SavesTelemetryAndReportsBackup()
+    {
+        _telemetryStore.HeadersInAppSettings.Returns(true);
+        var viewModel = CreateViewModel();
+        await viewModel.LoadCommand.ExecuteAsync(null);
+
+        await viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _telemetryStore.Received(1).SaveAsync(
+            new TelemetrySettings(true, "http://localhost:4317", _fileHeaders), Arg.Any<CancellationToken>());
+        _dialogs.Received(1).ShowInformation(SettingsViewModel.HeadersMovedTitle, SettingsViewModel.HeadersMovedMessage);
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_HeadersNotInAppSettings_DoesNotReportBackup()
+    {
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.DidNotReceive().ShowInformation(SettingsViewModel.HeadersMovedTitle, Arg.Any<string>());
+    }
+
+    [Fact]
+    public async Task Save_HeadersStoreFails_ShowsMaskedDialogAndStaysOpen()
+    {
+        _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>())
+            .Returns(_ =>
+            {
+                _masker.Register("new-secret");
+                return Task.FromException(
+                    new OtlpHeadersStoreException("Cannot save the credential 'target': new-secret is too long."));
+            });
+        await LoadAsync();
+        _viewModel.TelemetryHeaders = "api-key=new-secret";
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(
+            SettingsViewModel.SaveFailedTitle, "Cannot save the credential 'target': *** is too long.");
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+    }
+
     /// <summary>
     /// Creates another editor over the same substitutes, as opening the editor again does.
     /// </summary>

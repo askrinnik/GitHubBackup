@@ -436,7 +436,7 @@
                         <TextBox Text="{Binding OtlpEndpoint, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource FormTextBoxStyle}"
                                  AutomationProperties.AutomationId="OtlpEndpointBox" />
-                        <TextBlock Text="OTLP headers, for example api-key=&lt;license key&gt; (prefer the variable GitHubBackup__OpenTelemetry__Headers)"
+                        <TextBlock Text="OTLP headers, for example api-key=&lt;license key&gt; (kept in Windows Credential Manager)"
                                    Style="{StaticResource LabelStyle}"
                                    TextWrapping="Wrap" />
                         <!-- The headers are a secret: the names and help texts of these elements are static text, never
@@ -493,6 +493,11 @@
                                Style="{StaticResource NoticeStyle}"
                                Margin="0,4,0,0"
                                AutomationProperties.AutomationId="TelemetryHeadersOverriddenNote" />
+                        <Label Content="{x:Static vm:SettingsViewModel.HeadersInAppSettingsMessage}"
+                               Visibility="{Binding IsTelemetryHeadersInAppSettings, Mode=OneTime, Converter={StaticResource BooleanToVisibilityConverter}}"
+                               Style="{StaticResource NoticeStyle}"
+                               Margin="0,4,0,0"
+                               AutomationProperties.AutomationId="TelemetryHeadersInAppSettingsNote" />
                     </StackPanel>
                 </ScrollViewer>
             </GroupBox>

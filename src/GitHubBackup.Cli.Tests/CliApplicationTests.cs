@@ -158,6 +158,7 @@ public sealed class CliApplicationTests : IDisposable
         _output.Output.ShouldContain("backup");
         _output.Output.ShouldContain("validate");
         _output.Output.ShouldContain("set-token");
+        _output.Output.ShouldContain("set-otlp-headers");
         _standardError.ToString().ShouldBeEmpty();
     }
 
@@ -501,6 +502,27 @@ public sealed class CliApplicationTests : IDisposable
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().ShouldBe([BackupSummaryRenderer.ErrorPrefix + SetTokenCommandHandler.RedirectedInputMessage]);
+    }
+
+    [Fact]
+    public async Task RunAsync_SetOtlpHeadersInputRedirected_ReturnsCriticalWithHint()
+    {
+        _isInputRedirected = true;
+
+        var exitCode = await RunAsync(ValidAppSettings, "set-otlp-headers");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([BackupSummaryRenderer.ErrorPrefix + SetOtlpHeadersCommandHandler.RedirectedInputMessage]);
+    }
+
+    [Fact]
+    public async Task RunAsync_SetOtlpHeadersWithArgument_NeverWritesIt()
+    {
+        var exitCode = await RunAsync(ValidAppSettings, "set-otlp-headers", "api-key=argument-secret");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([CliApplication.CommandLineErrorPrefix + CliCommandLine.SetOtlpHeadersArgumentMessage]);
+        _output.Output.ShouldNotContain("argument-secret");
     }
 
     [Fact]
