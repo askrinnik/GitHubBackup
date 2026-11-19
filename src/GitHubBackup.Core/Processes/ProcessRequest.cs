@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+
 namespace GitHubBackup.Core.Processes;
 
 /// <summary>
@@ -30,4 +32,13 @@ public sealed record ProcessRequest
     /// another program's store.
     /// </remarks>
     public bool IsStandardOutputSecret { get; init; }
+
+    /// <summary>
+    /// Gets the level of the entries logged for the start, every output line and a successful exit of the process.
+    /// </summary>
+    /// <remarks>
+    /// A failed exit is logged as <see cref="LogLevel.Warning"/> whatever this level is. Routine probes, such as the
+    /// version checks at startup, use <see cref="LogLevel.Debug"/> so that they stay out of the default log.
+    /// </remarks>
+    public LogLevel LogLevel { get; init; } = LogLevel.Information;
 }

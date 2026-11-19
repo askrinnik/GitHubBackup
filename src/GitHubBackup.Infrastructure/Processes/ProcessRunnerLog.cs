@@ -11,6 +11,7 @@ internal static partial class ProcessRunnerLog
     /// Logs that a process is about to start.
     /// </summary>
     /// <param name="logger">The logger.</param>
+    /// <param name="level">The level of the entry.</param>
     /// <param name="tool">The name of the tool.</param>
     /// <param name="commandLine">The command line, with secrets masked.</param>
     /// <param name="workingDirectory">The folder the process runs in.</param>
@@ -19,27 +20,27 @@ internal static partial class ProcessRunnerLog
     /// </param>
     [LoggerMessage(
         EventId = 1,
-        Level = LogLevel.Information,
         Message = "Starting {Tool}: {CommandLine} in {WorkingDirectory} with environment variables [{EnvironmentVariables}]")]
     public static partial void Starting(
-        ILogger logger, string tool, string commandLine, string workingDirectory, string environmentVariables);
+        ILogger logger, LogLevel level, string tool, string commandLine, string workingDirectory, string environmentVariables);
 
     /// <summary>
     /// Logs one line the process wrote.
     /// </summary>
     /// <param name="logger">The logger.</param>
+    /// <param name="level">The level of the entry.</param>
     /// <param name="tool">The name of the tool.</param>
     /// <param name="stream">The stream the line came from: <c>stdout</c> or <c>stderr</c>.</param>
     /// <param name="line">The line, with secrets masked.</param>
-    [LoggerMessage(EventId = 2, Level = LogLevel.Information, Message = "{Tool} {Stream}: {Line}")]
-    public static partial void OutputLine(ILogger logger, string tool, string stream, string line);
+    [LoggerMessage(EventId = 2, Message = "{Tool} {Stream}: {Line}")]
+    public static partial void OutputLine(ILogger logger, LogLevel level, string tool, string stream, string line);
 
     /// <summary>
     /// Logs that the process exited.
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="level">
-    /// <see cref="LogLevel.Information"/> for exit code 0, <see cref="LogLevel.Warning"/> otherwise.
+    /// The level of the request for exit code 0, <see cref="LogLevel.Warning"/> otherwise.
     /// </param>
     /// <param name="tool">The name of the tool.</param>
     /// <param name="exitCode">The exit code.</param>

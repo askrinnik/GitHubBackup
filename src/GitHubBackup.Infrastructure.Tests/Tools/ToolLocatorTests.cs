@@ -47,6 +47,15 @@ public sealed class ToolLocatorTests
     }
 
     [Fact]
+    public async Task LocateAsync_AllToolsPresent_RunsEveryVersionCheckAtDebugLevel()
+    {
+        await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
+
+        _requests.Count.ShouldBe(3);
+        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Debug);
+    }
+
+    [Fact]
     public async Task LocateAsync_AllToolsPresent_LogsEachVersion()
     {
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);

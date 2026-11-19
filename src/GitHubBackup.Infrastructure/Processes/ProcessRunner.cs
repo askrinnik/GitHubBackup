@@ -65,11 +65,11 @@ internal sealed class ProcessRunner(
         }
 
         var tool = Path.GetFileNameWithoutExtension(request.FileName);
-        if (logger.IsEnabled(LogLevel.Information))
+        if (logger.IsEnabled(request.LogLevel))
         {
             var commandLine = secretMasker.Mask(ProcessCommandLine.Format(request.FileName, request.Arguments));
             var environment = secretMasker.Mask(ProcessEnvironmentFormat.Format(request.EnvironmentVariables));
-            ProcessRunnerLog.Starting(logger, tool, commandLine, request.WorkingDirectory, environment);
+            ProcessRunnerLog.Starting(logger, request.LogLevel, tool, commandLine, request.WorkingDirectory, environment);
         }
 
         using var process = new Process();
@@ -99,8 +99,10 @@ internal sealed class ProcessRunner(
                     tool,
                     StandardOutputStream,
                     logLines: !request.IsStandardOutputSecret,
+                    request.LogLevel,
                     readCancellation.Token),
-                ReadLinesAsync(process.StandardError, tool, StandardErrorStream, logLines: true, readCancellation.Token),
+                ReadLinesAsync(
+                    process.StandardError, tool, StandardErrorStream, logLines: true, request.LogLevel, readCancellation.Token),
             ];
 
             await process.WaitForExitAsync(cancellationToken);
@@ -112,7 +114,7 @@ internal sealed class ProcessRunner(
             var exitCode = process.ExitCode;
 
             ProcessRunnerLog.Exited(
-                logger, exitCode == 0 ? LogLevel.Information : LogLevel.Warning, tool, exitCode, duration);
+                logger, exitCode == 0 ? request.LogLevel : LogLevel.Warning, tool, exitCode, duration);
             return new(exitCode, duration, lines[0], lines[1]);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -215,19 +217,20 @@ internal sealed class ProcessRunner(
     /// <param name="tool">The name of the tool.</param>
     /// <param name="stream">The name of the stream.</param>
     /// <param name="logLines">Whether the lines are logged; <see langword="false"/> for a stream that carries a secret.</param>
+    /// <param name="level">The level of the entry logged for each line.</param>
     /// <param name="cancellationToken">Stops reading when the run abandons the output.</param>
     /// <returns>Every line read, unmasked and in order.</returns>
     private async Task<IReadOnlyList<string>> ReadLinesAsync(
-        StreamReader reader, string tool, string stream, bool logLines, CancellationToken cancellationToken)
+        StreamReader reader, string tool, string stream, bool logLines, LogLevel level, CancellationToken cancellationToken)
     {
         var lines = new List<string>();
         while (await reader.ReadLineAsync(cancellationToken) is { } line)
         {
             lines.Add(line);
-            if (logLines && line.Length > 0 && logger.IsEnabled(LogLevel.Information))
+            if (logLines && line.Length > 0 && logger.IsEnabled(level))
             {
                 var maskedLine = secretMasker.Mask(line);
-                ProcessRunnerLog.OutputLine(logger, tool, stream, maskedLine);
+                ProcessRunnerLog.OutputLine(logger, level, tool, stream, maskedLine);
             }
         }
 

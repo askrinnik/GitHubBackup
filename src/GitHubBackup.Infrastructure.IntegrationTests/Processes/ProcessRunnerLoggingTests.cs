@@ -168,6 +168,33 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_DebugLevelRequest_LogsStartLinesAndExitAtDebug()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo first", ">&2 echo second"]) with
+        {
+            LogLevel = LogLevel.Debug,
+        };
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _outputLineEventId, _exitedEventId]);
+        records.ShouldAllBe(record => record.Level == LogLevel.Debug);
+    }
+
+    [Fact]
+    public async Task RunAsync_DebugLevelRequestNonZeroExitCode_LogsExitAsWarning()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 5"]) with { LogLevel = LogLevel.Debug };
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var exited = _logger.LatestRecord;
+        exited.Id.Id.ShouldBe(_exitedEventId);
+        exited.Level.ShouldBe(LogLevel.Warning);
+    }
+
+    [Fact]
     public async Task RunAsync_NonZeroExitCode_LogsExitAsWarning()
     {
         var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 5"]);

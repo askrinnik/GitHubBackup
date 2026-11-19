@@ -110,6 +110,7 @@ internal sealed class ToolLocator(
             FileName = path,
             Arguments = arguments,
             WorkingDirectory = fileSystem.Path.GetDirectoryName(path)!,
+            LogLevel = LogLevel.Debug,
         };
 
         ProcessResult result;
