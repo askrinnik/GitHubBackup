@@ -37,7 +37,7 @@ public sealed class RepositoriesViewModelTests
                 new("octo", "old", "octo", RepositoryOverviewStatus.Unavailable, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
                 new("octo", "skip", "octo", RepositoryOverviewStatus.Excluded, null, "The state file is not valid JSON.") { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
             ]),
-            new("empty", "https://github.com/empty", []),
+            new("empty", "https://github.com/empty", []) { IsPaused = true },
         ],
         [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }]);
 
@@ -105,6 +105,8 @@ public sealed class RepositoriesViewModelTests
         _viewModel.Nodes.ShouldAllBe(node => node.IsExpanded);
         _viewModel.Nodes[0].Children.Select(node => node.DisplayName).ShouldBe(["tool", "old", "skip"]);
         _viewModel.Nodes[1].Children.ShouldBeEmpty();
+        ((AccountNodeViewModel)_viewModel.Nodes[0]).IsPaused.ShouldBeFalse();
+        ((AccountNodeViewModel)_viewModel.Nodes[1]).IsPaused.ShouldBeTrue();
         _viewModel.Nodes[2].Children.Select(node => node.DisplayName).ShouldBe(["other/lib"]);
         _viewModel.LoadError.ShouldBeNull();
         _viewModel.HasLoadError.ShouldBeFalse();

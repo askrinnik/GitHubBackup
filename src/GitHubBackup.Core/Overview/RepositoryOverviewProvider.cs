@@ -104,7 +104,7 @@ public sealed class RepositoryOverviewProvider(
                 repositories.Add(await CreateEntryAsync(config, items[next++], getState, cancellationToken));
             }
 
-            accounts.Add(new(login, account.Url, repositories));
+            accounts.Add(new(login, account.Url, repositories) { IsPaused = account.Paused });
         }
 
         var standalone = new List<RepositoryOverviewEntry>(items.Count - next);
@@ -138,6 +138,8 @@ public sealed class RepositoryOverviewProvider(
         {
             RepositoryId = item.Id,
             ArchiveFolder = item.ArchiveFolder,
+            IsPaused = item.IsPaused,
+            IsAccountPaused = item.IsAccountPaused,
         };
     }
 

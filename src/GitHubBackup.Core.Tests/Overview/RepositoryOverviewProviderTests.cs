@@ -245,6 +245,59 @@ public sealed class RepositoryOverviewProviderTests
         overview.Accounts[0].Repositories.ShouldHaveSingleItem().Status.ShouldBe(expected);
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public async Task LoadAsync_AccountRepository_ReflectsPauseOfEntryAndAccount(bool entryPaused, bool accountPaused)
+    {
+        var account = CreateAccount("octo", "tool");
+        account.Paused = accountPaused;
+        account.Repositories[0].Paused = entryPaused;
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [account] });
+
+        var overview = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].IsPaused.ShouldBe(accountPaused);
+        var entry = overview.Accounts[0].Repositories.ShouldHaveSingleItem();
+        entry.IsPaused.ShouldBe(entryPaused);
+        entry.IsAccountPaused.ShouldBe(accountPaused);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadAsync_StandaloneRepository_ReflectsPauseOfEntry(bool paused)
+    {
+        var repository = CreateStandalone("octo", "app");
+        repository.Paused = paused;
+        UseConfig(new() { BackupRoot = _backupRoot, Repositories = [repository] });
+
+        var overview = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+
+        var entry = overview.StandaloneRepositories.ShouldHaveSingleItem();
+        entry.IsPaused.ShouldBe(paused);
+        entry.IsAccountPaused.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_PausedEntries_KeepsPauseFlags()
+    {
+        var account = CreateAccount("octo", "tool");
+        account.Paused = true;
+        var repository = CreateStandalone("other", "lib");
+        repository.Paused = true;
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [account], Repositories = [repository] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+
+        var overview = await _provider.LoadAfterRunAsync(previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].IsPaused.ShouldBeTrue();
+        overview.Accounts[0].Repositories[0].IsAccountPaused.ShouldBeTrue();
+        overview.StandaloneRepositories[0].IsPaused.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task LoadAsync_WikiArchiveOnly_IgnoresWikiSection()
     {

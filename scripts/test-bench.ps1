@@ -15,7 +15,7 @@
     changed.
 
 .PARAMETER Scenario
-    The scenario: missing-repository, renamed-repository, new-repositories, discovery-review or many-rows.
+    The scenario: missing-repository, renamed-repository, new-repositories, discovery-review, many-rows or paused-entries.
 
 .PARAMETER Theme
     The theme of the app: light, dark or system. By default the app follows Windows.
@@ -47,7 +47,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('missing-repository', 'renamed-repository', 'new-repositories', 'discovery-review', 'many-rows')]
+    [ValidateSet('missing-repository', 'renamed-repository', 'new-repositories', 'discovery-review', 'many-rows', 'paused-entries')]
     [string] $Scenario = 'missing-repository',
     [ValidateSet('light', 'dark', 'system')]
     [string] $Theme,

@@ -5,8 +5,9 @@ using GitHubBackup.TestUtilities;
 namespace GitHubBackup.App.UITests;
 
 /// <summary>
-/// Takes screenshots of the main window after a dry run, in the light and the dark theme, and measures the results
-/// panel: aligned table rows, no cut text at the smallest panel height, and cards and lines that stand out.
+/// Takes screenshots of the main window, in the light and the dark theme, and measures the results panel after a dry
+/// run (aligned table rows, no cut text at the smallest panel height, cards and lines that stand out) and the status
+/// icons of the repository tree.
 /// </summary>
 /// <remarks>
 /// The tests need an unlocked interactive desktop: Windows does not render windows while the workstation is locked,
@@ -120,6 +121,61 @@ public sealed class MainWindowScreenshotTests : IDisposable
         separatorContrast.ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinLineContrast, $"{shot.Description}: separator above the table");
     }
 
+    [Theory]
+    [InlineData("light")]
+    [InlineData("dark")]
+    public void Tree_PausedEntries_LinesUpStatusIconsAndKeepsTextWhole(string theme)
+    {
+        const double logPanelHeight = 160;
+        UiScenarios.PausedEntries.Prepare(_api, _installation.ArchivesPath, _installation.BackupConfigPath);
+        _installation.WriteUiSettings(UiSettings(theme, logPanelHeight).Build());
+        var session = _session = AppSession.Start(_installation);
+        var tree = session.WaitFor("RepositoryTree");
+        AppSession.WaitUntil(
+            () => tree.FindAllDescendants(condition => condition.ByAutomationId("RepositoryNameText")).Length == 8,
+            "eight repository rows");
+        var scale = session.WaitFor("RunLogPanel").BoundingRectangle.Height / logPanelHeight;
+        var description = $"{UiScenarios.PausedEntries.Name}, {theme} theme";
+        var image = ScreenCapture.Window(session.MainWindow, $"the main window ({description})");
+        var window = session.MainWindow;
+        var tolerance = (int)Math.Ceiling(2 * scale);
+
+        var names = tree.FindAllDescendants(condition => condition.ByAutomationId("RepositoryNameText"))
+            .Concat(tree.FindAllDescendants(condition => condition.ByAutomationId("AccountNameText")))
+            .ToList();
+        var firstSlot = Shown(tree, "RepositoryStatusIcon").Concat(Shown(tree, "AccountStatusIcon")).ToList();
+        var secondSlot = Shown(tree, "RepositoryUnavailableIcon").ToList();
+        firstSlot.Count.ShouldBe(7, $"{description}: the icons of the first status slot");
+        secondSlot.Count.ShouldBe(2, $"{description}: the icons of the second status slot");
+        var statusLeft = firstSlot.Min(icon => ScreenCapture.Bounds(icon, window).Left);
+        foreach (var name in names)
+        {
+            var bounds = ScreenCapture.Bounds(name, window);
+            var text = LayoutMeasurement.TextBounds(image, Rectangle.Inflate(bounds, 0, tolerance), scale);
+            text.ShouldNotBeNull($"{description}: the name {name.Name} shows no text");
+            text.Value.Right.ShouldBeLessThan(statusLeft, $"{description}: the name {name.Name} runs into the status column");
+            ScreenshotAssert.TextClear(image, Rectangle.Inflate(bounds, 0, tolerance), scale, $"{description}: the name {name.Name}", requireText: true);
+        }
+
+        foreach (var slot in new[] { firstSlot, secondSlot })
+        {
+            // The minus of an excluded repository is a single thin stroke, too low for a glyph of the measurement. The
+            // region is twice as high as the icon, so the measurement does not take the bars of the pause for lines.
+            var centers = slot
+                .Where(icon => icon.Name != "Excluded")
+                .Select(icon => ScreenCapture.Bounds(icon, window))
+                .Select(bounds => LayoutMeasurement.TextBounds(image, Rectangle.Inflate(bounds, 0, bounds.Height / 2), scale)
+                    .ShouldNotBeNull($"{description}: the status icon at {bounds} shows no glyph"))
+                .Select(ink => ink.Left + (ink.Width / 2.0))
+                .ToList();
+            (centers.Max() - centers.Min()).ShouldBeLessThanOrEqualTo(tolerance, $"{description}: the icons of a status slot do not line up");
+        }
+
+        var active = TextContrast(image, tree, window, "active-repository");
+        TextContrast(image, tree, window, "paused-repository").ShouldBeLessThan(active, $"{description}: a paused entry is muted");
+        TextContrast(image, tree, window, "quiet-repository").ShouldBeLessThan(active, $"{description}: an entry of a paused account is muted");
+    }
+
     /// <summary>
     /// Stops the application, then deletes the installation and stops the API stub.
     /// </summary>
@@ -145,6 +201,30 @@ public sealed class MainWindowScreenshotTests : IDisposable
             LogPanelHeight = logPanelHeight,
             SummaryPanelHeight = summaryPanelHeight,
         };
+
+    /// <summary>
+    /// Returns the shown descendants of <paramref name="root"/> with <paramref name="automationId"/>.
+    /// </summary>
+    /// <param name="root">The element to search.</param>
+    /// <param name="automationId">The automation id.</param>
+    /// <returns>The elements in tree order.</returns>
+    private static IEnumerable<AutomationElement> Shown(AutomationElement root, string automationId) =>
+        root.FindAllDescendants(condition => condition.ByAutomationId(automationId)).Where(element => !element.IsOffscreen);
+
+    /// <summary>
+    /// Measures how strongly the name of a repository stands out from the tree.
+    /// </summary>
+    /// <param name="image">The capture of the main window.</param>
+    /// <param name="tree">The repository tree.</param>
+    /// <param name="window">The captured window.</param>
+    /// <param name="name">The name the tree shows for the repository.</param>
+    /// <returns>The contrast of the text.</returns>
+    private static double TextContrast(PixelImage image, AutomationElement tree, AutomationElement window, string name)
+    {
+        var text = tree.FindAllDescendants(condition => condition.ByAutomationId("RepositoryNameText"))
+            .First(element => element.Name == name);
+        return LayoutMeasurement.TextContrast(image, ScreenCapture.Bounds(text, window));
+    }
 
     /// <summary>
     /// Prepares <paramref name="scenario"/>, starts the application, runs a dry run of everything and captures the

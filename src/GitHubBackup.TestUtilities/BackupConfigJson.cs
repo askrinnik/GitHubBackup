@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace GitHubBackup.TestUtilities;
 
 /// <summary>
-/// Builds the text of a <c>backup-config.json</c> with standalone repositories and accounts, no exclusion masks and
+/// Builds the text of a <c>backup-config.json</c> with standalone repositories, accounts, global exclusion masks and
 /// the default clone and archive paths of every repository.
 /// </summary>
 /// <param name="backupRoot">The absolute path of the archive root.</param>
@@ -11,6 +11,7 @@ public sealed class BackupConfigJson(string backupRoot)
 {
     private readonly List<string> _accounts = [];
     private readonly List<string> _repositories = [];
+    private readonly List<string> _exclude = [];
     private bool _discoverAccessible;
 
     /// <summary>
@@ -76,6 +77,17 @@ public sealed class BackupConfigJson(string backupRoot)
     }
 
     /// <summary>
+    /// Adds a global exclusion mask.
+    /// </summary>
+    /// <param name="mask">The mask, matched against <c>owner/name</c>.</param>
+    /// <returns>This builder.</returns>
+    public BackupConfigJson WithExclude(string mask)
+    {
+        _exclude.Add(JsonSerializer.Serialize(mask));
+        return this;
+    }
+
+    /// <summary>
     /// Sets <c>discoverAccessibleRepositories</c> to <see langword="true"/>.
     /// </summary>
     /// <returns>This builder.</returns>
@@ -95,7 +107,7 @@ public sealed class BackupConfigJson(string backupRoot)
           "schemaVersion": 1,
           "backupRoot": {{JsonSerializer.Serialize(backupRoot)}},
           "sourcesRoot": null,
-          "exclude": [],
+          "exclude": [ {{string.Join(",", _exclude)}} ],
           "discoverAccessibleRepositories": {{(_discoverAccessible ? "true" : "false")}},
           "accounts": [ {{string.Join(",", _accounts)}} ],
           "repositories": [ {{string.Join(",", _repositories)}} ]

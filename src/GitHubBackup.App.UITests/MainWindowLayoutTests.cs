@@ -129,12 +129,69 @@ public sealed class MainWindowLayoutTests : IDisposable
             node.Patterns.ExpandCollapse.Pattern.Expand();
         }
 
-        AppSession.WaitUntil(() => FindAll(tree, "RepositoryStatusText").Length == 3, "three repository rows");
+        AppSession.WaitUntil(() => FindAll(tree, "RepositoryStatusIcon").Length == 3, "three repository rows");
 
-        FindAll(tree, "RepositoryStatusText").Select(text => text.BoundingRectangle.Left).Distinct().Count().ShouldBe(1);
+        FindAll(tree, "RepositoryStatusIcon").Select(icon => icon.BoundingRectangle.Left).Distinct().Count().ShouldBe(1);
         FindAll(tree, "RepositoryLastArchiveText").Select(text => text.BoundingRectangle.Left).Distinct().Count().ShouldBe(1);
         var longName = FindAll(tree, "RepositoryNameText").Max(text => text.BoundingRectangle.Right);
-        FindAll(tree, "RepositoryStatusText")[0].BoundingRectangle.Left.ShouldBeGreaterThan(longName);
+        FindAll(tree, "RepositoryStatusIcon")[0].BoundingRectangle.Left.ShouldBeGreaterThan(longName);
+        ((double)session.WaitFor("AccountStatusIcon").BoundingRectangle.Left)
+            .ShouldBe(FindAll(tree, "RepositoryStatusIcon")[0].BoundingRectangle.Left, _pixelTolerance);
+    }
+
+    [Fact]
+    public void Tree_PausedEntries_AlignsStatusIconsAcrossRowsAndNamesThem()
+    {
+        UiScenarios.PausedEntries.Prepare(_api, _installation.ArchivesPath, _installation.BackupConfigPath);
+        var session = Start();
+        var tree = session.WaitFor("RepositoryTree");
+        AppSession.WaitUntil(() => tree.FindAllChildren().Length == 3, "two accounts and the group of standalone repositories");
+        foreach (var node in tree.FindAllChildren())
+        {
+            node.Patterns.ExpandCollapse.Pattern.Expand();
+        }
+
+        AppSession.WaitUntil(() => FindAll(tree, "RepositoryNameText").Length == 8, "eight repository rows");
+        (string Row, string IconId, string? Status, string? Unavailable)[] expected =
+        [
+            (UiScenarios.Owner, "AccountStatusIcon", "Active", null),
+            ("active-repository", "RepositoryStatusIcon", "Active", null),
+            ("paused-repository", "RepositoryStatusIcon", "Paused", null),
+            ("excluded-repository", "RepositoryStatusIcon", "Excluded", null),
+            (UiScenarios.PausedOwner, "AccountStatusIcon", "Paused", null),
+            ("quiet-repository", "RepositoryStatusIcon", null, null),
+            ("quiet-paused-repository", "RepositoryStatusIcon", null, null),
+            ($"{UiScenarios.StandaloneOwner}/unavailable-repository", "RepositoryStatusIcon", null, "Unavailable"),
+            ($"{UiScenarios.StandaloneOwner}/unavailable-paused-repository", "RepositoryStatusIcon", "Unavailable, paused", "Unavailable, paused"),
+            ($"{UiScenarios.StandaloneOwner}/excluded-paused-repository", "RepositoryStatusIcon", "Excluded", null),
+        ];
+
+        var statusIcons = new List<Rectangle>();
+        var unavailableIcons = new List<Rectangle>();
+        foreach (var (row, iconId, status, unavailable) in expected)
+        {
+            var item = TreeItem(tree, row);
+            var icon = Shown(item, iconId);
+            (icon?.Name).ShouldBe(status, $"the status icon of {row}");
+            var unavailableIcon = Shown(item, "RepositoryUnavailableIcon");
+            (unavailableIcon?.Name).ShouldBe(unavailable, $"the unavailable icon of {row}");
+            if (icon is not null)
+            {
+                statusIcons.Add(icon.BoundingRectangle);
+            }
+
+            if (unavailableIcon is not null)
+            {
+                unavailableIcons.Add(unavailableIcon.BoundingRectangle);
+            }
+        }
+
+        (statusIcons.Max(icon => icon.Left) - statusIcons.Min(icon => icon.Left)).ShouldBeLessThanOrEqualTo(_pixelTolerance);
+        (unavailableIcons.Max(icon => icon.Left) - unavailableIcons.Min(icon => icon.Left)).ShouldBeLessThanOrEqualTo(_pixelTolerance);
+        unavailableIcons[0].Left.ShouldBeGreaterThanOrEqualTo(statusIcons.Max(icon => icon.Right) - _pixelTolerance);
+        var dates = FindAll(tree, "RepositoryLastArchiveText").Select(text => text.BoundingRectangle.Left).ToList();
+        (dates.Max() - dates.Min()).ShouldBeLessThanOrEqualTo(_pixelTolerance);
+        dates.Min().ShouldBeGreaterThan(unavailableIcons.Max(icon => icon.Right) - _pixelTolerance);
     }
 
     [Fact]
@@ -379,6 +436,30 @@ public sealed class MainWindowLayoutTests : IDisposable
     /// <returns>The elements in tree order.</returns>
     private static AutomationElement[] FindAll(AutomationElement root, string automationId) =>
         root.FindAllDescendants(condition => condition.ByAutomationId(automationId));
+
+    /// <summary>
+    /// Returns the tree item whose UI Automation name is <paramref name="name"/>.
+    /// </summary>
+    /// <param name="tree">The repository tree.</param>
+    /// <param name="name">The name the tree shows for the node.</param>
+    /// <returns>The tree item.</returns>
+    private static AutomationElement TreeItem(AutomationElement tree, string name)
+    {
+        AutomationElement? item = null;
+        AppSession.WaitUntil(
+            () => (item = tree.FindFirstDescendant(condition => condition.ByControlType(ControlType.TreeItem).And(condition.ByName(name)))) is not null,
+            $"the tree item {name}");
+        return item!;
+    }
+
+    /// <summary>
+    /// Returns the first shown descendant of <paramref name="item"/> with <paramref name="automationId"/>.
+    /// </summary>
+    /// <param name="item">The tree item.</param>
+    /// <param name="automationId">The automation id.</param>
+    /// <returns>The element, or <see langword="null"/> when the item shows none.</returns>
+    private static AutomationElement? Shown(AutomationElement item, string automationId) =>
+        item.FindAllDescendants(condition => condition.ByAutomationId(automationId)).FirstOrDefault(element => !element.IsOffscreen);
 
     /// <summary>
     /// Measures the results panel, the card that the log and results splitter resizes.
