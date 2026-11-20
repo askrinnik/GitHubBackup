@@ -29,7 +29,7 @@ public sealed class CloneRelocatorTests
     /// </summary>
     public CloneRelocatorTests()
     {
-        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RefSnapshot?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RemoteRefs?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new CloneCheckResult(_oldFolder, []));
         _git.GetOriginUrlAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>()).Returns(_url);
     }

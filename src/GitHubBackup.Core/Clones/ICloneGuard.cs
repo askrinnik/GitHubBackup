@@ -22,8 +22,9 @@ public interface ICloneGuard
     /// The git executable, the existing clone folder, the configured branch, or <see langword="null"/> for the
     /// server's default branch, and the token.
     /// </param>
-    /// <param name="remoteRefs">
-    /// The branches and tags of the server when the caller has just read them, or <see langword="null"/> to read them.
+    /// <param name="remote">
+    /// The branches, the tags and the default branch of the server when the caller has just read them, or
+    /// <see langword="null"/> to read them with one request.
     /// </param>
     /// <param name="acceptedBranch">
     /// A branch accepted besides the expected one, because the program itself checked it out for the last archive, so
@@ -35,7 +36,7 @@ public interface ICloneGuard
     /// <exception cref="ProcessStartException">git cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
     Task<CloneCheckResult> CheckAsync(
-        GitRepositoryRequest git, RefSnapshot? remoteRefs, string? acceptedBranch, CancellationToken cancellationToken);
+        GitRepositoryRequest git, RemoteRefs? remote, string? acceptedBranch, CancellationToken cancellationToken);
 
     /// <summary>
     /// Repeats the check of <see cref="CheckAsync"/> with a branch already determined, without the network, so the

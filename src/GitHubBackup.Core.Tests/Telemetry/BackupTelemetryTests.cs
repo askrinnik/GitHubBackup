@@ -128,7 +128,7 @@ public sealed class BackupTelemetryTests : IDisposable
     }
 
     [Fact]
-    public async Task TraceRemoteRefsAsync_Succeeds_NamesSpanAndTagsQueryAndRefsCount()
+    public async Task TraceRemoteRefsAsync_Snapshot_NamesSpanAndTagsRefsCount()
     {
         using var test = _capture.StartTest();
         RefSnapshot refs = new([KeyValuePair.Create("heads/main", "a"), KeyValuePair.Create("tags/v1", "b")]);
@@ -139,8 +139,31 @@ public sealed class BackupTelemetryTests : IDisposable
         var span = _capture.Spans.ShouldHaveSingleItem();
         span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
         span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
-        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.RemoteRefsQuery);
         span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(2);
+        span.TagObjects.Select(tag => tag.Key).ShouldNotContain("githubbackup.git.query");
+    }
+
+    [Fact]
+    public async Task TraceRemoteRefsAsync_RemoteRefs_TagsBranchAndTagCountWithoutDefaultBranch()
+    {
+        using var test = _capture.StartTest();
+        RemoteRefs remote = new(
+            new([
+                KeyValuePair.Create("heads/main", "a"),
+                KeyValuePair.Create("heads/dev", "b"),
+                KeyValuePair.Create("tags/v1", "c"),
+            ]),
+            "main");
+
+        var result = await Telemetry.TraceRemoteRefsAsync(() => Task.FromResult(remote));
+
+        result.ShouldBeSameAs(remote);
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(3);
+        span.TagObjects.Select(tag => tag.Key).ShouldNotContain("githubbackup.git.query");
+        span.TagObjects.Select(tag => tag.Value).ShouldNotContain("main");
     }
 
     [Theory]
@@ -152,27 +175,12 @@ public sealed class BackupTelemetryTests : IDisposable
         using var test = _capture.StartTest();
 
         await Should.ThrowAsync<GitRepositoryNotFoundException>(() => Telemetry.TraceRemoteRefsAsync(
-            () => throw new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128),
+            Task<RemoteRefs> () => throw new GitRepositoryNotFoundException("Repository not found.", "git ls-remote", 128),
             remoteMayBeMissing));
 
         var span = _capture.Spans.ShouldHaveSingleItem();
         span.Status.ShouldBe(expected);
         span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
-    }
-
-    [Fact]
-    public async Task TraceDefaultBranchAsync_Succeeds_NamesSpanAndTagsQueryOnly()
-    {
-        using var test = _capture.StartTest();
-
-        var result = await Telemetry.TraceDefaultBranchAsync(() => Task.FromResult<string?>("main"));
-
-        result.ShouldBe("main");
-        var span = _capture.Spans.ShouldHaveSingleItem();
-        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteDefaultBranchSpanName);
-        span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
-        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.DefaultBranchQuery);
-        span.TagObjects.Select(tag => tag.Value).ShouldNotContain("main");
     }
 
     [Theory]

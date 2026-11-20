@@ -43,6 +43,65 @@ public sealed class GitRefParserTests
         GitRefParser.ParseRemoteRefs([]).ShouldBe(RefSnapshot.Empty);
 
     [Fact]
+    public void ParseRemoteListing_SymrefListing_ReturnsBranchesTagsAndDefaultBranch()
+    {
+        string[] lines =
+        [
+            "ref: refs/heads/main\tHEAD",
+            $"{_commit}\tHEAD",
+            $"{_commit}\trefs/heads/main",
+            $"{_otherCommit}\trefs/heads/x/HEAD",
+            $"{_otherCommit}\trefs/heads/HEAD",
+            $"{_otherCommit}\trefs/remotes/origin/HEAD",
+            $"{_otherCommit}\trefs/pull/1/head",
+            $"{_tagObject}\trefs/tags/v1",
+            $"{_commit}\trefs/tags/v1^{{}}",
+        ];
+
+        var remote = GitRefParser.ParseRemoteListing(lines);
+
+        remote.Refs.ShouldBe(Snapshot(
+            ("heads/main", _commit),
+            ("heads/x/HEAD", _otherCommit),
+            ("tags/v1", _tagObject)));
+        remote.DefaultBranch.ShouldBe("main");
+    }
+
+    [Fact]
+    public void ParseRemoteListing_SymrefOfOtherName_SkipsLineAndFindsNoDefaultBranch()
+    {
+        string[] lines =
+        [
+            "ref: refs/heads/main\trefs/remotes/origin/HEAD",
+            $"{_commit}\trefs/remotes/origin/HEAD",
+            $"{_commit}\trefs/heads/main",
+        ];
+
+        var remote = GitRefParser.ParseRemoteListing(lines);
+
+        remote.Refs.ShouldBe(Snapshot(("heads/main", _commit)));
+        remote.DefaultBranch.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ParseRemoteListing_NoSymrefLine_ReturnsNoDefaultBranch()
+    {
+        var remote = GitRefParser.ParseRemoteListing([$"{_commit}\tHEAD", $"{_commit}\trefs/heads/main"]);
+
+        remote.Refs.ShouldBe(Snapshot(("heads/main", _commit)));
+        remote.DefaultBranch.ShouldBeNull();
+    }
+
+    [Fact]
+    public void ParseRemoteListing_NoOutput_ReturnsEmptySnapshotAndNoDefaultBranch()
+    {
+        var remote = GitRefParser.ParseRemoteListing([]);
+
+        remote.Refs.ShouldBe(RefSnapshot.Empty);
+        remote.DefaultBranch.ShouldBeNull();
+    }
+
+    [Fact]
     public void ParseLocalRefs_TrackingBranchesAndTags_MapsToServerNamesWithoutOriginHead()
     {
         string[] lines =

@@ -20,8 +20,9 @@ public sealed class GitClientEmptyRepositoryTests : GitClientTestBase
         result.Refs.ShouldBe(RefSnapshot.Empty);
         Directory.Exists(Path.Combine(_clonePath, ".git")).ShouldBeTrue();
         Records(_clientLogger, _emptyRepositoryEventId).ShouldHaveSingleItem().GetStructuredStateValue("Path").ShouldBe(_clonePath);
-        (await CreateClient().GetRemoteRefsAsync(Request(), CancellationToken)).ShouldBe(RefSnapshot.Empty);
-        (await CreateClient().GetDefaultBranchAsync(Request(), CancellationToken)).ShouldBeNull();
+        var remoteRefs = await CreateClient().GetRemoteRefsAsync(Request(), CancellationToken);
+        remoteRefs.Refs.ShouldBe(RefSnapshot.Empty);
+        remoteRefs.DefaultBranch.ShouldBeNull();
     }
 
     [Fact]

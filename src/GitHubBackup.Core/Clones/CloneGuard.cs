@@ -10,12 +10,12 @@ public sealed class CloneGuard(IGitClient gitClient, ILogger<CloneGuard> logger)
 {
     /// <inheritdoc />
     public async Task<CloneCheckResult> CheckAsync(
-        GitRepositoryRequest git, RefSnapshot? remoteRefs, string? acceptedBranch, CancellationToken cancellationToken)
+        GitRepositoryRequest git, RemoteRefs? remote, string? acceptedBranch, CancellationToken cancellationToken)
     {
         var status = await gitClient.GetWorkingCopyStatusAsync(git, knownRemoteRefs: null, cancellationToken);
 
         // A clone without a commit has no branch work to lose, and an update has to leave its unborn branch.
-        var expected = status.HasCommits ? await GetExpectedBranchAsync(git, remoteRefs, cancellationToken) : null;
+        var expected = status.HasCommits ? await GetExpectedBranchAsync(git, remote, cancellationToken) : null;
         return await EvaluateAsync(git, status, expected, acceptedBranch, null, cancellationToken);
     }
 
@@ -114,27 +114,30 @@ public sealed class CloneGuard(IGitClient gitClient, ILogger<CloneGuard> logger)
     /// server's default branch.
     /// </summary>
     /// <param name="git">The clone and the configured branch.</param>
-    /// <param name="remoteRefs">The branches and tags of the server, or <see langword="null"/> to read them.</param>
+    /// <param name="remote">
+    /// The branches, the tags and the default branch of the server, or <see langword="null"/> to read them.
+    /// </param>
     /// <param name="cancellationToken">Cancels the git commands.</param>
     /// <returns>
     /// The branch, or <see langword="null"/> when the server has no branch or names no existing default branch; the
     /// update fails on its own in that case and changes nothing.
     /// </returns>
     private async Task<string?> GetExpectedBranchAsync(
-        GitRepositoryRequest git, RefSnapshot? remoteRefs, CancellationToken cancellationToken)
+        GitRepositoryRequest git, RemoteRefs? remote, CancellationToken cancellationToken)
     {
-        var remote = remoteRefs ?? await gitClient.GetRemoteRefsAsync(git, cancellationToken);
-        if (!remote.HasBranches)
+        remote ??= await gitClient.GetRemoteRefsAsync(git, cancellationToken);
+        var refs = remote.Refs;
+        if (!refs.HasBranches)
         {
             return null;
         }
 
-        if (git.Branch is not null && remote.ContainsBranch(git.Branch))
+        if (git.Branch is not null && refs.ContainsBranch(git.Branch))
         {
             return git.Branch;
         }
 
-        var defaultBranch = await gitClient.GetDefaultBranchAsync(git, cancellationToken);
-        return defaultBranch is not null && remote.ContainsBranch(defaultBranch) ? defaultBranch : null;
+        var defaultBranch = remote.DefaultBranch;
+        return defaultBranch is not null && refs.ContainsBranch(defaultBranch) ? defaultBranch : null;
     }
 }

@@ -1,4 +1,5 @@
 using GitHubBackup.Core.Git;
+using GitHubBackup.Infrastructure.Processes;
 
 namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 
@@ -7,6 +8,9 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 /// </summary>
 public sealed class GitClientRefSnapshotTests : GitClientTestBase
 {
+    /// <summary>The event id of the entry <see cref="ProcessRunner"/> logs for each line a process writes.</summary>
+    private const int _outputLineEventId = 2;
+
     [Fact]
     public async Task GetRemoteRefsAsync_RemoteDeletedAfterClone_ThrowsGitRepositoryNotFoundException()
     {
@@ -77,14 +81,36 @@ public sealed class GitClientRefSnapshotTests : GitClientTestBase
         var client = CreateClient();
 
         var result = await client.CloneAsync(Request(), remote.Url, CancellationToken);
+        _runnerLogger.Collector.Clear();
         var remoteRefs = await client.GetRemoteRefsAsync(Request(), CancellationToken);
+        var output = Records(_runnerLogger, _outputLineEventId);
         var localRefs = await client.GetLocalRefsAsync(Request(), CancellationToken);
 
-        remoteRefs.ShouldBe(localRefs);
+        remoteRefs.Refs.ShouldBe(localRefs);
         result.Refs.ShouldBe(localRefs);
-        remoteRefs.Refs.Keys.ShouldBe(
+        remoteRefs.Refs.Refs.Keys.ShouldBe(
             ["heads/develop", "heads/feature/nested", "heads/main", "tags/light", "tags/v1"], ignoreOrder: true);
+        remoteRefs.DefaultBranch.ShouldBe("main");
+        output.ShouldNotBeEmpty();
+        output.Select(record => record.GetStructuredStateValue("Line") ?? string.Empty)
+            .ShouldAllBe(line => !line.Contains("refs/pull/"));
         (await remote.GetRemoteRefsAsync(CancellationToken)).ShouldContainKey("refs/pull/1/head");
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_ServerHeadOnOtherBranch_ReturnsTheBranchTheCloneChecksOut()
+    {
+        var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
+        await remote.CreateBranchAsync("develop", null, CancellationToken);
+        await remote.SetDefaultBranchAsync("develop", CancellationToken);
+        var client = CreateClient();
+        var result = await client.CloneAsync(Request(branch: null), remote.Url, CancellationToken);
+
+        var remoteRefs = await client.GetRemoteRefsAsync(Request(branch: null), CancellationToken);
+
+        remoteRefs.DefaultBranch.ShouldBe("develop");
+        result.Branch.ShouldBe(remoteRefs.DefaultBranch);
+        remoteRefs.Refs.ShouldBe(result.Refs);
     }
 
     [Fact]
@@ -101,7 +127,7 @@ public sealed class GitClientRefSnapshotTests : GitClientTestBase
         var localRefs = await client.GetLocalRefsAsync(Request(), CancellationToken);
 
         tagObject.ShouldNotBe(commit);
-        remoteRefs.Refs["tags/v1"].ShouldBe(tagObject);
+        remoteRefs.Refs.Refs["tags/v1"].ShouldBe(tagObject);
         localRefs.Refs["tags/v1"].ShouldBe(tagObject);
     }
 
@@ -125,8 +151,8 @@ public sealed class GitClientRefSnapshotTests : GitClientTestBase
         var result = await client.UpdateAsync(Request(), CancellationToken);
         var localAfter = await client.GetLocalRefsAsync(Request(), CancellationToken);
 
-        remoteBefore.ShouldNotBe(localBefore);
-        localAfter.ShouldBe(remoteBefore);
+        remoteBefore.Refs.ShouldNotBe(localBefore);
+        localAfter.ShouldBe(remoteBefore.Refs);
         result.Refs.ShouldBe(localAfter);
         localAfter.Refs.Keys.ShouldBe(["heads/added", "heads/main", "tags/moved"], ignoreOrder: true);
     }

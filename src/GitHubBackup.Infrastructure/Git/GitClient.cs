@@ -67,8 +67,12 @@ internal sealed class GitClient(
     private static readonly string[] _localRefsArguments =
         ["for-each-ref", "--format=%(objectname)%09%(refname)", "refs/remotes/origin", "refs/tags"];
 
-    /// <summary>The arguments that list the branches and tags of the server, without peeled tags and <c>HEAD</c>.</summary>
-    private static readonly string[] _remoteRefsArguments = ["ls-remote", "--refs", "origin"];
+    /// <summary>
+    /// The arguments that list the branches and tags of the server and the branch its <c>HEAD</c> points at in one
+    /// request; the patterns keep pull request refs and other server refs out of the response.
+    /// </summary>
+    private static readonly string[] _remoteRefsArguments =
+        ["ls-remote", "--symref", "origin", "HEAD", "refs/heads/*", "refs/tags/*"];
 
     /// <summary>The arguments that show which branch the server's <c>HEAD</c> points at.</summary>
     private static readonly string[] _defaultBranchArguments = ["ls-remote", "--symref", "origin", "HEAD"];
@@ -209,7 +213,7 @@ internal sealed class GitClient(
     }
 
     /// <inheritdoc />
-    public async Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    public async Task<RemoteRefs> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
     {
         ValidateClonePath(request);
         cancellationToken.ThrowIfCancellationRequested();
@@ -217,7 +221,7 @@ internal sealed class GitClient(
         var output = await RunGitAsync(
             request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
             cancellationToken);
-        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteRefs);
+        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteListing);
     }
 
     /// <inheritdoc />
@@ -239,7 +243,7 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         var workingDirectory = FindRepositoryFreeAncestor(request.ClonePath);
-        string[] arguments = ["ls-remote", "--refs", "--", remoteUrl];
+        string[] arguments = ["ls-remote", "--refs", "--", remoteUrl, "refs/heads/*", "refs/tags/*"];
 
         // The working directory plays the clone folder of the environment, so the ceiling is its parent and git looks
         // only at the working directory, which holds no repository, instead of walking up to an enclosing one.
@@ -280,15 +284,6 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         return ReadLocalRefsAsync(request, CreateEnvironment(token: null, request.ClonePath), cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<string?> GetDefaultBranchAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
-    {
-        ValidateClonePath(request);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token, request.ClonePath), cancellationToken);
     }
 
     /// <inheritdoc />

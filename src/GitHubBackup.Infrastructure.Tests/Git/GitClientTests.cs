@@ -77,9 +77,6 @@ public sealed class GitClientTests
 
         /// <summary><see cref="IGitClient.GetLocalRefsAsync"/>.</summary>
         LocalRefs,
-
-        /// <summary><see cref="IGitClient.GetDefaultBranchAsync"/>.</summary>
-        DefaultBranch,
     }
 
     [Fact]
@@ -260,13 +257,13 @@ public sealed class GitClientTests
     }
 
     [Fact]
-    public async Task GetDefaultBranchAsync_ServerNamesInvalidBranch_ReturnsNull()
+    public async Task GetRemoteRefsAsync_ServerNamesInvalidBranch_ReturnsNoDefaultBranch()
     {
-        _defaultBranch = ["ref: refs/heads/-b\tHEAD", $"{_mainCommit}\tHEAD"];
+        _defaultBranch = ["ref: refs/heads/-b\tHEAD", $"{_mainCommit}\tHEAD", $"{_mainCommit}\trefs/heads/-b"];
 
-        var branch = await CreateClient().GetDefaultBranchAsync(Request(), TestContext.Current.CancellationToken);
+        var remote = await CreateClient().GetRemoteRefsAsync(Request(), TestContext.Current.CancellationToken);
 
-        branch.ShouldBeNull();
+        remote.DefaultBranch.ShouldBeNull();
     }
 
     [Theory]
@@ -336,7 +333,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_AnyStep_SetsCeilingDirectoryToParentOfClone(Operation operation)
     {
         await RunAsync(operation, Request(_token) with { Branch = null });
@@ -346,18 +342,43 @@ public sealed class GitClientTests
     }
 
     [Fact]
-    public async Task GetRemoteRefsAsync_ValidRequest_ListsServerBranchesAndTagsInTheClone()
+    public async Task GetRemoteRefsAsync_ValidRequest_ReadsBranchesTagsAndDefaultBranchInOneRequest()
     {
         _respond = request => Output(
+            "ref: refs/heads/main\tHEAD",
+            $"{_mainCommit}\tHEAD",
             $"{_mainCommit}\trefs/heads/main",
-            $"{_developCommit}\trefs/pull/1/head",
-            $"{_tagObject}\trefs/tags/v1");
+            $"{_tagObject}\trefs/tags/v1",
+            $"{_mainCommit}\trefs/tags/v1^{{}}");
 
-        var refs = await CreateClient().GetRemoteRefsAsync(Request(), TestContext.Current.CancellationToken);
+        var remote = await CreateClient().GetRemoteRefsAsync(Request(_token), TestContext.Current.CancellationToken);
+
+        remote.Refs.ShouldBe(new RefSnapshot([new("heads/main", _mainCommit), new("tags/v1", _tagObject)]));
+        remote.DefaultBranch.ShouldBe("main");
+        var request = _requests.ShouldHaveSingleItem();
+        request.Arguments.ShouldBe(["ls-remote", "--symref", "origin", "HEAD", "refs/heads/*", "refs/tags/*"]);
+        request.WorkingDirectory.ShouldBe(_clonePath);
+        var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:" + _token));
+        request.Arguments.ShouldAllBe(argument => !argument.Contains(_token) && !argument.Contains(encoded));
+        Variables(request).Values.ShouldContain(value => value.Contains(encoded));
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_RemoteUrl_ListsOnlyBranchesAndTagsWithUrlAfterSeparator()
+    {
+        _fileSystem.AddDirectory(_parentPath);
+        _respond = request => Output($"{_mainCommit}\trefs/heads/main", $"{_tagObject}\trefs/tags/v1");
+
+        var refs = await CreateClient().GetRemoteRefsAsync(
+            Request(_token), _remoteUrl, TestContext.Current.CancellationToken);
 
         refs.ShouldBe(new RefSnapshot([new("heads/main", _mainCommit), new("tags/v1", _tagObject)]));
-        _requests.Single().Arguments.ShouldBe(["ls-remote", "--refs", "origin"]);
-        _requests.Single().WorkingDirectory.ShouldBe(_clonePath);
+        var request = _requests.ShouldHaveSingleItem();
+        request.Arguments.ShouldBe(["ls-remote", "--refs", "--", _remoteUrl, "refs/heads/*", "refs/tags/*"]);
+        request.WorkingDirectory.ShouldBe(_parentPath);
+        var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:" + _token));
+        request.Arguments.ShouldAllBe(argument => !argument.Contains(_token) && !argument.Contains(encoded));
+        Variables(request).Values.ShouldContain(value => value.Contains(encoded));
     }
 
     [Fact]
@@ -371,23 +392,14 @@ public sealed class GitClientTests
     }
 
     [Fact]
-    public async Task GetDefaultBranchAsync_ValidRequest_AsksServerForHead()
-    {
-        var branch = await CreateClient().GetDefaultBranchAsync(Request(), TestContext.Current.CancellationToken);
-
-        branch.ShouldBe("main");
-        _requests.Single().Arguments.ShouldBe(_defaultBranchArguments);
-        _requests.Single().WorkingDirectory.ShouldBe(_clonePath);
-    }
-
-    [Fact]
-    public async Task GetDefaultBranchAsync_ServerHasNoBranch_ReturnsNull()
+    public async Task GetRemoteRefsAsync_ServerHasNoBranch_ReturnsEmptySnapshotAndNoDefaultBranch()
     {
         _defaultBranch = [];
 
-        var branch = await CreateClient().GetDefaultBranchAsync(Request(), TestContext.Current.CancellationToken);
+        var remote = await CreateClient().GetRemoteRefsAsync(Request(), TestContext.Current.CancellationToken);
 
-        branch.ShouldBeNull();
+        remote.Refs.ShouldBe(RefSnapshot.Empty);
+        remote.DefaultBranch.ShouldBeNull();
     }
 
     [Theory]
@@ -395,7 +407,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_AnyStep_DisablesPromptsAndEnablesLongPaths(Operation operation)
     {
         await RunAsync(operation, Request(_token));
@@ -416,7 +427,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_AnyStep_ClearsCredentialHelpers(Operation operation)
     {
         await RunAsync(operation, Request(_token));
@@ -434,7 +444,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_AnyStep_DisablesSymbolicLinks(Operation operation)
     {
         await RunAsync(operation, Request(_token));
@@ -452,7 +461,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_TokenSet_PassesHeaderOnlyToStepsThatTalkToServer(Operation operation)
     {
         var expectedHeader = "Authorization: Basic "
@@ -594,7 +602,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_TokenSet_KeepsTokenOutOfArguments(Operation operation)
     {
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:" + _token));
@@ -653,7 +660,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Clone)]
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_TokenSet_RegistersTokenAndEncodedCredentialsWithMasker(Operation operation)
     {
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes("x-access-token:" + _token));
@@ -691,7 +697,7 @@ public sealed class GitClientTests
         var exception = await Should.ThrowAsync<GitCommandException>(
             () => CreateClient().GetRemoteRefsAsync(Request(_token), TestContext.Current.CancellationToken));
 
-        exception.Command.ShouldBe("git ls-remote --refs origin");
+        exception.Command.ShouldBe("git ls-remote --symref origin HEAD refs/heads/* refs/tags/*");
         exception.Message.ShouldNotContain(_token);
     }
 
@@ -711,7 +717,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Clone, "remote: Repository not found.")]
     [InlineData(Operation.Update, "remote: Repository not found.")]
     [InlineData(Operation.RemoteRefs, "fatal: 'C:/remotes/repo.wiki.git' does not appear to be a git repository")]
-    [InlineData(Operation.DefaultBranch, "fatal: 'C:/remotes/repo.wiki.git' does not appear to be a git repository")]
     public async Task Operation_RepositoryMissingOnServer_ThrowsRepositoryNotFoundWithMaskedMessage(
         Operation operation, string marker)
     {
@@ -766,7 +771,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_AlreadyCancelled_RunsNothing(Operation operation)
     {
         using var source = new CancellationTokenSource();
@@ -809,7 +813,6 @@ public sealed class GitClientTests
     [InlineData(Operation.Update)]
     [InlineData(Operation.RemoteRefs)]
     [InlineData(Operation.LocalRefs)]
-    [InlineData(Operation.DefaultBranch)]
     public async Task Operation_RelativeClonePath_ThrowsBeforeRunningGit(Operation operation)
     {
         await Should.ThrowAsync<ArgumentException>(() => RunAsync(operation, Request() with { ClonePath = @"owner\repo" }));
@@ -1169,7 +1172,7 @@ public sealed class GitClientTests
             Operation.Update => client.UpdateAsync(request, token),
             Operation.RemoteRefs => client.GetRemoteRefsAsync(request, token),
             Operation.LocalRefs => client.GetLocalRefsAsync(request, token),
-            _ => client.GetDefaultBranchAsync(request, token),
+            _ => throw new ArgumentOutOfRangeException(nameof(operation), operation, null),
         };
     }
 

@@ -53,7 +53,7 @@ public sealed class ChangeDetector(
         }
         else
         {
-            RefSnapshot? remote = null;
+            RemoteRefs? remote = null;
             if (last is not null && !archiveMissing)
             {
                 (var unchanged, remote) = await TryConfirmUnchangedAsync(request, last, cancellationToken);
@@ -100,9 +100,9 @@ public sealed class ChangeDetector(
 
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
         var remote = await GetRemoteRefsAsync(request, cancellationToken);
-        var sync = remote.HasBranches
-            ? await ChooseBranchAsync(request, remote, cancellationToken)
-            : new GitSyncResult(null, false, remote);
+        var sync = remote.Refs.HasBranches
+            ? ChooseBranch(request, remote)
+            : new GitSyncResult(null, false, remote.Refs);
         var detection = Decide(sync, request.LastArchive, IsArchiveMissing(request));
 
         // Only an unchanged repository skips the update, so every other decision meets the check a backup run makes.
@@ -164,12 +164,14 @@ public sealed class ChangeDetector(
     /// Checks the clone for local work an update would overwrite.
     /// </summary>
     /// <param name="request">The request with the clone, the configured branch and the last archive.</param>
-    /// <param name="remote">The refs of the server when they were just read, or <see langword="null"/>.</param>
+    /// <param name="remote">
+    /// The refs and the default branch of the server when they were just read, or <see langword="null"/>.
+    /// </param>
     /// <param name="cancellationToken">Cancels the git commands.</param>
     /// <returns>The passed check, whose expected branch the repeated check reuses.</returns>
     /// <exception cref="LocalChangesException">The clone holds local work.</exception>
     private async Task<CloneCheckResult> EnsureNoLocalChangesAsync(
-        ChangeDetectionRequest request, RefSnapshot? remote, CancellationToken cancellationToken)
+        ChangeDetectionRequest request, RemoteRefs? remote, CancellationToken cancellationToken)
     {
         var check = await cloneGuard.CheckAsync(request.Git, remote, request.LastArchive?.Branch, cancellationToken);
         return check.Passed ? check : throw new LocalChangesException(check);
@@ -209,27 +211,26 @@ public sealed class ChangeDetector(
     /// server's default branch.
     /// </summary>
     /// <param name="request">The request with the clone and the requested branch.</param>
-    /// <param name="remote">The refs of the server, with at least one branch.</param>
-    /// <param name="cancellationToken">Cancels the git command.</param>
+    /// <param name="remote">The refs of the server, with at least one branch, and its default branch.</param>
     /// <returns>The state an update would leave the clone in.</returns>
     /// <exception cref="ArgumentException">The requested or the default branch is not a valid branch name.</exception>
     /// <exception cref="GitBranchNotFoundException">Neither the requested branch nor the default branch exists.</exception>
-    private async Task<GitSyncResult> ChooseBranchAsync(
-        ChangeDetectionRequest request, RefSnapshot remote, CancellationToken cancellationToken)
+    private static GitSyncResult ChooseBranch(ChangeDetectionRequest request, RemoteRefs remote)
     {
         var git = request.Git;
+        var refs = remote.Refs;
         if (git.Branch is not null)
         {
             ValidateBranch(git.Branch, git);
         }
 
-        if (git.Branch is not null && remote.ContainsBranch(git.Branch))
+        if (git.Branch is not null && refs.ContainsBranch(git.Branch))
         {
-            return new(git.Branch, false, remote);
+            return new(git.Branch, false, refs);
         }
 
-        var defaultBranch = await GetDefaultBranchAsync(request, cancellationToken);
-        if (defaultBranch is null || !remote.ContainsBranch(defaultBranch))
+        var defaultBranch = remote.DefaultBranch;
+        if (defaultBranch is null || !refs.ContainsBranch(defaultBranch))
         {
             var requested = git.Branch is null ? "No branch was requested" : $"Branch '{git.Branch}' does not exist";
             var serverDefault = defaultBranch is null
@@ -240,29 +241,19 @@ public sealed class ChangeDetector(
         }
 
         ValidateBranch(defaultBranch, git);
-        return new(defaultBranch, git.Branch is not null, remote);
+        return new(defaultBranch, git.Branch is not null, refs);
     }
 
     /// <summary>
-    /// Reads the refs of the server inside a <see cref="BackupTelemetry.LsRemoteRefsSpanName"/> span.
+    /// Reads the refs and the default branch of the server inside a
+    /// <see cref="BackupTelemetry.LsRemoteRefsSpanName"/> span.
     /// </summary>
     /// <param name="request">The request with the clone whose server is asked.</param>
     /// <param name="cancellationToken">Cancels the git command.</param>
-    /// <returns>The branches and tags of the server.</returns>
-    private Task<RefSnapshot> GetRemoteRefsAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
+    /// <returns>The branches, the tags and the default branch of the server.</returns>
+    private Task<RemoteRefs> GetRemoteRefsAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
         telemetry.TraceRemoteRefsAsync(
             () => gitClient.GetRemoteRefsAsync(request.Git, cancellationToken),
-            request.RemoteMayBeMissing);
-
-    /// <summary>
-    /// Asks the server for its default branch inside a <see cref="BackupTelemetry.LsRemoteDefaultBranchSpanName"/> span.
-    /// </summary>
-    /// <param name="request">The request with the clone whose server is asked.</param>
-    /// <param name="cancellationToken">Cancels the git command.</param>
-    /// <returns>The default branch, or <see langword="null"/> when the server's <c>HEAD</c> names no branch.</returns>
-    private Task<string?> GetDefaultBranchAsync(ChangeDetectionRequest request, CancellationToken cancellationToken) =>
-        telemetry.TraceDefaultBranchAsync(
-            () => gitClient.GetDefaultBranchAsync(request.Git, cancellationToken),
             request.RemoteMayBeMissing);
 
     /// <summary>
@@ -315,29 +306,30 @@ public sealed class ChangeDetector(
     /// <param name="cancellationToken">Cancels the git commands.</param>
     /// <returns>
     /// The <see cref="ChangeDecision.UpToDate"/> result, or <see langword="null"/> when the clone must be updated to
-    /// decide, and the refs of the server.
+    /// decide, and the refs and the default branch of the server.
     /// </returns>
-    private async Task<(ChangeDetection? Unchanged, RefSnapshot Remote)> TryConfirmUnchangedAsync(
+    private async Task<(ChangeDetection? Unchanged, RemoteRefs Remote)> TryConfirmUnchangedAsync(
         ChangeDetectionRequest request, ArchiveRecord last, CancellationToken cancellationToken)
     {
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
         var git = request.Git;
         var remote = await GetRemoteRefsAsync(request, cancellationToken);
-        if (!remote.Equals(last.Refs))
+        var refs = remote.Refs;
+        if (!refs.Equals(last.Refs))
         {
             return (null, remote);
         }
 
         string? branch;
         var fallback = false;
-        if (git.Branch is not null && remote.ContainsBranch(git.Branch))
+        if (git.Branch is not null && refs.ContainsBranch(git.Branch))
         {
             branch = git.Branch;
         }
         else
         {
-            branch = await GetDefaultBranchAsync(request, cancellationToken);
-            if (branch is null || !remote.ContainsBranch(branch))
+            branch = remote.DefaultBranch;
+            if (branch is null || !refs.ContainsBranch(branch))
             {
                 return (null, remote);
             }
@@ -346,7 +338,7 @@ public sealed class ChangeDetector(
         }
 
         return string.Equals(branch, last.Branch, StringComparison.Ordinal)
-            ? (new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, branch, fallback, remote), remote)
+            ? (new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, branch, fallback, refs), remote)
             : (null, remote);
     }
 
