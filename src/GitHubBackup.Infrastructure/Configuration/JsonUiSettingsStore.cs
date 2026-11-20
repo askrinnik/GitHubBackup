@@ -23,9 +23,12 @@ internal sealed class JsonUiSettingsStore(UiSettingsFile file) : IUiSettingsStor
         }
 
         var theme = ReadTheme(root);
+        var accountListWidth = JsonSettingsText.TryGetProperty(root, UiSettingsFile.SettingsEditorKey) is { ValueKind: JsonValueKind.Object } editor
+            ? TryGetNumber(editor, nameof(UiSettings.AccountListWidth)) ?? UiSettings.DefaultAccountListWidth
+            : UiSettings.DefaultAccountListWidth;
         if (JsonSettingsText.TryGetProperty(root, UiSettingsFile.MainWindowKey) is not { ValueKind: JsonValueKind.Object } window)
         {
-            return UiSettings.Default with { Theme = theme };
+            return (UiSettings.Default with { Theme = theme, AccountListWidth = accountListWidth }).Sanitize();
         }
 
         var placement = TryGetNumber(window, nameof(WindowPlacement.Left)) is { } left
@@ -45,7 +48,9 @@ internal sealed class JsonUiSettingsStore(UiSettingsFile file) : IUiSettingsStor
             placement,
             TryGetNumber(window, nameof(UiSettings.LogPanelHeight)) ?? UiSettings.DefaultLogPanelHeight,
             TryGetNumber(window, nameof(UiSettings.SummaryPanelHeight)) ?? UiSettings.DefaultSummaryPanelHeight)
-            .Sanitize();
+        {
+            AccountListWidth = accountListWidth,
+        }.Sanitize();
     }
 
     /// <inheritdoc />
@@ -69,6 +74,9 @@ internal sealed class JsonUiSettingsStore(UiSettingsFile file) : IUiSettingsStor
 
                 json.WriteNumber(nameof(UiSettings.LogPanelHeight), sanitized.LogPanelHeight);
                 json.WriteNumber(nameof(UiSettings.SummaryPanelHeight), sanitized.SummaryPanelHeight);
+                json.WriteEndObject();
+                json.WriteStartObject(UiSettingsFile.SettingsEditorKey);
+                json.WriteNumber(nameof(UiSettings.AccountListWidth), sanitized.AccountListWidth);
                 json.WriteEndObject();
                 json.WriteEndObject();
             },

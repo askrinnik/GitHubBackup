@@ -26,6 +26,9 @@ internal sealed class UiSettingsFile(IFileSystem fileSystem, IHostEnvironment en
     /// <summary>The key of the object that holds the main window placement and panel heights.</summary>
     public const string MainWindowKey = "MainWindow";
 
+    /// <summary>The key of the object that holds the layout of the settings editor.</summary>
+    public const string SettingsEditorKey = "SettingsEditor";
+
     /// <summary>Lets one read or write of the file run at a time.</summary>
     private readonly SemaphoreSlim _gate = new(1, 1);
 

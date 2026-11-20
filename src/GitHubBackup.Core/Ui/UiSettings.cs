@@ -1,8 +1,8 @@
 namespace GitHubBackup.Core.Ui;
 
 /// <summary>
-/// The preferences of the user interface that persist between starts: the theme, the placement of the main window
-/// and the heights of its panels.
+/// The preferences of the user interface that persist between starts: the theme, the placement of the main window,
+/// the heights of its panels and the width of the account list of the settings editor.
 /// </summary>
 /// <param name="Theme">The colour mode.</param>
 /// <param name="MainWindow">The placement of the main window, or <see langword="null"/> for the default placement.</param>
@@ -32,6 +32,18 @@ public sealed record UiSettings(
     /// <summary>The <see cref="SummaryPanelHeight"/> used when none is saved or the saved one is invalid.</summary>
     public const double DefaultSummaryPanelHeight = 220;
 
+    /// <summary>The smallest valid <see cref="AccountListWidth"/>.</summary>
+    public const double MinAccountListWidth = 160;
+
+    /// <summary>The largest valid <see cref="AccountListWidth"/>.</summary>
+    public const double MaxAccountListWidth = 800;
+
+    /// <summary>The <see cref="AccountListWidth"/> used when none is saved or the saved one is invalid.</summary>
+    public const double DefaultAccountListWidth = 260;
+
+    /// <summary>Gets the width of the account list in the Accounts section of the settings editor.</summary>
+    public double AccountListWidth { get; init; } = DefaultAccountListWidth;
+
     /// <summary>Gets the preferences used when nothing is saved: the system theme, the default placement and panel heights.</summary>
     public static UiSettings Default { get; } =
         new(UiTheme.System, null, DefaultLogPanelHeight, DefaultSummaryPanelHeight);
@@ -44,7 +56,10 @@ public sealed record UiSettings(
         Enum.IsDefined(Theme) ? Theme : UiTheme.System,
         MainWindow is not null && MainWindow.IsValid() ? MainWindow : null,
         WithinOrDefault(LogPanelHeight, MinLogPanelHeight, MaxLogPanelHeight, DefaultLogPanelHeight),
-        WithinOrDefault(SummaryPanelHeight, MinSummaryPanelHeight, MaxSummaryPanelHeight, DefaultSummaryPanelHeight));
+        WithinOrDefault(SummaryPanelHeight, MinSummaryPanelHeight, MaxSummaryPanelHeight, DefaultSummaryPanelHeight))
+    {
+        AccountListWidth = WithinOrDefault(AccountListWidth, MinAccountListWidth, MaxAccountListWidth, DefaultAccountListWidth),
+    };
 
     /// <summary>
     /// Returns <paramref name="value"/> when it lies within <paramref name="min"/>..<paramref name="max"/>, otherwise

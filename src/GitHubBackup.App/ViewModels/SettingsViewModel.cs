@@ -305,6 +305,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         ErrorsChanged += OnFormErrorsChanged;
     }
 
+    /// <summary>
+    /// Gets the session preferences of the layout; the editor binds the width of its account list to them, so the
+    /// width survives the editor and is saved when the main window closes.
+    /// </summary>
+    public UiPreferences Layout => _preferences;
+
     /// <summary>Gets the tracked accounts, in file order.</summary>
     public ObservableCollection<AccountSettingsViewModel> Accounts { get; } = [];
 

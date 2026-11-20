@@ -162,10 +162,23 @@ internal sealed class AppInstallation : IDisposable
     /// Reads the <c>MainWindow</c> object of <c>ui-settings.json</c>.
     /// </summary>
     /// <returns>A copy of the object.</returns>
-    public JsonElement ReadMainWindowSettings()
+    public JsonElement ReadMainWindowSettings() => ReadUiSettingsObject("MainWindow");
+
+    /// <summary>
+    /// Reads the <c>SettingsEditor</c> object of <c>ui-settings.json</c>.
+    /// </summary>
+    /// <returns>A copy of the object.</returns>
+    public JsonElement ReadSettingsEditorSettings() => ReadUiSettingsObject("SettingsEditor");
+
+    /// <summary>
+    /// Reads one object of the root of <c>ui-settings.json</c>.
+    /// </summary>
+    /// <param name="key">The key of the object.</param>
+    /// <returns>A copy of the object.</returns>
+    private JsonElement ReadUiSettingsObject(string key)
     {
         using var document = JsonDocument.Parse(File.ReadAllText(UiSettingsPath));
-        return document.RootElement.GetProperty("MainWindow").Clone();
+        return document.RootElement.GetProperty(key).Clone();
     }
 
     /// <summary>

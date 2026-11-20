@@ -6,11 +6,13 @@
              xmlns:vm="clr-namespace:GitHubBackup.App.ViewModels"
              xmlns:behaviors="clr-namespace:GitHubBackup.App.Behaviors"
              xmlns:controls="clr-namespace:GitHubBackup.App.Controls"
+             xmlns:ui="clr-namespace:GitHubBackup.Core.Ui;assembly=GitHubBackup.Core"
              mc:Ignorable="d"
              d:DataContext="{d:DesignInstance Type=vm:SettingsViewModel}"
              Loaded="OnLoaded">
     <UserControl.Resources>
-        <!-- A section of the editor: its title as a header above the cards of the section. The group box keeps the
+        <!-- A section of the editor: one card under the whole section, as tall as the navigation card next to it, with
+             the title of the section in its first line and the cards of the section below. The group box keeps the
              UI Automation group named by the title; the Fluent style it extends keeps the theme colors of the text. -->
         <Style x:Key="SectionStyle" TargetType="GroupBox" BasedOn="{StaticResource {x:Type GroupBox}}">
             <Setter Property="Padding" Value="0" />
@@ -19,13 +21,15 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="GroupBox">
-                        <DockPanel>
-                            <TextBlock DockPanel.Dock="Top"
-                                       Text="{Binding Header, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
-                                       Style="{StaticResource SubtitleTextBlockStyle}"
-                                       Margin="0,0,0,8" />
-                            <ContentPresenter />
-                        </DockPanel>
+                        <controls:CardPanel Style="{StaticResource PanelCardStyle}" Padding="12,8,12,12">
+                            <DockPanel>
+                                <TextBlock DockPanel.Dock="Top"
+                                           Text="{Binding Header, RelativeSource={RelativeSource TemplatedParent}, Mode=OneWay}"
+                                           Style="{StaticResource SubtitleTextBlockStyle}"
+                                           Margin="0,0,0,8" />
+                                <ContentPresenter />
+                            </DockPanel>
+                        </controls:CardPanel>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -77,6 +81,24 @@
                 <ItemsPresenter />
             </ScrollViewer>
         </ControlTemplate>
+        <!-- The splitter between the list of accounts and the details of the account: the gap between the two cards,
+             which draw no frame of their own over it. -->
+        <Style x:Key="ColumnSplitterStyle" TargetType="GridSplitter">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="HorizontalAlignment" Value="Stretch" />
+            <Setter Property="VerticalAlignment" Value="Stretch" />
+            <Setter Property="ResizeDirection" Value="Columns" />
+            <Setter Property="ResizeBehavior" Value="PreviousAndNext" />
+            <Setter Property="Cursor" Value="SizeWE" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="GridSplitter">
+                        <Border Background="Transparent" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         <ItemsPanelTemplate x:Key="VirtualizingPanelTemplate">
             <VirtualizingStackPanel />
         </ItemsPanelTemplate>
@@ -113,7 +135,7 @@
              up, or the pause. -->
         <Style x:Key="AccountListStatusIconStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusIconStyle}">
             <Setter Property="Width" Value="20" />
-            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Margin" Value="0,0,6,0" />
             <Setter Property="Text" Value="{StaticResource ActiveStatusGlyph}" />
             <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
             <Style.Triggers>
@@ -123,9 +145,11 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <!-- The name of an account in the list of accounts: muted while the account is paused. -->
+        <!-- The name of an account in the list of accounts: muted while the account is paused; a name wider than the
+             list ends in an ellipsis and its tooltip shows it whole. -->
         <Style x:Key="AccountListNameStyle" TargetType="TextBlock">
             <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTip" Value="{Binding DisplayName, Mode=OneWay}" />
             <Setter Property="VerticalAlignment" Value="Center" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding IsPaused, Mode=OneWay}" Value="True">
@@ -193,7 +217,6 @@
             <controls:CardPanel Grid.Column="0"
                                 Style="{StaticResource PanelCardStyle}"
                                 Margin="0,0,12,0"
-                                VerticalAlignment="Top"
                                 AutomationProperties.Name="Settings sections"
                                 AutomationProperties.AutomationId="SettingsNavigationCard">
                 <ListBox ItemsSource="{Binding Sections, Mode=OneTime}"
@@ -295,14 +318,19 @@
                       IsEnabled="{Binding IsLoaded, Mode=OneWay}"
                       Visibility="{Binding AccountsSection.IsSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                       AutomationProperties.AutomationId="SettingsAccountsGroup">
+                <!-- The splitter sets the width of the list; the two-way binding hands it to the preferences, which are
+                     saved when the main window closes. The details keep a minimum width, so the splitter cannot
+                     squeeze their fields. -->
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="260" />
-                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="{Binding Layout.AccountListWidth, Mode=TwoWay, Converter={StaticResource PixelGridLengthConverter}}"
+                                          MinWidth="{x:Static ui:UiSettings.MinAccountListWidth}"
+                                          MaxWidth="{x:Static ui:UiSettings.MaxAccountListWidth}" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" MinWidth="400" />
                     </Grid.ColumnDefinitions>
                     <controls:CardPanel Grid.Column="0"
                                         Style="{StaticResource PanelCardStyle}"
-                                        Margin="0,0,8,0"
                                         AutomationProperties.Name="Accounts"
                                         AutomationProperties.AutomationId="SettingsAccountListCard">
                         <DockPanel>
@@ -333,9 +361,10 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:AccountSettingsViewModel}">
-                                        <!-- The status icon stands at the right edge, so the icons of all accounts line up. -->
+                                        <!-- The status icon stands before the name, so the icons of all accounts line up
+                                             and a long name never pushes the icon out of the list. -->
                                         <DockPanel>
-                                            <TextBlock DockPanel.Dock="Right"
+                                            <TextBlock DockPanel.Dock="Left"
                                                        Style="{StaticResource AccountListStatusIconStyle}"
                                                        AutomationProperties.AutomationId="AccountListStatusIcon" />
                                             <TextBlock DockPanel.Dock="Right"
@@ -350,7 +379,11 @@
                             </ListBox>
                         </DockPanel>
                     </controls:CardPanel>
-                    <TextBlock Grid.Column="1"
+                    <GridSplitter Grid.Column="1"
+                                  Style="{StaticResource ColumnSplitterStyle}"
+                                  AutomationProperties.Name="Resize the list of accounts"
+                                  AutomationProperties.AutomationId="AccountListSplitter" />
+                    <TextBlock Grid.Column="2"
                                Text="No accounts. Add an account."
                                Margin="4,6,0,0"
                                AutomationProperties.AutomationId="NoAccountsMessage">
@@ -364,7 +397,7 @@
                             </Style>
                         </TextBlock.Style>
                     </TextBlock>
-                    <Border Grid.Column="1"
+                    <Border Grid.Column="2"
                             Visibility="{Binding HasSelectedAccount, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <Grid DataContext="{Binding SelectedAccount, Mode=OneWay, ValidatesOnNotifyDataErrors=False}"
                               AutomationProperties.AutomationId="AccountDetails">

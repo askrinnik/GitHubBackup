@@ -39,7 +39,8 @@ public sealed class UiPreferencesTests
     public async Task LoadAsync_SavedSettings_TakesValuesAndAppliesTheme()
     {
         var placement = new WindowPlacement(10, 20, 900, 600, true);
-        _store.LoadAsync(Arg.Any<CancellationToken>()).Returns(new UiSettings(UiTheme.Dark, placement, 200, 300));
+        _store.LoadAsync(Arg.Any<CancellationToken>())
+            .Returns(new UiSettings(UiTheme.Dark, placement, 200, 300) { AccountListWidth = 400 });
 
         await _preferences.LoadAsync(TestContext.Current.CancellationToken);
 
@@ -47,6 +48,7 @@ public sealed class UiPreferencesTests
         _preferences.MainWindowPlacement.ShouldBe(placement);
         _preferences.LogPanelHeight.ShouldBe(200);
         _preferences.SummaryPanelHeight.ShouldBe(300);
+        _preferences.AccountListWidth.ShouldBe(400);
         _themeService.Received(1).Apply(UiTheme.Dark);
     }
 
@@ -68,13 +70,15 @@ public sealed class UiPreferencesTests
     public async Task ChangeThemeAsync_NewTheme_AppliesAndSavesCurrentValues()
     {
         _preferences.LogPanelHeight = 250;
+        _preferences.AccountListWidth = 350;
 
         await _preferences.ChangeThemeAsync(UiTheme.Light, TestContext.Current.CancellationToken);
 
         _preferences.Theme.ShouldBe(UiTheme.Light);
         _themeService.Received(1).Apply(UiTheme.Light);
         await _store.Received(1).SaveAsync(
-            new UiSettings(UiTheme.Light, null, 250, UiSettings.DefaultSummaryPanelHeight), Arg.Any<CancellationToken>());
+            new UiSettings(UiTheme.Light, null, 250, UiSettings.DefaultSummaryPanelHeight) { AccountListWidth = 350 },
+            Arg.Any<CancellationToken>());
     }
 
     [Fact]

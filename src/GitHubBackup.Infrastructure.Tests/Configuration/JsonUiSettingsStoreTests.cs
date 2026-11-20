@@ -166,7 +166,8 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
     public async Task SaveAsync_NoFile_WritesRootObject()
     {
         await _store.SaveAsync(
-            new(UiTheme.Dark, new(100, 50.5, 1000, 700, true), 160, 220), TestContext.Current.CancellationToken);
+            new(UiTheme.Dark, new(100, 50.5, 1000, 700, true), 160, 220) { AccountListWidth = 320 },
+            TestContext.Current.CancellationToken);
 
         _fileSystem.File.ReadAllText(_filePath).ShouldBe("""
             {
@@ -179,9 +180,28 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
                 "IsMaximized": true,
                 "LogPanelHeight": 160,
                 "SummaryPanelHeight": 220
+              },
+              "SettingsEditor": {
+                "AccountListWidth": 320
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");
+    }
+
+    [Theory]
+    [InlineData("""{ "SettingsEditor": { "AccountListWidth": 320 } }""", 320)]
+    [InlineData("""{ "settingseditor": { "accountlistwidth": 160 }, "MainWindow": { "LogPanelHeight": 100 } }""", 160)]
+    [InlineData("""{ "SettingsEditor": { "AccountListWidth": 159 } }""", 260)]
+    [InlineData("""{ "SettingsEditor": { "AccountListWidth": 801 }, "MainWindow": { "LogPanelHeight": 100 } }""", 260)]
+    [InlineData("""{ "SettingsEditor": { "AccountListWidth": "wide" } }""", 260)]
+    [InlineData("""{ "SettingsEditor": 300 }""", 260)]
+    public async Task LoadAsync_AccountListWidth_ReadsValueWithinLimitsOrReturnsDefault(string json, double expected)
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData(json));
+
+        var settings = await _store.LoadAsync(TestContext.Current.CancellationToken);
+
+        settings.AccountListWidth.ShouldBe(expected);
     }
 
     [Fact]
@@ -195,6 +215,9 @@ public sealed class JsonUiSettingsStoreTests : IDisposable
               "MainWindow": {
                 "LogPanelHeight": 160,
                 "SummaryPanelHeight": 220
+              },
+              "SettingsEditor": {
+                "AccountListWidth": 260
               }
             }
             """.ReplaceLineEndings("\r\n") + "\r\n");

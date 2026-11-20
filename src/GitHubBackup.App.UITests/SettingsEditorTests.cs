@@ -595,7 +595,33 @@ public sealed class SettingsEditorTests : IDisposable
 
         AppSession.WaitUntil(() => icon.Name == "Paused", "the pause icon of the account");
         var name = item.Properties.BoundingRectangle.Value;
-        icon.BoundingRectangle.Left.ShouldBeGreaterThan(name.Left + (name.Width / 2));
+        icon.BoundingRectangle.Right.ShouldBeLessThan(name.Left + (name.Width / 2));
+    }
+
+    [Fact]
+    public void AccountList_UrlWiderThanList_ShowsStatusIconInsideTheList()
+    {
+        using var api = new GitHubApiStub();
+        using var installation = new AppInstallation(api.Url);
+        installation.NewBackupConfig()
+            .WithAccount("a-login-that-fills-the-list-of-accounts", ("a", 1))
+            .WriteTo(installation.BackupConfigPath);
+        using var session = AppSession.Start(installation);
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select($"SettingsSection{SettingsSection.Accounts}");
+
+        var accounts = session.WaitFor("AccountsList");
+        AppSession.WaitUntil(() => AccountItems(accounts).Length == 1, "the account in the list");
+        var list = accounts.BoundingRectangle;
+        var item = AccountItems(accounts).ShouldHaveSingleItem();
+        var icon = AppSession.WaitFor(item, "AccountListStatusIcon").BoundingRectangle;
+
+        icon.Width.ShouldBeGreaterThan(0);
+        icon.Left.ShouldBeGreaterThanOrEqualTo(list.Left);
+        icon.Right.ShouldBeLessThanOrEqualTo(list.Left + (list.Width / 2));
     }
 
     [Theory]

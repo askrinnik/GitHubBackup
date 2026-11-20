@@ -7,8 +7,9 @@ using Microsoft.Extensions.Logging;
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// Holds the preferences of the user interface for the whole session: the theme, the placement of the main window
-/// and the heights of its panels, which the views bind to and the application saves.
+/// Holds the preferences of the user interface for the whole session: the theme, the placement of the main window,
+/// the heights of its panels and the width of the account list of the settings editor, which the views bind to and
+/// the application saves.
 /// </summary>
 /// <remarks>
 /// One instance lives as long as the application, so the panel heights survive the screens that come and go in the
@@ -34,6 +35,10 @@ public sealed partial class UiPreferences(
     /// <summary>The height of the run summary panel of the main window.</summary>
     [ObservableProperty]
     private double _summaryPanelHeight = UiSettings.DefaultSummaryPanelHeight;
+
+    /// <summary>The width of the account list in the Accounts section of the settings editor.</summary>
+    [ObservableProperty]
+    private double _accountListWidth = UiSettings.DefaultAccountListWidth;
 
     /// <summary>
     /// Gets or sets the placement of the main window: the saved one until the window records where it closes, or
@@ -62,6 +67,7 @@ public sealed partial class UiPreferences(
         MainWindowPlacement = settings.MainWindow;
         LogPanelHeight = settings.LogPanelHeight;
         SummaryPanelHeight = settings.SummaryPanelHeight;
+        AccountListWidth = settings.AccountListWidth;
         themeService.Apply(settings.Theme);
     }
 
@@ -94,7 +100,8 @@ public sealed partial class UiPreferences(
         try
         {
             await store.SaveAsync(
-                new UiSettings(Theme, MainWindowPlacement, LogPanelHeight, SummaryPanelHeight), cancellationToken);
+                new UiSettings(Theme, MainWindowPlacement, LogPanelHeight, SummaryPanelHeight) { AccountListWidth = AccountListWidth },
+                cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {

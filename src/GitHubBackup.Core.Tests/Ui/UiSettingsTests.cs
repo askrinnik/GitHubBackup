@@ -53,6 +53,19 @@ public sealed class UiSettingsTests
     public void Sanitize_SummaryPanelHeight_KeepsValueWithinLimitsOrReturnsDefault(double height, double expected) =>
         (UiSettings.Default with { SummaryPanelHeight = height }).Sanitize().SummaryPanelHeight.ShouldBe(expected);
 
+    [Theory]
+    [InlineData(160, 160)]
+    [InlineData(800, 800)]
+    [InlineData(159.9, 260)]
+    [InlineData(800.1, 260)]
+    [InlineData(double.NaN, 260)]
+    [InlineData(double.PositiveInfinity, 260)]
+    public void Sanitize_AccountListWidth_KeepsValueWithinLimitsOrReturnsDefault(double width, double expected) =>
+        (UiSettings.Default with { AccountListWidth = width }).Sanitize().AccountListWidth.ShouldBe(expected);
+
+    [Fact]
+    public void Default_AccountListWidth_Is260() => UiSettings.Default.AccountListWidth.ShouldBe(260);
+
     [Fact]
     public void Sanitize_OneHeightInvalid_KeepsTheOther()
     {

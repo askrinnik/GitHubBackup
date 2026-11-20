@@ -44,6 +44,47 @@ public sealed class MainWindowLayoutTests : IDisposable
     }
 
     [Fact]
+    public async Task DragAccountListSplitter_Restart_RestoresAccountListWidth()
+    {
+        var session = Start();
+        OpenAccountSettings(session);
+        var before = session.WaitFor("SettingsAccountListCard").BoundingRectangle.Width;
+        var scale = before / UiSettings.DefaultAccountListWidth;
+
+        DragHorizontally(session.WaitFor("AccountListSplitter"), (int)(100 * scale));
+
+        AppSession.WaitUntil(
+            () => session.WaitFor("SettingsAccountListCard").BoundingRectangle.Width > before + (50 * scale),
+            "the list of accounts to grow");
+        var resized = session.WaitFor("SettingsAccountListCard").BoundingRectangle.Width;
+        session.Invoke("CancelSettingsButton");
+        await CloseAsync(session);
+        _installation.ReadSettingsEditorSettings().GetProperty("AccountListWidth").GetDouble()
+            .ShouldBe(resized / scale, _pixelTolerance);
+
+        var next = Start();
+        OpenAccountSettings(next);
+        AppSession.WaitUntil(
+            () => Math.Abs(next.WaitFor("SettingsAccountListCard").BoundingRectangle.Width - resized) <= _pixelTolerance,
+            "the list of accounts to open at the saved width");
+    }
+
+    [Fact]
+    public void DragAccountListSplitter_FarRight_KeepsMinimumWidthOfDetails()
+    {
+        var session = Start();
+        OpenAccountSettings(session);
+        var scale = session.WaitFor("SettingsAccountListCard").BoundingRectangle.Width / UiSettings.DefaultAccountListWidth;
+
+        DragHorizontally(session.WaitFor("AccountListSplitter"), (int)(2000 * scale));
+
+        var list = (double)session.WaitFor("SettingsAccountListCard").BoundingRectangle.Width;
+        var details = (double)session.WaitFor("SettingsAccountCard").BoundingRectangle.Width;
+        list.ShouldBeLessThanOrEqualTo((UiSettings.MaxAccountListWidth * scale) + _pixelTolerance);
+        details.ShouldBeGreaterThanOrEqualTo((400 * scale) - _pixelTolerance);
+    }
+
+    [Fact]
     public async Task DragTreeLogSplitter_Restart_RestoresLogPanelHeight()
     {
         var session = Start();
@@ -516,6 +557,32 @@ public sealed class MainWindowLayoutTests : IDisposable
         bounds.Bottom.ShouldBeLessThanOrEqualTo(panel.Bottom + _pixelTolerance, $"{automationId} bottom");
         bounds.Left.ShouldBeGreaterThanOrEqualTo(panel.Left, $"{automationId} left");
         bounds.Right.ShouldBeLessThanOrEqualTo(panel.Right + _pixelTolerance, $"{automationId} right");
+    }
+
+    /// <summary>
+    /// Drags <paramref name="splitter"/> left or right with the mouse.
+    /// </summary>
+    /// <param name="splitter">The splitter.</param>
+    /// <param name="offset">The horizontal distance in pixels; negative moves left.</param>
+    private static void DragHorizontally(AutomationElement splitter, int offset)
+    {
+        var bounds = splitter.BoundingRectangle;
+        var start = new Point(bounds.Left + (bounds.Width / 2), bounds.Top + (bounds.Height / 2));
+        Mouse.Drag(start, start with { X = start.X + offset });
+    }
+
+    /// <summary>
+    /// Opens the Accounts section of the settings editor of <paramref name="session"/>.
+    /// </summary>
+    /// <param name="session">The running application.</param>
+    private static void OpenAccountSettings(AppSession session)
+    {
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionAccounts");
+        session.WaitFor("AccountListSplitter");
     }
 
     /// <summary>
