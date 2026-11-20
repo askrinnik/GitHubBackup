@@ -17,6 +17,12 @@ public sealed class AccountConfig
     /// <summary>Gets or sets the exclusion masks applied to the repositories of this account.</summary>
     public List<string> Exclude { get; set; } = [];
 
+    /// <summary>
+    /// Gets or sets whether the account is paused: a run without a filter skips all of its repositories, and the
+    /// account is backed up only when it is selected explicitly.
+    /// </summary>
+    public bool Paused { get; set; }
+
     /// <summary>Gets or sets the confirmed repositories of this account.</summary>
     public List<AccountRepositoryConfig> Repositories { get; set; } = [];
 }

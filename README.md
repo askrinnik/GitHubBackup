@@ -250,11 +250,11 @@ A full file with every option:
       "exclude": [ "test-*" ],
       "repositories": [
         { "name": "hello-world", "id": 1001, "branch": null, "path": null, "status": "Active" },
-        { "name": "old-tool", "id": 1002, "branch": "legacy", "path": "E:\\Archive\\old-tool", "status": "Active" },
+        { "name": "old-tool", "id": 1002, "branch": "legacy", "path": "E:\\Archive\\old-tool", "paused": true, "status": "Active" },
         { "name": "work-app", "id": 1003, "branch": null, "path": null, "clonePath": "D:\\Work\\WorkApp", "status": "Active" }
       ]
     },
-    { "url": "https://github.com/my-org", "path": "E:\\WorkBackups\\my-org", "exclude": [], "repositories": [] }
+    { "url": "https://github.com/my-org", "path": "E:\\WorkBackups\\my-org", "exclude": [], "paused": true, "repositories": [] }
   ],
   "repositories": [
     { "url": "https://github.com/someone-else/library", "id": 1004, "branch": "develop", "path": null, "status": "Active" }
@@ -272,10 +272,12 @@ A full file with every option:
 | `accounts[].url` | `https://github.com/<user or organization>`. |
 | `accounts[].path` | Archive folder that replaces `<backupRoot>\<owner>` for this account. `null` keeps the default. |
 | `accounts[].exclude` | Exclusion masks for this account. |
-| `accounts[].repositories[]` | Repositories of the account: `name`, `id`, `branch` (`null` means the default branch), `path`, optional `clonePath`, `status`. |
+| `accounts[].paused` | Optional, `false` by default. `true` pauses the account: a backup without `--account` or `--repo` skips all of its repositories. |
+| `accounts[].repositories[]` | Repositories of the account: `name`, `id`, `branch` (`null` means the default branch), `path`, optional `clonePath`, optional `paused`, `status`. |
 | `repositories[]` | Single repositories: the same keys, with `url` instead of `name`. |
 | `path` of a repository | Archive folder of that repository. It replaces the whole path. |
 | `clonePath` | Optional absolute path of the whole clone folder (see [Own clone path](#own-clone-path-clonepath)). |
+| `paused` of a repository | Optional, `false` by default. `true` pauses the repository: it stays in the file, but a backup skips it unless you select it with `--repo`. The program writes `paused` (of an account and of a repository) only when it is `true`, so a file without the key keeps its shape. |
 | `id` | GitHub repository ID. It is optional in entries you add by hand (see [Entries without `id`](#entries-without-id)). |
 | `status` | `Active` or `Unavailable`. |
 
@@ -293,6 +295,7 @@ Validation runs when the file is loaded, in `validate` and in the settings edito
 - owner and repository names are valid folder names;
 - `id`, when set, is a positive number; a missing `id`, `null` or `0` means "no id"; a negative `id` is an error;
 - `discoverAccessibleRepositories` is `true` or `false`;
+- `paused`, when set, is `true` or `false` (`null` is an error);
 - there are no duplicate repositories (by ID among entries with an ID, and by name among all entries);
 - two entries never share the same archive folder;
 - `clonePath` is not a drive root, does not equal `sourcesRoot`, is not inside it and does not contain it, and its clone and wiki folders do not equal or nest into the folders of other entries;

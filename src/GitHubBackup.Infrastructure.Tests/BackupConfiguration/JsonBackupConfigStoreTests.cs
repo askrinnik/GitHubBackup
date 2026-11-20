@@ -37,11 +37,14 @@ public sealed class JsonBackupConfigStoreTests
             ["https://github.com/askrinnik", "https://github.com/AMTOSS", "https://github.com/get-the-manual"]);
         config.Accounts[0].Exclude.ShouldBe(["test-*"]);
         config.Accounts[1].Path.ShouldBe(@"E:\WorkBackups\AMTOSS");
+        config.Accounts.Select(account => account.Paused).ShouldBe([false, true, false]);
+        config.Accounts[0].Repositories[0].Paused.ShouldBeFalse();
         var oldTool = config.Accounts[0].Repositories[1];
         oldTool.Name.ShouldBe("old-tool");
         oldTool.Id.ShouldBe(223456789);
         oldTool.Branch.ShouldBe("legacy");
         oldTool.Path.ShouldBe(@"E:\Archive\old-tool");
+        oldTool.Paused.ShouldBeTrue();
         oldTool.Status.ShouldBe(RepositoryStatus.Active);
         var library = config.Repositories.ShouldHaveSingleItem();
         library.Url.ShouldBe("https://github.com/someone-else/library");
@@ -133,6 +136,46 @@ public sealed class JsonBackupConfigStoreTests
 
         result.Config.Accounts[0].Repositories.ShouldHaveSingleItem().ClonePath.ShouldBe(@"E:\Work\MyRepo");
         result.Config.Repositories.ShouldHaveSingleItem().ClonePath.ShouldBeNull();
+    }
+
+    [Theory]
+    [InlineData("", false)]
+    [InlineData("""
+        "paused": false,
+        """, false)]
+    [InlineData("""
+        "paused": true,
+        """, true)]
+    public async Task LoadAsync_PausedMissingFalseOrTrue_ReadsItForEveryKind(string paused, bool expected)
+    {
+        var result = await LoadAsync(WithPaused(paused));
+
+        var account = result.Config.Accounts.ShouldHaveSingleItem();
+        account.Paused.ShouldBe(expected);
+        account.Repositories.ShouldHaveSingleItem().Paused.ShouldBe(expected);
+        result.Config.Repositories.ShouldHaveSingleItem().Paused.ShouldBe(expected);
+    }
+
+    [Theory]
+    [InlineData("null", "account", "$.accounts[0].paused")]
+    [InlineData("\"yes\"", "account", "$.accounts[0].paused")]
+    [InlineData("1", "account", "$.accounts[0].paused")]
+    [InlineData("null", "accountRepository", "$.accounts[0].repositories[0].paused")]
+    [InlineData("\"yes\"", "accountRepository", "$.accounts[0].repositories[0].paused")]
+    [InlineData("1", "accountRepository", "$.accounts[0].repositories[0].paused")]
+    [InlineData("null", "repository", "$.repositories[0].paused")]
+    [InlineData("\"yes\"", "repository", "$.repositories[0].paused")]
+    [InlineData("1", "repository", "$.repositories[0].paused")]
+    public async Task LoadAsync_PausedNullOrOfWrongType_ThrowsNamingJsonPath(string value, string entry, string jsonPath)
+    {
+        var paused = $"\"paused\": {value},";
+
+        var exception = await Should.ThrowAsync<BackupConfigException>(() => LoadAsync(WithPaused(
+            account: entry == "account" ? paused : "",
+            accountRepository: entry == "accountRepository" ? paused : "",
+            repository: entry == "repository" ? paused : "")));
+
+        exception.Errors.ShouldHaveSingleItem().ShouldContain($"(JSON path {jsonPath})");
     }
 
     [Fact]
@@ -391,6 +434,31 @@ public sealed class JsonBackupConfigStoreTests
     /// <returns>The configuration text.</returns>
     private static string WithStandaloneRepository(string repositoryJson) =>
         $$"""{ "schemaVersion": 1, "backupRoot": "D:\\Backups", "repositories": [ {{repositoryJson}} ] }""";
+
+    /// <summary>
+    /// Returns a valid configuration with one account, one repository of it and one standalone repository, each with
+    /// the given <c>paused</c> member.
+    /// </summary>
+    /// <param name="paused">The member, with a trailing comma, for every entry that has no value of its own.</param>
+    /// <param name="account">The member of the account, or <see langword="null"/> for <paramref name="paused"/>.</param>
+    /// <param name="accountRepository">
+    /// The member of the repository of the account, or <see langword="null"/> for <paramref name="paused"/>.
+    /// </param>
+    /// <param name="repository">The member of the standalone repository, or <see langword="null"/> for <paramref name="paused"/>.</param>
+    /// <returns>The configuration text.</returns>
+    private static string WithPaused(
+        string paused = "",
+        string? account = null,
+        string? accountRepository = null,
+        string? repository = null) =>
+        $$"""
+        {
+          "schemaVersion": 1,
+          "backupRoot": "D:\\Backups",
+          "accounts": [ { "url": "https://github.com/askrinnik", {{account ?? paused}}"repositories": [ { {{accountRepository ?? paused}}"name": "my-repo", "id": 1 } ] } ],
+          "repositories": [ { {{repository ?? paused}}"url": "https://github.com/o/r", "id": 2 } ]
+        }
+        """;
 
     /// <summary>
     /// Creates a file system whose attempt to open the configuration file throws <paramref name="exception"/>.

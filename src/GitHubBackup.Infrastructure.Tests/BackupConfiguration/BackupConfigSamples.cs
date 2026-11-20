@@ -41,10 +41,10 @@ internal static class BackupConfigSamples
               "exclude": [ "test-*" ],
               "repositories": [
                 { "name": "my-repo", "id": 123456789, "branch": null, "path": null, "status": "Active" },
-                { "name": "old-tool", "id": 223456789, "branch": "legacy", "path": "E:\\Archive\\old-tool", "status": "Active" }
+                { "name": "old-tool", "id": 223456789, "branch": "legacy", "path": "E:\\Archive\\old-tool", "paused": true, "status": "Active" }
               ]
             },
-            { "url": "https://github.com/AMTOSS", "path": "E:\\WorkBackups\\AMTOSS", "exclude": [], "repositories": [] },
+            { "url": "https://github.com/AMTOSS", "path": "E:\\WorkBackups\\AMTOSS", "exclude": [], "paused": true, "repositories": [] },
             { "url": "https://github.com/get-the-manual", "path": null, "exclude": [], "repositories": [] }
           ],
           "repositories": [

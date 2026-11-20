@@ -186,6 +186,130 @@ public sealed class JsonBackupConfigStoreSaveTests
     }
 
     [Fact]
+    public async Task SaveAsync_PausedSetOnSomeEntries_WritesTrueOnlyThere()
+    {
+        var fileSystem = CreateFileSystem();
+        var config = new BackupConfig { BackupRoot = @"D:\Backups" };
+        config.Accounts.Add(new()
+        {
+            Url = "https://github.com/askrinnik",
+            Paused = true,
+            Repositories = [new() { Name = "paused-app", Id = 4, Paused = true }, new() { Name = "active-app", Id = 5 }],
+        });
+        config.Accounts.Add(new() { Url = "https://github.com/AMTOSS" });
+        config.Repositories.Add(new() { Url = "https://github.com/o/paused", Id = 6, ClonePath = @"E:\Work\Paused", Paused = true });
+        config.Repositories.Add(new() { Url = "https://github.com/o/active", Id = 7 });
+        var expected = """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "sourcesRoot": null,
+              "exclude": [],
+              "discoverAccessibleRepositories": false,
+              "accounts": [
+                {
+                  "url": "https://github.com/askrinnik",
+                  "path": null,
+                  "exclude": [],
+                  "paused": true,
+                  "repositories": [
+                    {
+                      "name": "paused-app",
+                      "id": 4,
+                      "branch": null,
+                      "path": null,
+                      "paused": true,
+                      "status": "Active"
+                    },
+                    {
+                      "name": "active-app",
+                      "id": 5,
+                      "branch": null,
+                      "path": null,
+                      "status": "Active"
+                    }
+                  ]
+                },
+                {
+                  "url": "https://github.com/AMTOSS",
+                  "path": null,
+                  "exclude": [],
+                  "repositories": []
+                }
+              ],
+              "repositories": [
+                {
+                  "url": "https://github.com/o/paused",
+                  "id": 6,
+                  "branch": null,
+                  "path": null,
+                  "clonePath": "E:\\Work\\Paused",
+                  "paused": true,
+                  "status": "Active"
+                },
+                {
+                  "url": "https://github.com/o/active",
+                  "id": 7,
+                  "branch": null,
+                  "path": null,
+                  "status": "Active"
+                }
+              ]
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n";
+
+        await CreateStore(fileSystem).SaveAsync(config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(expected);
+    }
+
+    [Fact]
+    public async Task SaveAsync_FileWithoutPaused_IsWrittenUnchanged()
+    {
+        var original = """
+            {
+              "schemaVersion": 1,
+              "backupRoot": "D:\\Backups",
+              "sourcesRoot": null,
+              "exclude": [],
+              "discoverAccessibleRepositories": false,
+              "accounts": [
+                {
+                  "url": "https://github.com/askrinnik",
+                  "path": null,
+                  "exclude": [],
+                  "repositories": [
+                    {
+                      "name": "my-repo",
+                      "id": 1,
+                      "branch": null,
+                      "path": null,
+                      "status": "Active"
+                    }
+                  ]
+                }
+              ],
+              "repositories": [
+                {
+                  "url": "https://github.com/o/r",
+                  "id": 2,
+                  "branch": null,
+                  "path": null,
+                  "status": "Unavailable"
+                }
+              ]
+            }
+            """.ReplaceLineEndings("\r\n") + "\r\n";
+        var fileSystem = CreateFileSystem(original);
+        var store = CreateStore(fileSystem);
+        var loaded = await store.LoadAsync(TestContext.Current.CancellationToken);
+
+        await store.SaveAsync(loaded.Config, TestContext.Current.CancellationToken);
+
+        fileSystem.File.ReadAllText(ConfigPath).ShouldBe(original);
+    }
+
+    [Fact]
     public async Task SaveAsync_AnyConfig_WritesUtf8WithoutBomAndWindowsLineBreaks()
     {
         var fileSystem = CreateFileSystem();

@@ -5,8 +5,8 @@ using GitHubBackup.Core.BackupConfiguration;
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// One standalone repository in the settings editor: its URL, branch and archive folder can be changed, its id and
-/// status are kept as read.
+/// One standalone repository in the settings editor: its URL, branch and archive folder can be changed, its id,
+/// status and pause are kept as read.
 /// </summary>
 /// <param name="source">The entry as read, or a new entry.</param>
 /// <param name="edited">Called after the user changes a field.</param>
@@ -20,6 +20,9 @@ public sealed partial class RepositorySettingsViewModel(RepositoryConfig source,
 
     /// <summary>The status, written back unchanged; <see cref="RepositoryStatus.Active"/> for a new entry.</summary>
     private readonly RepositoryStatus _status = source.Status;
+
+    /// <summary>Whether the repository is paused, written back unchanged.</summary>
+    private readonly bool _paused = source.Paused;
 
     /// <summary>The repository URL, <c>https://github.com/&lt;owner&gt;/&lt;repo&gt;</c>.</summary>
     [ObservableProperty]
@@ -45,12 +48,13 @@ public sealed partial class RepositorySettingsViewModel(RepositoryConfig source,
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry with the id and status as read.</returns>
+    /// <returns>The entry with the id, status and pause as read.</returns>
     internal RepositoryConfig ToConfig() => new()
     {
         Url = Url.Trim(),
         Id = _id,
         Status = _status,
+        Paused = _paused,
         Branch = NullIfBlank(Branch),
         Path = NullIfBlank(Path),
     };

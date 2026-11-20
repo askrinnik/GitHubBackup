@@ -20,6 +20,9 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     /// <summary>The action that tells the editor about a change.</summary>
     private readonly Action _edited = edited;
 
+    /// <summary>Whether the account is paused, written back unchanged.</summary>
+    private readonly bool _paused = source.Paused;
+
     /// <summary>The account URL, <c>https://github.com/&lt;login&gt;</c>.</summary>
     [ObservableProperty]
     [NotifyDataErrorInfo]
@@ -63,12 +66,13 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry.</returns>
+    /// <returns>The entry with the pause as read.</returns>
     internal AccountConfig ToConfig() => new()
     {
         Url = Url.Trim(),
         Path = NullIfBlank(Path),
         Exclude = ParseMasks(Exclude),
+        Paused = _paused,
         Repositories = [.. Repositories.Select(repository => repository.ToConfig())],
     };
 

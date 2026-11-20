@@ -489,6 +489,7 @@ public sealed class DiscoveryDecisionApplier(
                     Branch = repository.Branch,
                     Path = path,
                     ClonePath = repository.ClonePath,
+                    Paused = repository.Paused,
                     Status = repository.Status,
                 });
             }
@@ -501,6 +502,7 @@ public sealed class DiscoveryDecisionApplier(
                     Branch = repository.Branch,
                     Path = path,
                     ClonePath = repository.ClonePath,
+                    Paused = repository.Paused,
                     Status = repository.Status,
                 });
             }

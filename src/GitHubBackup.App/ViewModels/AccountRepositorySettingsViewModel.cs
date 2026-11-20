@@ -6,7 +6,7 @@ namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
 /// One repository of a tracked account in the settings editor: its branch and archive folder can be changed, its
-/// name, id and status are kept as read.
+/// name, id, status and pause are kept as read.
 /// </summary>
 /// <param name="source">The entry as read.</param>
 /// <param name="edited">Called after the user changes a field.</param>
@@ -20,6 +20,9 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
 
     /// <summary>The status, written back unchanged.</summary>
     private readonly RepositoryStatus _status = source.Status;
+
+    /// <summary>Whether the repository is paused, written back unchanged.</summary>
+    private readonly bool _paused = source.Paused;
 
     /// <summary>The branch checked out in the clone; empty selects the default branch.</summary>
     [ObservableProperty]
@@ -42,12 +45,13 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry with the name, id and status as read.</returns>
+    /// <returns>The entry with the name, id, status and pause as read.</returns>
     internal AccountRepositoryConfig ToConfig() => new()
     {
         Name = Name,
         Id = _id,
         Status = _status,
+        Paused = _paused,
         Branch = NullIfBlank(Branch),
         Path = NullIfBlank(Path),
     };

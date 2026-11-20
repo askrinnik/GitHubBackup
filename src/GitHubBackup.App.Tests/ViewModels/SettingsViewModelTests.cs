@@ -311,6 +311,25 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Save_OtherFieldEdited_KeepsPausedOfEveryKindOfEntry()
+    {
+        var config = CreateConfig();
+        config.Accounts[0].Paused = true;
+        config.Accounts[0].Repositories[1].Paused = true;
+        config.Repositories[0].Paused = true;
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.Accounts[0].Paused.ShouldBeTrue();
+        saved.Accounts[0].Repositories.Select(repository => repository.Paused).ShouldBe([false, true]);
+        saved.Repositories.ShouldHaveSingleItem().Paused.ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task Save_InvalidBackupRoot_ShowsErrorAtFieldAndWritesNothing()
     {
         await LoadAsync();
