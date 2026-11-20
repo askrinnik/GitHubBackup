@@ -120,11 +120,16 @@ internal static partial class BackupOrchestratorLog
     public static partial void RepositoryFinished(ILogger logger, BackupItemStatus status, string? archive, TimeSpan duration);
 
     /// <summary>
-    /// Logs that the wiki of a repository is not backed up because the wiki feature is disabled.
+    /// Logs once per run how many of the checked wikis have the wiki feature disabled, so they are not backed up.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    [LoggerMessage(EventId = 12, Level = LogLevel.Debug, Message = "Wiki skipped: the wiki feature is disabled")]
-    public static partial void WikiDisabled(ILogger logger);
+    /// <param name="disabled">The number of repositories whose wiki feature is disabled.</param>
+    /// <param name="checked">The number of active repositories whose wiki feature was checked.</param>
+    [LoggerMessage(
+        EventId = 27,
+        Level = LogLevel.Debug,
+        Message = "Wiki is disabled for {Disabled} of {Checked} repositories")]
+    public static partial void WikisDisabled(ILogger logger, int disabled, int @checked);
 
     /// <summary>
     /// Logs that the wiki feature is enabled but the server has no wiki repository, so there is nothing to back up.

@@ -47,6 +47,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const int _repositoryExcludedEventId = 11;
     private const int _wikiNotFoundEventId = 13;
     private const int _wikiLookupFailedEventId = 14;
+    private const int _wikisDisabledEventId = 27;
     private const int _discoverySkippedEventId = 15;
     private const int _runFilterAccountEventId = 25;
     private const int _runFilterRepositoryEventId = 26;
@@ -966,6 +967,42 @@ public sealed class BackupOrchestratorTests : IDisposable
         await _detector.Received(1).DetectAsync(Arg.Any<ChangeDetectionRequest>(), CancellationToken);
         await _detector.DidNotReceive().DetectAsync(
             Arg.Is<ChangeDetectionRequest>(request => request.RemoteUrl == _wikiUrl), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task RunAsync_SomeWikisDisabled_LogsOneLineWithCounts()
+    {
+        AddRepository("other");
+        AddRepository("third");
+        SetupWikiFeature(name => name == "third");
+
+        await RunAsync();
+
+        var record = SingleRecord(_wikisDisabledEventId);
+        record.Level.ShouldBe(LogLevel.Debug);
+        record.Message.ShouldBe("Wiki is disabled for 2 of 3 repositories");
+        _logger.Collector.GetSnapshot().ShouldNotContain(item => item.Message.Contains("Wiki skipped: the wiki feature is disabled"));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoWikiDisabled_LogsNoWikiSummary()
+    {
+        SetupWiki(hasWiki: true);
+
+        await RunAsync();
+
+        Records(_wikisDisabledEventId).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_InactiveRepository_IsNotCountedInWikiSummary()
+    {
+        AddRepository("other");
+        _config.Repositories[1].Status = RepositoryStatus.Unavailable;
+
+        await RunAsync();
+
+        SingleRecord(_wikisDisabledEventId).Message.ShouldBe("Wiki is disabled for 1 of 1 repositories");
     }
 
     [Fact]
@@ -2720,6 +2757,23 @@ public sealed class BackupOrchestratorTests : IDisposable
                 IsFork: false,
                 IsArchived: false,
                 hasWiki,
+                "main",
+                $"https://github.com/{call.ArgAt<string>(0)}/{call.ArgAt<string>(1)}"));
+
+    /// <summary>
+    /// Makes the GitHub API report for each repository, by name, whether its wiki feature is enabled.
+    /// </summary>
+    /// <param name="hasWiki">Tells whether the wiki feature of the repository with the given name is enabled.</param>
+    private void SetupWikiFeature(Func<string, bool> hasWiki) =>
+        _gitHubApi.GetRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            new GitHubRepository(
+                1,
+                call.ArgAt<string>(0),
+                call.ArgAt<string>(1),
+                IsPrivate: false,
+                IsFork: false,
+                IsArchived: false,
+                hasWiki(call.ArgAt<string>(1)),
                 "main",
                 $"https://github.com/{call.ArgAt<string>(0)}/{call.ArgAt<string>(1)}"));
 
