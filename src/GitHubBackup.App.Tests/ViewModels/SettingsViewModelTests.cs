@@ -330,6 +330,23 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Save_OtherFieldEdited_KeepsClonePathOfEveryKindOfEntry()
+    {
+        var config = CreateConfig();
+        config.Accounts[0].Repositories[0].ClonePath = @"D:\Work\tool";
+        config.Repositories[0].ClonePath = @"D:\Work\lib";
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.Accounts[0].Repositories.Select(repository => repository.ClonePath).ShouldBe([@"D:\Work\tool", null]);
+        saved.Repositories.ShouldHaveSingleItem().ClonePath.ShouldBe(@"D:\Work\lib");
+    }
+
+    [Fact]
     public async Task IsPaused_CheckedOnEveryKindOfEntry_MarksDirtyAndSavesPaused()
     {
         await LoadAsync();
