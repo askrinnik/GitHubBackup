@@ -47,21 +47,21 @@ public sealed class ToolLocatorTests
     }
 
     [Fact]
-    public async Task LocateAsync_AllToolsPresent_RunsEveryVersionCheckAtDebugLevel()
+    public async Task LocateAsync_AllToolsPresent_RunsEveryVersionCheckAtTraceLevel()
     {
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
 
         _requests.Count.ShouldBe(3);
-        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Debug);
+        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Trace);
     }
 
     [Fact]
-    public async Task LocateAsync_AllToolsPresent_LogsEachVersion()
+    public async Task LocateAsync_AllToolsPresent_LogsEachToolAsAvailableAtInformation()
     {
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
 
         var records = _logger.Collector.GetSnapshot();
-        records.ShouldAllBe(record => record.Id.Id == _toolFoundEventId && record.Level == LogLevel.Debug);
+        records.ShouldAllBe(record => record.Id.Id == _toolFoundEventId && record.Level == LogLevel.Information);
         records.Select(record => (
             record.GetStructuredStateValue("Tool"),
             record.GetStructuredStateValue("Version"),
@@ -70,6 +70,12 @@ public sealed class ToolLocatorTests
             ("git", "2.46.0.windows.1", _gitPath),
             ("Git LFS", "3.5.1", _gitPath),
             ("7-Zip", "24.08", _sevenZipPath),
+        ]);
+        records.Select(record => record.Message).ShouldBe(
+        [
+            $"git 2.46.0.windows.1 is available at {_gitPath}",
+            $"Git LFS 3.5.1 is available at {_gitPath}",
+            $"7-Zip 24.08 is available at {_sevenZipPath}",
         ]);
     }
 

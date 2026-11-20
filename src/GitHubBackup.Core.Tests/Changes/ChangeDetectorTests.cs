@@ -8,7 +8,9 @@ using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tests.Runs;
 using GitHubBackup.Core.Tests.Telemetry;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -23,6 +25,8 @@ public sealed class ChangeDetectorTests : IDisposable
     private const string _clonePath = @"C:\backup\clones\owner\repo";
     private const string _remoteUrl = "https://github.com/owner/repo";
     private const string _archiveFile = "repo.7z";
+    private const int _decidedEventId = 1;
+    private const int _decidedWithoutServerEventId = 2;
 
     /// <summary>The Windows attribute <c>FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS</c> that OneDrive sets on a file stored only in the cloud.</summary>
     private const FileAttributes _recallOnDataAccess = (FileAttributes)0x400000;
@@ -34,14 +38,24 @@ public sealed class ChangeDetectorTests : IDisposable
     private readonly MockFileSystem _fileSystem = new();
     private readonly TelemetryCapture _capture = new();
     private readonly RecordingProgress<BackupProgressStage> _progress = new();
+    private readonly FakeLogger<ChangeDetector> _logger = new();
+
+    /// <summary>The branches and tags the server answers with.</summary>
+    private RefSnapshot _remoteRefs = RefSnapshot.Empty;
+
+    /// <summary>The default branch the server answers with.</summary>
+    private string? _defaultBranch;
 
     /// <summary>
-    /// Sets up a clone whose origin points at the repository and a guard that finds no local work.
+    /// Sets up a clone whose origin points at the repository, a server that answers with <see cref="_remoteRefs"/>
+    /// and <see cref="_defaultBranch"/>, and a guard that finds no local work.
     /// </summary>
     public ChangeDetectorTests()
     {
         _git.GetOriginUrlAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>()).Returns(_remoteUrl + ".git");
-        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RefSnapshot?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>())
+            .Returns(_ => new RemoteRefs(_remoteRefs, _defaultBranch));
+        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RemoteRefs?>(), Arg.Any<string?>(), Arg.Any<CancellationToken>())
             .Returns(new CloneCheckResult(_clonePath, []) { ExpectedBranch = "main" });
         _guard.CheckLocalAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string?>(), Arg.Any<string?>(), Arg.Any<RefSnapshot?>(), Arg.Any<CancellationToken>())
             .Returns(new CloneCheckResult(_clonePath, []));
@@ -171,7 +185,7 @@ public sealed class ChangeDetectorTests : IDisposable
 
         result.ShouldBe(new ChangeDetection(ChangeDecision.UpToDate, ChangeReason.Unchanged, "main", false, BaseRefs));
         await _git.DidNotReceive().SyncAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string?>(), CancellationToken);
-        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
     }
 
     [Fact]
@@ -188,6 +202,7 @@ public sealed class ChangeDetectorTests : IDisposable
         result.Branch.ShouldBe("main");
         result.BranchFallback.ShouldBeFalse();
         await _git.DidNotReceive().SyncAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string?>(), CancellationToken);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
     }
 
     [Fact]
@@ -365,7 +380,7 @@ public sealed class ChangeDetectorTests : IDisposable
         AddClone();
         AddArchiveFile();
         _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken)
-            .Returns(Task.FromException<RefSnapshot>(new OperationCanceledException()));
+            .Returns(Task.FromException<RemoteRefs>(new OperationCanceledException()));
 
         await Should.ThrowAsync<OperationCanceledException>(() => DetectAsync(Archive("main", BaseRefs)));
     }
@@ -387,7 +402,7 @@ public sealed class ChangeDetectorTests : IDisposable
         var changed = Snapshot(("heads/main", "a2"));
         SetupRemote(changed);
         var check = new CloneCheckResult(_clonePath, [CloneCheckResult.UncommittedChanges]);
-        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), changed, "main", CancellationToken).Returns(check);
+        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), RemoteWith(changed), "main", CancellationToken).Returns(check);
 
         var exception = await Should.ThrowAsync<LocalChangesException>(() => DetectAsync(Archive("main", BaseRefs)));
 
@@ -423,7 +438,7 @@ public sealed class ChangeDetectorTests : IDisposable
 
         Received.InOrder(() =>
         {
-            _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RefSnapshot?>(), "dev", CancellationToken);
+            _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<RemoteRefs?>(), "dev", CancellationToken);
             _git.GetLocalRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
             _git.FetchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
             _guard.CheckLocalAsync(Arg.Any<GitRepositoryRequest>(), "main", "dev", beforeFetch, CancellationToken);
@@ -523,7 +538,7 @@ public sealed class ChangeDetectorTests : IDisposable
         var changed = Snapshot(("heads/main", "a2"));
         SetupRemote(changed);
         var check = new CloneCheckResult(_clonePath, [CloneCheckResult.UntrackedFiles]);
-        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), changed, "main", CancellationToken).Returns(check);
+        _guard.CheckAsync(Arg.Any<GitRepositoryRequest>(), RemoteWith(changed), "main", CancellationToken).Returns(check);
 
         var exception = await Should.ThrowAsync<LocalChangesException>(() => PreviewAsync(Archive("main", BaseRefs)));
 
@@ -571,6 +586,44 @@ public sealed class ChangeDetectorTests : IDisposable
         result.ShouldBe(new ChangeDetection(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, BaseRefs));
         await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken);
         await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task DetectAsync_Decided_LogsBranchAndTagCountsOfTheServer()
+    {
+        SetupClone(Sync("main", BaseRefs));
+
+        await DetectAsync(last: null);
+
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _decidedEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Branches").ShouldBe("2");
+        record.GetStructuredStateValue("Tags").ShouldBe("1");
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneAndCheckRemote_LogsCountsOfTheServer()
+    {
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken).Returns(BaseRefs);
+
+        await PreviewAsync(last: null, checkRemoteWithoutClone: true);
+
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _decidedEventId).ShouldHaveSingleItem();
+        record.GetStructuredStateValue("Branches").ShouldBe("2");
+        record.GetStructuredStateValue("Tags").ShouldBe("1");
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneAndNoServerCheck_LogsWithoutCounts()
+    {
+        await PreviewAsync(last: null);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.ShouldNotContain(r => r.Id.Id == _decidedEventId);
+        var record = records.Where(r => r.Id.Id == _decidedWithoutServerEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Branches").ShouldBeNull();
+        record.GetStructuredStateValue("Tags").ShouldBeNull();
     }
 
     [Fact]
@@ -661,7 +714,6 @@ public sealed class ChangeDetectorTests : IDisposable
 
         result.ShouldBe(new ChangeDetection(
             ChangeDecision.NothingToArchive, ChangeReason.EmptyRepository, null, false, RefSnapshot.Empty));
-        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
         await NoCloneOrUpdate();
     }
 
@@ -716,7 +768,6 @@ public sealed class ChangeDetectorTests : IDisposable
 
         await Should.ThrowAsync<ArgumentException>(() => PreviewAsync(last: null, branch: "-main"));
 
-        await _git.DidNotReceive().GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
         await NoCloneOrUpdate();
     }
 
@@ -739,7 +790,7 @@ public sealed class ChangeDetectorTests : IDisposable
     {
         AddClone();
         _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken)
-            .Returns(Task.FromException<RefSnapshot>(new GitCommandException("failed", "git ls-remote", 128)));
+            .Returns(Task.FromException<RemoteRefs>(new GitCommandException("failed", "git ls-remote", 128)));
 
         await Should.ThrowAsync<GitCommandException>(() => PreviewAsync(last: null));
     }
@@ -797,16 +848,18 @@ public sealed class ChangeDetectorTests : IDisposable
     }
 
     [Fact]
-    public async Task PreviewAsync_RequestedBranchMissing_TracesLsRemoteForRefsAndDefaultBranch()
+    public async Task PreviewAsync_RequestedBranchMissing_TracesOneLsRemoteForRefsAndDefaultBranch()
     {
         AddClone();
         SetupRemote(BaseRefs);
         SetupDefaultBranch("main");
         using var test = _capture.StartTest();
 
-        await PreviewAsync(last: null, branch: "gone");
+        var result = await PreviewAsync(last: null, branch: "gone");
 
-        Operations().ShouldBe([BackupTelemetry.LsRemoteOperation, BackupTelemetry.LsRemoteOperation]);
+        result.Branch.ShouldBe("main");
+        Operations().ShouldBe([BackupTelemetry.LsRemoteOperation]);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
     }
 
     [Fact]
@@ -883,12 +936,12 @@ public sealed class ChangeDetectorTests : IDisposable
         var span = _capture.Spans.ShouldHaveSingleItem();
         span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
         span.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
-        span.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.RemoteRefsQuery);
         span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(3);
+        span.TagObjects.Select(tag => tag.Key).ShouldNotContain("githubbackup.git.query");
     }
 
     [Fact]
-    public async Task DetectAsync_ServerUnchangedBranchNotSet_TracesRefsThenDefaultBranch()
+    public async Task DetectAsync_ServerUnchangedBranchNotSet_TracesOneLsRemoteRefsSpan()
     {
         AddClone();
         AddArchiveFile();
@@ -896,14 +949,13 @@ public sealed class ChangeDetectorTests : IDisposable
         SetupDefaultBranch("main");
         using var test = _capture.StartTest();
 
-        await DetectAsync(Archive("main", BaseRefs), branch: null);
+        var result = await DetectAsync(Archive("main", BaseRefs), branch: null);
 
-        _capture.Spans.Select(span => span.OperationName).ShouldBe(
-            [BackupTelemetry.LsRemoteRefsSpanName, BackupTelemetry.LsRemoteDefaultBranchSpanName]);
-        var defaultBranch = _capture.Named(BackupTelemetry.LsRemoteDefaultBranchSpanName).ShouldHaveSingleItem();
-        defaultBranch.GetTagItem(BackupTelemetry.OperationTag).ShouldBe(BackupTelemetry.LsRemoteOperation);
-        defaultBranch.GetTagItem(BackupTelemetry.GitQueryTag).ShouldBe(BackupTelemetry.DefaultBranchQuery);
-        defaultBranch.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBeNull();
+        result.Decision.ShouldBe(ChangeDecision.UpToDate);
+        var span = _capture.Spans.ShouldHaveSingleItem();
+        span.OperationName.ShouldBe(BackupTelemetry.LsRemoteRefsSpanName);
+        span.GetTagItem(BackupTelemetry.GitRefsCountTag).ShouldBe(3);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken);
     }
 
     [Theory]
@@ -918,22 +970,6 @@ public sealed class ChangeDetectorTests : IDisposable
         await DetectAsync(archiveKnown ? Archive("main", BaseRefs) : null);
 
         _capture.Spans.ShouldHaveSingleItem().OperationName.ShouldBe(BackupTelemetry.FetchOperation);
-    }
-
-    [Fact]
-    public async Task PreviewAsync_RequestedBranchMissing_TagsEachLsRemoteSpanWithItsQuery()
-    {
-        AddClone();
-        SetupRemote(BaseRefs);
-        SetupDefaultBranch("main");
-        using var test = _capture.StartTest();
-
-        await PreviewAsync(last: null, branch: "gone");
-
-        _capture.Spans.Select(span => span.GetTagItem(BackupTelemetry.GitQueryTag)).ShouldBe(
-            [BackupTelemetry.RemoteRefsQuery, BackupTelemetry.DefaultBranchQuery]);
-        _capture.Spans.Select(span => span.OperationName).ShouldBe(
-            [BackupTelemetry.LsRemoteRefsSpanName, BackupTelemetry.LsRemoteDefaultBranchSpanName]);
     }
 
     [Fact]
@@ -1165,12 +1201,12 @@ public sealed class ChangeDetectorTests : IDisposable
     };
 
     private Task<ChangeDetection> DetectAsync(ArchiveRecord? last, string? branch = "main") =>
-        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, _logger)
             .DetectAsync(CreateRequest(last, branch), CancellationToken);
 
     private Task<ChangeDetection> PreviewAsync(
         ArchiveRecord? last, string? branch = "main", bool checkRemoteWithoutClone = false) =>
-        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, _logger)
             .PreviewAsync(CreateRequest(last, branch) with { CheckRemoteWithoutClone = checkRemoteWithoutClone }, CancellationToken);
 
     private void AddClone() => _fileSystem.AddDirectory(Path.Combine(_clonePath, ".git"));
@@ -1183,11 +1219,12 @@ public sealed class ChangeDetectorTests : IDisposable
     private void SetupUpdate(GitSyncResult result) =>
         _git.SyncAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<string?>(), CancellationToken).Returns(result);
 
-    private void SetupRemote(RefSnapshot refs) =>
-        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken).Returns(refs);
+    private void SetupRemote(RefSnapshot refs) => _remoteRefs = refs;
 
-    private void SetupDefaultBranch(string? branch) =>
-        _git.GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), CancellationToken).Returns(branch);
+    private void SetupDefaultBranch(string? branch) => _defaultBranch = branch;
+
+    private static RemoteRefs? RemoteWith(RefSnapshot refs) =>
+        Arg.Is<RemoteRefs?>(remote => remote != null && remote.Refs.Equals(refs));
 
     private async Task NoUpdateOrRemoteReads()
     {

@@ -21,6 +21,12 @@ public interface IGitHubApi
     void UseToken(GitHubToken token);
 
     /// <summary>
+    /// Gets the rate limit state the server reported with the most recent response, or <see langword="null"/> when no
+    /// response since the last <see cref="UseToken"/> carried one.
+    /// </summary>
+    GitHubRateLimit? LastRateLimit { get; }
+
+    /// <summary>
     /// Returns the account with the given login (<c>GET /users/{login}</c>).
     /// </summary>
     /// <param name="login">The login of a user or an organization.</param>

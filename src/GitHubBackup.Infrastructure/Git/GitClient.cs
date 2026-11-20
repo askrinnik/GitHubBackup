@@ -67,8 +67,12 @@ internal sealed class GitClient(
     private static readonly string[] _localRefsArguments =
         ["for-each-ref", "--format=%(objectname)%09%(refname)", "refs/remotes/origin", "refs/tags"];
 
-    /// <summary>The arguments that list the branches and tags of the server, without peeled tags and <c>HEAD</c>.</summary>
-    private static readonly string[] _remoteRefsArguments = ["ls-remote", "--refs", "origin"];
+    /// <summary>
+    /// The arguments that list the branches and tags of the server and the branch its <c>HEAD</c> points at in one
+    /// request; the patterns keep pull request refs and other server refs out of the response.
+    /// </summary>
+    private static readonly string[] _remoteRefsArguments =
+        ["ls-remote", "--symref", "origin", "HEAD", "refs/heads/*", "refs/tags/*"];
 
     /// <summary>The arguments that show which branch the server's <c>HEAD</c> points at.</summary>
     private static readonly string[] _defaultBranchArguments = ["ls-remote", "--symref", "origin", "HEAD"];
@@ -209,15 +213,15 @@ internal sealed class GitClient(
     }
 
     /// <inheritdoc />
-    public async Task<RefSnapshot> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
+    public async Task<RemoteRefs> GetRemoteRefsAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
     {
         ValidateClonePath(request);
         cancellationToken.ThrowIfCancellationRequested();
 
         var output = await RunGitAsync(
             request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
-            cancellationToken);
-        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteRefs);
+            cancellationToken, LogLevel.Debug);
+        return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteListing);
     }
 
     /// <inheritdoc />
@@ -239,12 +243,13 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         var workingDirectory = FindRepositoryFreeAncestor(request.ClonePath);
-        string[] arguments = ["ls-remote", "--refs", "--", remoteUrl];
+        string[] arguments = ["ls-remote", "--refs", "--", remoteUrl, "refs/heads/*", "refs/tags/*"];
 
         // The working directory plays the clone folder of the environment, so the ceiling is its parent and git looks
         // only at the working directory, which holds no repository, instead of walking up to an enclosing one.
         var output = await RunGitAsync(
-            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken);
+            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken,
+            LogLevel.Debug);
         return ParseOutput(request, arguments, output, GitRefParser.ParseRemoteRefs);
     }
 
@@ -280,15 +285,6 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         return ReadLocalRefsAsync(request, CreateEnvironment(token: null, request.ClonePath), cancellationToken);
-    }
-
-    /// <inheritdoc />
-    public Task<string?> GetDefaultBranchAsync(GitRepositoryRequest request, CancellationToken cancellationToken)
-    {
-        ValidateClonePath(request);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return ReadDefaultBranchAsync(request, CreateEnvironment(request.Token, request.ClonePath), cancellationToken);
     }
 
     /// <inheritdoc />
@@ -817,7 +813,7 @@ internal sealed class GitClient(
         CancellationToken cancellationToken)
     {
         var output = await RunGitAsync(
-            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken);
+            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken, LogLevel.Debug);
         return GitRefParser.ParseDefaultBranch(output);
     }
 
@@ -863,6 +859,7 @@ internal sealed class GitClient(
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
+    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The lines the command wrote to standard output.</returns>
     /// <exception cref="GitRepositoryNotFoundException">The command fails because the remote URL has no repository.</exception>
     /// <exception cref="GitCommandException">The command exits with a non-zero code.</exception>
@@ -871,9 +868,11 @@ internal sealed class GitClient(
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        LogLevel logLevel = LogLevel.Information)
     {
-        var result = await RunGitProcessAsync(request, workingDirectory, environment, arguments, cancellationToken);
+        var result = await RunGitProcessAsync(
+            request, workingDirectory, environment, arguments, cancellationToken, logLevel);
         EnsureSucceeded(request, arguments, result);
         return result.StandardOutput;
     }
@@ -886,13 +885,15 @@ internal sealed class GitClient(
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
+    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The exit code and the output of the command.</returns>
     private Task<ProcessResult> RunGitProcessAsync(
         GitRepositoryRequest request,
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        LogLevel logLevel = LogLevel.Information) =>
         processRunner.RunAsync(
             new()
             {
@@ -900,6 +901,7 @@ internal sealed class GitClient(
                 WorkingDirectory = workingDirectory,
                 Arguments = arguments,
                 EnvironmentVariables = environment,
+                LogLevel = logLevel,
             },
             cancellationToken);
 

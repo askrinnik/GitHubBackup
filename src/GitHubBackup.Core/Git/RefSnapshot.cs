@@ -62,6 +62,12 @@ public sealed class RefSnapshot : IEquatable<RefSnapshot>
     /// <summary>Gets a value indicating whether the snapshot holds at least one branch.</summary>
     public bool HasBranches => _refs.Keys.Any(name => name.StartsWith(BranchPrefix, StringComparison.Ordinal));
 
+    /// <summary>Gets the number of branches in the snapshot.</summary>
+    public int BranchCount => _refs.Keys.Count(name => name.StartsWith(BranchPrefix, StringComparison.Ordinal));
+
+    /// <summary>Gets the number of tags in the snapshot.</summary>
+    public int TagCount => _refs.Keys.Count(name => name.StartsWith(TagPrefix, StringComparison.Ordinal));
+
     /// <summary>
     /// Returns whether the snapshot holds the branch <paramref name="name"/>.
     /// </summary>

@@ -183,6 +183,21 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_TraceRequestAtInformationMinimum_WritesNoStartLineOrExitEntries()
+    {
+        _logger.ControlLevel(LogLevel.Trace, enabled: false);
+        _logger.ControlLevel(LogLevel.Debug, enabled: false);
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo first", ">&2 echo second"]) with
+        {
+            LogLevel = LogLevel.Trace,
+        };
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task RunAsync_DebugLevelRequestNonZeroExitCode_LogsExitAsWarning()
     {
         var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 5"]) with { LogLevel = LogLevel.Debug };

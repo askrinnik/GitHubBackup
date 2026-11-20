@@ -21,6 +21,7 @@ public sealed class OctokitGitHubApiTests : IDisposable
     private const long _resetEpochSeconds = 1_893_456_000;
     private const int _rateLimitEventId = 1;
     private const int _currentUserRepositoriesSkippedEventId = 2;
+    private const int _rateLimitLowEventId = 3;
 
     private static readonly DateTimeOffset _now = new(2026, 11, 11, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset _resetAt = DateTimeOffset.FromUnixTimeSeconds(_resetEpochSeconds);
@@ -313,7 +314,7 @@ public sealed class OctokitGitHubApiTests : IDisposable
     }
 
     [Fact]
-    public async Task GetRepositoryAsync_Success_LogsRemainingRateLimit()
+    public async Task GetRepositoryAsync_Success_LogsRemainingRateLimitAtDebug()
     {
         GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
 
@@ -321,9 +322,74 @@ public sealed class OctokitGitHubApiTests : IDisposable
 
         var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
         record.Id.Id.ShouldBe(_rateLimitEventId);
-        record.Level.ShouldBe(LogLevel.Information);
+        record.Level.ShouldBe(LogLevel.Debug);
         record.GetStructuredStateValue("Remaining").ShouldBe("4999");
         record.GetStructuredStateValue("Limit").ShouldBe("5000");
+    }
+
+    [Fact]
+    public async Task GetRepositoryAsync_Success_FillsLastRateLimit()
+    {
+        GivenRepository("/repos/owner/repo", Repository(1, "owner", "repo"));
+        var api = CreateApi();
+
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        api.LastRateLimit.ShouldBe(new GitHubRateLimit(5000, 4999, _resetAt));
+    }
+
+    [Fact]
+    public async Task GetRepositoryAsync_NoRateLimitHeaders_LastRateLimitIsNull()
+    {
+        _server.Given(Request.Create().WithPath("/repos/owner/repo").UsingGet()).RespondWith(
+            Response.Create()
+                .WithStatusCode(200)
+                .WithHeader("Content-Type", "application/json")
+                .WithBody(Repository(1, "owner", "repo")));
+        var api = CreateApi();
+
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        api.LastRateLimit.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task GetRepositoryAsync_RemainingBelowTenPercent_LogsOneWarningPerRun()
+    {
+        GivenRepositoryWithRemaining("/repos/owner/repo", 499);
+        var api = CreateApi();
+
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _rateLimitLowEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Warning);
+        record.GetStructuredStateValue("Remaining").ShouldBe("499");
+        record.GetStructuredStateValue("Limit").ShouldBe("5000");
+    }
+
+    [Fact]
+    public async Task GetRepositoryAsync_RemainingAtTenPercent_LogsNoWarning()
+    {
+        GivenRepositoryWithRemaining("/repos/owner/repo", 500);
+
+        await CreateApi().GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        _logger.Collector.GetSnapshot().ShouldNotContain(record => record.Id.Id == _rateLimitLowEventId);
+    }
+
+    [Fact]
+    public async Task UseToken_AfterLowRateLimitWarning_WarnsAgainInNextRunAndClearsLastRateLimit()
+    {
+        GivenRepositoryWithRemaining("/repos/owner/repo", 499);
+        var api = CreateApi();
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        api.UseToken(_configuredToken);
+        api.LastRateLimit.ShouldBeNull();
+        await api.GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
+
+        _logger.Collector.GetSnapshot().Count(r => r.Id.Id == _rateLimitLowEventId).ShouldBe(2);
     }
 
     [Fact]
@@ -635,6 +701,16 @@ public sealed class OctokitGitHubApiTests : IDisposable
     /// <param name="repository">The repository JSON.</param>
     private void GivenRepository(string path, string repository) =>
         _server.Given(Request.Create().WithPath(path).UsingGet()).RespondWith(Json(repository));
+
+    /// <summary>
+    /// Serves a repository whose response reports <paramref name="remaining"/> of 5000 requests left.
+    /// </summary>
+    /// <param name="path">The request path.</param>
+    /// <param name="remaining">The remaining request count.</param>
+    private void GivenRepositoryWithRemaining(string path, int remaining) =>
+        _server.Given(Request.Create().WithPath(path).UsingGet()).RespondWith(
+            Json(Repository(1, "owner", "repo"))
+                .WithHeader("X-RateLimit-Remaining", remaining.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
     /// <summary>
     /// Serves one account.

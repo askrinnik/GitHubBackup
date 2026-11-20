@@ -9,16 +9,17 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Git;
 public sealed class GitClientBranchTests : GitClientTestBase
 {
     [Fact]
-    public async Task GetDefaultBranchAsync_ServerHeadOnDevelop_ReturnsDevelop()
+    public async Task GetRemoteRefsAsync_ServerHeadOnDevelop_ReturnsDevelopAsDefaultBranch()
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
         await remote.CreateBranchAsync("develop", null, CancellationToken);
         await CreateClient().CloneAsync(Request(), remote.Url, CancellationToken);
         await remote.SetDefaultBranchAsync("develop", CancellationToken);
 
-        var branch = await CreateClient().GetDefaultBranchAsync(Request(), CancellationToken);
+        var remoteRefs = await CreateClient().GetRemoteRefsAsync(Request(), CancellationToken);
 
-        branch.ShouldBe("develop");
+        remoteRefs.DefaultBranch.ShouldBe("develop");
+        remoteRefs.Refs.Refs.Keys.ShouldBe(["heads/develop", "heads/main"], ignoreOrder: true);
     }
 
     [Fact]

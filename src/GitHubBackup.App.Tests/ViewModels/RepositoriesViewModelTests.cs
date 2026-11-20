@@ -77,6 +77,7 @@ public sealed class RepositoriesViewModelTests
     public RepositoriesViewModelTests()
     {
         _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview);
+        _provider.LoadAfterRunAsync(Arg.Any<RepositoryOverview>(), Arg.Any<BackupRunResult>(), Arg.Any<CancellationToken>()).Returns(_overview);
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
             .Returns(new BackupRunResult([], [], []));
         var environment = Substitute.For<IHostEnvironment>();
@@ -409,20 +410,31 @@ public sealed class RepositoriesViewModelTests
     }
 
     [Fact]
-    public async Task StartBackup_RereadsConfigBeforeRun()
+    public async Task StartBackup_WithLoadedTree_DoesNotReadBeforeRunAndReadsPartiallyAfter()
     {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        _provider.ClearReceivedCalls();
+        var result = new BackupRunResult([], [], []);
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
+            .Returns(result);
+
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
 
-        Received.InOrder(() =>
-        {
-            _ = _provider.LoadAsync(Arg.Any<CancellationToken>());
-            _ = _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>());
-            _ = _provider.LoadAsync(Arg.Any<CancellationToken>());
-        });
+        await _provider.DidNotReceiveWithAnyArgs().LoadAsync(TestContext.Current.CancellationToken);
+        await _provider.Received(1).LoadAfterRunAsync(_overview, result, Arg.Any<CancellationToken>());
     }
 
     [Fact]
-    public async Task StartBackup_RereadFails_StillStartsRun()
+    public async Task StartBackup_TreeNeverRead_ReadsEverythingAfterRun()
+    {
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        await _provider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _provider.DidNotReceiveWithAnyArgs().LoadAfterRunAsync(default!, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task StartBackup_ConfigUnreadable_StillStartsRunAndShowsLoadError()
     {
         _provider.LoadAsync(Arg.Any<CancellationToken>())
             .ThrowsAsync(new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]));
@@ -431,6 +443,46 @@ public sealed class RepositoriesViewModelTests
 
         await _runService.Received(1).RunAsync(BackupRunFilter.All, false, Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>());
         _viewModel.HasLoadError.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task StartBackup_CancelledBeforeStart_ReadsEverythingAfterRun()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        _provider.ClearReceivedCalls();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        await _provider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _provider.DidNotReceiveWithAnyArgs().LoadAfterRunAsync(default!, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task StartBackup_UnexpectedError_ReadsEverythingAfterRun()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        _provider.ClearReceivedCalls();
+        _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new InvalidOperationException("Something broke."));
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+
+        await _provider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _provider.DidNotReceiveWithAnyArgs().LoadAfterRunAsync(default!, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Refresh_AfterRun_ReadsEverything()
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _provider.ClearReceivedCalls();
+
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+
+        await _provider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
     }
 
     [Fact]
@@ -662,7 +714,7 @@ public sealed class RepositoriesViewModelTests
         var afterRun = new RepositoryOverview(
             [new("octo", "https://github.com/octo", [new("octo", "tool", "octo", RepositoryOverviewStatus.Active, newArchivedAt, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }])],
             []);
-        _provider.LoadAsync(Arg.Any<CancellationToken>()).Returns(_overview, _overview, afterRun);
+        _provider.LoadAfterRunAsync(Arg.Any<RepositoryOverview>(), Arg.Any<BackupRunResult>(), Arg.Any<CancellationToken>()).Returns(afterRun);
         await _viewModel.RefreshCommand.ExecuteAsync(null);
         var before = FindNode("octo/tool");
         before.IsSelected = true;
@@ -674,7 +726,8 @@ public sealed class RepositoriesViewModelTests
         after.IsSelected.ShouldBeTrue();
         after.LastArchiveText.ShouldBe("2026-11-13 18:45");
         _viewModel.SelectedNode.ShouldBeSameAs(after);
-        await _provider.Received(3).LoadAsync(Arg.Any<CancellationToken>());
+        await _provider.Received(1).LoadAsync(Arg.Any<CancellationToken>());
+        await _provider.Received(1).LoadAfterRunAsync(Arg.Any<RepositoryOverview>(), Arg.Any<BackupRunResult>(), Arg.Any<CancellationToken>());
     }
 
     [Fact]

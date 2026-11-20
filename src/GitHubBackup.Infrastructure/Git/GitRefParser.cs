@@ -37,8 +37,24 @@ internal static class GitRefParser
     private const string _symbolicRefPrefix = "ref: ";
 
     /// <summary>
+    /// Builds the server's snapshot and finds its default branch in the output of
+    /// <c>git ls-remote --symref origin HEAD "refs/heads/*" "refs/tags/*"</c>.
+    /// </summary>
+    /// <param name="lines">The lines of standard output.</param>
+    /// <returns>The branches and tags as <see cref="ParseRemoteRefs"/> reads them and the default branch as
+    /// <see cref="ParseDefaultBranch"/> reads it.</returns>
+    public static RemoteRefs ParseRemoteListing(IReadOnlyList<string> lines) =>
+        new(ParseRemoteRefs(lines), ParseDefaultBranch(lines));
+
+    /// <summary>
     /// Builds the snapshot of the server from the output of <c>git ls-remote</c>.
     /// </summary>
+    /// <remarks>
+    /// The <c>HEAD</c> lines of <c>--symref</c>, peeled tag lines and <c>refs/heads/HEAD</c> are skipped: the clone
+    /// stores the server's <c>HEAD</c> as <c>origin/HEAD</c>, which its snapshot leaves out, so keeping any of them
+    /// would make the two snapshots of one state differ. A branch such as <c>refs/heads/x/HEAD</c> stays, because the
+    /// clone has it too.
+    /// </remarks>
     /// <param name="lines">The lines of standard output.</param>
     /// <returns>The branches under <c>refs/heads/</c> and the tags under <c>refs/tags/</c>, without peeled lines.</returns>
     public static RefSnapshot ParseRemoteRefs(IEnumerable<string> lines)
@@ -46,7 +62,10 @@ internal static class GitRefParser
         var refs = new List<KeyValuePair<string, string>>();
         foreach (var (objectId, name) in SplitLines(lines))
         {
-            if (name.EndsWith(_peeledSuffix, StringComparison.Ordinal))
+            if (objectId.StartsWith(_symbolicRefPrefix, StringComparison.Ordinal)
+                || string.Equals(name, _head, StringComparison.Ordinal)
+                || string.Equals(name, _serverBranchPrefix + _head, StringComparison.Ordinal)
+                || name.EndsWith(_peeledSuffix, StringComparison.Ordinal))
             {
                 continue;
             }
@@ -97,7 +116,8 @@ internal static class GitRefParser
     }
 
     /// <summary>
-    /// Finds the default branch in the output of <c>git ls-remote --symref origin HEAD</c>.
+    /// Finds the default branch in the output of <c>git ls-remote --symref origin HEAD</c>, with or without further
+    /// ref patterns.
     /// </summary>
     /// <param name="lines">The lines of standard output.</param>
     /// <returns>

@@ -73,7 +73,6 @@ public sealed class GitClientCloneTests : GitClientTestBase
     [InlineData("update")]
     [InlineData("local")]
     [InlineData("remote")]
-    [InlineData("default")]
     public async Task Operation_ClonePathWithoutGitInsideAnotherRepository_ThrowsGitCommandException(string operation)
     {
         var remote = await _sandbox.CreateRemoteAsync("repo", CancellationToken);
@@ -88,8 +87,7 @@ public sealed class GitClientCloneTests : GitClientTestBase
         {
             "update" => client.UpdateAsync(Request(), CancellationToken),
             "local" => client.GetLocalRefsAsync(Request(), CancellationToken),
-            "remote" => client.GetRemoteRefsAsync(Request(), CancellationToken),
-            _ => client.GetDefaultBranchAsync(Request(), CancellationToken),
+            _ => client.GetRemoteRefsAsync(Request(), CancellationToken),
         });
 
         exception.ExitCode.ShouldNotBe(0);

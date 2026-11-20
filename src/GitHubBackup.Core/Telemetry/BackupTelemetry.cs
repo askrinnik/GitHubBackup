@@ -36,28 +36,16 @@ public sealed class BackupTelemetry : IDisposable
     /// <summary>The operation that brings an existing clone up to date.</summary>
     public const string FetchOperation = "fetch";
 
-    /// <summary>The operation that reads the refs or the default branch of the server without touching the clone.</summary>
+    /// <summary>The operation that reads the refs and the default branch of the server without touching the clone.</summary>
     public const string LsRemoteOperation = "ls-remote";
 
     /// <summary>The operation that creates and records an archive.</summary>
     public const string ArchiveOperation = "archive";
 
-    /// <summary>The name of the span of the query for the refs of the server.</summary>
+    /// <summary>The name of the span of the query for the refs and the default branch of the server.</summary>
     public const string LsRemoteRefsSpanName = "ls-remote refs";
 
-    /// <summary>The name of the span of the query for the default branch of the server.</summary>
-    public const string LsRemoteDefaultBranchSpanName = "ls-remote default-branch";
-
-    /// <summary>The value of <see cref="GitQueryTag"/> for the query for the refs.</summary>
-    public const string RemoteRefsQuery = "remote_refs";
-
-    /// <summary>The value of <see cref="GitQueryTag"/> for the query for the default branch.</summary>
-    public const string DefaultBranchQuery = "default_branch";
-
-    /// <summary>The tag of the question an <see cref="LsRemoteOperation"/> span asks, one of the <c>*Query</c> constants.</summary>
-    public const string GitQueryTag = "githubbackup.git.query";
-
-    /// <summary>The tag of the number of refs the server reported.</summary>
+    /// <summary>The tag of the number of branches and tags the server reported.</summary>
     public const string GitRefsCountTag = "githubbackup.git.refs_count";
 
     /// <summary>The tag that tells whether the LFS content of the clone was pulled.</summary>
@@ -201,7 +189,7 @@ public sealed class BackupTelemetry : IDisposable
     /// </param>
     /// <returns>The result of <paramref name="action"/>.</returns>
     public Task<T> TraceOperationAsync<T>(string operation, Func<Task<T>> action, bool remoteMayBeMissing = false) =>
-        TraceAsync(operation, operation, null, _ => action(), remoteMayBeMissing);
+        TraceAsync(operation, operation, _ => action(), remoteMayBeMissing);
 
     /// <summary>
     /// Runs <paramref name="action"/> inside the span of an operation, hands it the span to tag with its result and
@@ -217,11 +205,11 @@ public sealed class BackupTelemetry : IDisposable
     /// <returns>The result of <paramref name="action"/>.</returns>
     public Task<T> TraceOperationAsync<T>(
         string operation, Func<Activity?, Task<T>> action, bool remoteMayBeMissing = false) =>
-        TraceAsync(operation, operation, null, action, remoteMayBeMissing);
+        TraceAsync(operation, operation, action, remoteMayBeMissing);
 
     /// <summary>
     /// Runs the query for the refs of the server inside the <see cref="LsRemoteRefsSpanName"/> span and tags the span
-    /// with the number of refs.
+    /// with the number of branches and tags.
     /// </summary>
     /// <param name="action">The query.</param>
     /// <param name="remoteMayBeMissing">
@@ -230,30 +218,42 @@ public sealed class BackupTelemetry : IDisposable
     /// </param>
     /// <returns>The refs of the server.</returns>
     public Task<RefSnapshot> TraceRemoteRefsAsync(Func<Task<RefSnapshot>> action, bool remoteMayBeMissing = false) =>
-        TraceAsync(
-            LsRemoteRefsSpanName,
-            LsRemoteOperation,
-            RemoteRefsQuery,
-            async activity =>
-            {
-                var refs = await action();
-                activity?.SetTag(GitRefsCountTag, refs.Refs.Count);
-                return refs;
-            },
-            remoteMayBeMissing);
+        TraceRemoteRefsAsync(action, refs => refs, remoteMayBeMissing);
 
     /// <summary>
-    /// Runs the query for the default branch of the server inside the <see cref="LsRemoteDefaultBranchSpanName"/> span.
+    /// Runs the query for the refs and the default branch of the server inside the <see cref="LsRemoteRefsSpanName"/>
+    /// span and tags the span with the number of branches and tags.
     /// </summary>
     /// <param name="action">The query.</param>
     /// <param name="remoteMayBeMissing">
     /// Whether the server may have no repository at all; a <see cref="GitRepositoryNotFoundException"/> is then an
     /// answer the caller handles, and the span is not marked failed.
     /// </param>
-    /// <returns>The default branch, or <see langword="null"/> when the server's <c>HEAD</c> names no branch.</returns>
-    public Task<string?> TraceDefaultBranchAsync(Func<Task<string?>> action, bool remoteMayBeMissing = false) =>
+    /// <returns>The refs and the default branch of the server.</returns>
+    public Task<RemoteRefs> TraceRemoteRefsAsync(Func<Task<RemoteRefs>> action, bool remoteMayBeMissing = false) =>
+        TraceRemoteRefsAsync(action, remote => remote.Refs, remoteMayBeMissing);
+
+    /// <summary>
+    /// Runs a query for the refs of the server inside the <see cref="LsRemoteRefsSpanName"/> span and tags the span
+    /// with the number of branches and tags of its answer.
+    /// </summary>
+    /// <typeparam name="T">The answer of the query.</typeparam>
+    /// <param name="action">The query.</param>
+    /// <param name="refsOf">Selects the branches and tags of the answer.</param>
+    /// <param name="remoteMayBeMissing">Whether a missing repository on the server is an answer, not a failure.</param>
+    /// <returns>The answer of the query.</returns>
+    private Task<T> TraceRemoteRefsAsync<T>(Func<Task<T>> action, Func<T, RefSnapshot> refsOf, bool remoteMayBeMissing) =>
         TraceAsync(
-            LsRemoteDefaultBranchSpanName, LsRemoteOperation, DefaultBranchQuery, _ => action(), remoteMayBeMissing);
+            LsRemoteRefsSpanName,
+            LsRemoteOperation,
+            async activity =>
+            {
+                var answer = await action();
+                var refs = refsOf(answer);
+                activity?.SetTag(GitRefsCountTag, refs.BranchCount + refs.TagCount);
+                return answer;
+            },
+            remoteMayBeMissing);
 
     /// <summary>
     /// Tags a clone or fetch span with the steps that ran after the checkout.
@@ -298,19 +298,13 @@ public sealed class BackupTelemetry : IDisposable
     /// <typeparam name="T">The result of the operation.</typeparam>
     /// <param name="spanName">The name of the span.</param>
     /// <param name="operation">The value of <see cref="OperationTag"/>.</param>
-    /// <param name="query">The value of <see cref="GitQueryTag"/>, or <see langword="null"/> for no query.</param>
     /// <param name="action">The operation, which receives the span.</param>
     /// <param name="remoteMayBeMissing">Whether a missing repository on the server is an answer, not a failure.</param>
     /// <returns>The result of <paramref name="action"/>.</returns>
     private async Task<T> TraceAsync<T>(
-        string spanName, string operation, string? query, Func<Activity?, Task<T>> action, bool remoteMayBeMissing)
+        string spanName, string operation, Func<Activity?, Task<T>> action, bool remoteMayBeMissing)
     {
         using var activity = _activitySource.StartActivity(spanName)?.SetTag(OperationTag, operation);
-        if (query is not null)
-        {
-            activity?.SetTag(GitQueryTag, query);
-        }
-
         try
         {
             return await action(activity);

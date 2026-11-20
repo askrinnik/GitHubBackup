@@ -112,6 +112,7 @@ public sealed class RepositoryDiscoveryService(
         };
         RepositoryDiscoveryServiceLog.Classified(
             logger, newInAccounts.Count, newStandalone.Count, missing.Count, returned.Count, renamed.Count);
+        LogRateLimit();
         return result;
     }
 
@@ -141,6 +142,7 @@ public sealed class RepositoryDiscoveryService(
         }
 
         RepositoryDiscoveryServiceLog.Checked(logger, entry.FullName, missing.Count, returned.Count, renamed.Count);
+        LogRateLimit();
         return new DiscoveryResult([], [], missing, returned, renamed)
         {
             Repositories = current is null ? [] : new Dictionary<long, GitHubRepository> { [current.Id] = current },
@@ -402,6 +404,18 @@ public sealed class RepositoryDiscoveryService(
         catch (Exception exception) when (exception is GitHubNotFoundException or GitHubAccessDeniedException)
         {
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Logs the rate limit state the API reported last; logs nothing when no request reported one.
+    /// </summary>
+    private void LogRateLimit()
+    {
+        if (gitHubApi.LastRateLimit is { } rateLimit)
+        {
+            RepositoryDiscoveryServiceLog.RateLimitAfterDiscovery(
+                logger, rateLimit.Remaining, rateLimit.Limit, rateLimit.ResetsAt);
         }
     }
 }

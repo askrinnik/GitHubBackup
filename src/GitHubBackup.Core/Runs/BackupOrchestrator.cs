@@ -504,6 +504,59 @@ public sealed class BackupOrchestrator(
         List<BackupItemResult> results,
         CancellationToken cancellationToken)
     {
+        var wikiChecks = new WikiCheckCounts();
+        try
+        {
+            return await ProcessEachAsync(work, missing, unresolved, discovered, settings, results, wikiChecks, cancellationToken);
+        }
+        finally
+        {
+            if (wikiChecks.Disabled > 0)
+            {
+                BackupOrchestratorLog.WikisDisabled(logger, wikiChecks.Disabled, wikiChecks.Checked);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Counts the wikis a run checks and the checked wikis whose feature is disabled.
+    /// </summary>
+    /// <remarks>The repositories are processed one after another, so plain counters are enough.</remarks>
+    private sealed class WikiCheckCounts
+    {
+        /// <summary>
+        /// Gets or sets the number of active repositories whose wiki feature was checked, including failed checks.
+        /// </summary>
+        public int Checked { get; set; }
+
+        /// <summary>
+        /// Gets or sets the number of checked repositories whose wiki feature is disabled.
+        /// </summary>
+        public int Disabled { get; set; }
+    }
+
+    /// <summary>
+    /// Processes the repositories and their wikis in order; <see cref="ProcessAllAsync"/> adds the wiki summary line.
+    /// </summary>
+    /// <param name="work">The repositories to process.</param>
+    /// <param name="missing">The ids of the repositories a dry run finds missing on GitHub.</param>
+    /// <param name="unresolved">The error of each entry whose missing ID could not be resolved, by <c>owner/name</c>.</param>
+    /// <param name="discovered">The repositories GitHub reported during discovery, by id.</param>
+    /// <param name="settings">The tools, the token, the temporary folder and the mode of the run.</param>
+    /// <param name="results">Receives the result of each repository and wiki.</param>
+    /// <param name="wikiChecks">Receives the count of checked and disabled wikis.</param>
+    /// <param name="cancellationToken">Cancels the work.</param>
+    /// <returns><see langword="true"/> when the run was cancelled before all the work was done.</returns>
+    private async Task<bool> ProcessEachAsync(
+        List<BackupWorkItem> work,
+        HashSet<long> missing,
+        Dictionary<string, string> unresolved,
+        IReadOnlyDictionary<long, GitHubRepository> discovered,
+        RunSettings settings,
+        List<BackupItemResult> results,
+        WikiCheckCounts wikiChecks,
+        CancellationToken cancellationToken)
+    {
         for (var index = 0; index < work.Count; index++)
         {
             var item = work[index];
@@ -537,7 +590,7 @@ public sealed class BackupOrchestrator(
                 started = timeProvider.GetTimestamp();
                 (current, target) = (item.WikiFullName, BackupTarget.Wiki);
                 var wikiStages = ItemProgress.Create(settings.Progress, item.WikiFullName, index + 1, work.Count);
-                var wiki = await ProcessWikiAsync(item, discovered, settings, wikiStages, cancellationToken);
+                var wiki = await ProcessWikiAsync(item, discovered, settings, wikiStages, wikiChecks, cancellationToken);
                 if (wiki is not null)
                 {
                     results.Add(wiki);
@@ -646,7 +699,7 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Keeps the repositories the filter of the run covers and logs each one it leaves out.
+    /// Keeps the repositories the filter of the run covers and, when the run has a filter, logs how many it keeps.
     /// </summary>
     /// <param name="items">The repositories of the configuration.</param>
     /// <param name="filter">The filter of the run.</param>
@@ -664,10 +717,15 @@ public sealed class BackupOrchestrator(
             {
                 kept.Add(item);
             }
-            else
-            {
-                BackupOrchestratorLog.RepositoryFilteredOut(logger, item.FullName);
-            }
+        }
+
+        if (filter.AccountLogin is { } account)
+        {
+            BackupOrchestratorLog.RunFilterAccount(logger, account, kept.Count, items.Count);
+        }
+        else if ((filter.RepositoryFullName ?? (checkedId is null ? null : kept.FirstOrDefault()?.FullName)) is { } repository)
+        {
+            BackupOrchestratorLog.RunFilterRepository(logger, repository, kept.Count, items.Count);
         }
 
         return kept;
@@ -1061,6 +1119,7 @@ public sealed class BackupOrchestrator(
     /// <param name="stages">
     /// Receives each operation on the wiki once the wiki is known to be enabled, or <see langword="null"/>.
     /// </param>
+    /// <param name="wikiChecks">Counts the check and, when the wiki feature is disabled, the disabled wiki.</param>
     /// <param name="cancellationToken">Cancels the work; cancellation is rethrown, not recorded as a failure.</param>
     /// <returns>
     /// The result of the wiki, or <see langword="null"/> when the repository is not active or the wiki feature is
@@ -1071,6 +1130,7 @@ public sealed class BackupOrchestrator(
         IReadOnlyDictionary<long, GitHubRepository> discovered,
         RunSettings settings,
         IProgress<BackupProgressStage>? stages,
+        WikiCheckCounts wikiChecks,
         CancellationToken cancellationToken)
     {
         if (!item.IsActive)
@@ -1089,14 +1149,16 @@ public sealed class BackupOrchestrator(
         {
             // Without the answer the wiki may go unprotected, so the failed lookup is the failure of the wiki; the
             // repository keeps its own result.
+            wikiChecks.Checked++;
             BackupOrchestratorLog.WikiLookupFailed(logger, exception);
             using var failed = telemetry.StartRepository(item.WikiFullName, BackupTarget.Wiki);
             return FinishWiki(item, started, new(BackupItemStatus.Failed, null, exception.Message), failed, exception);
         }
 
+        wikiChecks.Checked++;
         if (!enabled)
         {
-            BackupOrchestratorLog.WikiDisabled(logger);
+            wikiChecks.Disabled++;
             return null;
         }
 

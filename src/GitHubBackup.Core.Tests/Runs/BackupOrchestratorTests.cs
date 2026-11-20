@@ -47,7 +47,10 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const int _repositoryExcludedEventId = 11;
     private const int _wikiNotFoundEventId = 13;
     private const int _wikiLookupFailedEventId = 14;
+    private const int _wikisDisabledEventId = 27;
     private const int _discoverySkippedEventId = 15;
+    private const int _runFilterAccountEventId = 25;
+    private const int _runFilterRepositoryEventId = 26;
     private const int _dryRunStartedEventId = 18;
     private const int _temporaryFolderLeftUntouchedEventId = 19;
     private const int _repositoryMissingEventId = 20;
@@ -967,6 +970,42 @@ public sealed class BackupOrchestratorTests : IDisposable
     }
 
     [Fact]
+    public async Task RunAsync_SomeWikisDisabled_LogsOneLineWithCounts()
+    {
+        AddRepository("other");
+        AddRepository("third");
+        SetupWikiFeature(name => name == "third");
+
+        await RunAsync();
+
+        var record = SingleRecord(_wikisDisabledEventId);
+        record.Level.ShouldBe(LogLevel.Debug);
+        record.Message.ShouldBe("Wiki is disabled for 2 of 3 repositories");
+        _logger.Collector.GetSnapshot().ShouldNotContain(item => item.Message.Contains("Wiki skipped: the wiki feature is disabled"));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoWikiDisabled_LogsNoWikiSummary()
+    {
+        SetupWiki(hasWiki: true);
+
+        await RunAsync();
+
+        Records(_wikisDisabledEventId).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_InactiveRepository_IsNotCountedInWikiSummary()
+    {
+        AddRepository("other");
+        _config.Repositories[1].Status = RepositoryStatus.Unavailable;
+
+        await RunAsync();
+
+        SingleRecord(_wikisDisabledEventId).Message.ShouldBe("Wiki is disabled for 1 of 1 repositories");
+    }
+
+    [Fact]
     public async Task RunAsync_WikiNotFound_ReportsSkippedWikiAndLogs()
     {
         SetupWiki(hasWiki: true);
@@ -1390,6 +1429,48 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         result.Items.Select(item => item.Repository).ShouldBe(["octocat/listed"]);
         await _discovery.Received(1).DiscoverAsync(_config, "OctoCat", CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_AccountFilter_LogsOneCountLineAndNoPerRepositoryLines()
+    {
+        _config.Accounts.Add(new() { Url = "https://github.com/octocat", Repositories = [new() { Name = "listed", Id = 10 }, new() { Name = "second", Id = 13 }] });
+        _config.Accounts.Add(new() { Url = "https://github.com/other", Repositories = [new() { Name = "foreign", Id = 11 }] });
+
+        await RunAsync(BackupRunFilter.ForAccount("OctoCat"));
+
+        var record = SingleRecord(_runFilterAccountEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Account").ShouldBe("OctoCat");
+        record.GetStructuredStateValue("Kept").ShouldBe("2");
+        record.GetStructuredStateValue("Total").ShouldBe("4");
+        _logger.Collector.GetSnapshot().ShouldNotContain(entry => entry.Message.Contains("outside the filter"));
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilter_LogsOneCountLine()
+    {
+        AddRepository("other");
+
+        await RunAsync(BackupRunFilter.ForRepository("owner", "other"));
+
+        var record = SingleRecord(_runFilterRepositoryEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Repository").ShouldBe("owner/other");
+        record.GetStructuredStateValue("Kept").ShouldBe("1");
+        record.GetStructuredStateValue("Total").ShouldBe("2");
+        _logger.Collector.GetSnapshot().ShouldNotContain(entry => entry.Message.Contains("outside the filter"));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoFilter_LogsNoFilterLine()
+    {
+        AddRepository("other");
+
+        await RunAsync();
+
+        Records(_runFilterAccountEventId).ShouldBeEmpty();
+        Records(_runFilterRepositoryEventId).ShouldBeEmpty();
     }
 
     [Fact]
@@ -2676,6 +2757,23 @@ public sealed class BackupOrchestratorTests : IDisposable
                 IsFork: false,
                 IsArchived: false,
                 hasWiki,
+                "main",
+                $"https://github.com/{call.ArgAt<string>(0)}/{call.ArgAt<string>(1)}"));
+
+    /// <summary>
+    /// Makes the GitHub API report for each repository, by name, whether its wiki feature is enabled.
+    /// </summary>
+    /// <param name="hasWiki">Tells whether the wiki feature of the repository with the given name is enabled.</param>
+    private void SetupWikiFeature(Func<string, bool> hasWiki) =>
+        _gitHubApi.GetRepositoryAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<CancellationToken>()).Returns(call =>
+            new GitHubRepository(
+                1,
+                call.ArgAt<string>(0),
+                call.ArgAt<string>(1),
+                IsPrivate: false,
+                IsFork: false,
+                IsArchived: false,
+                hasWiki(call.ArgAt<string>(1)),
                 "main",
                 $"https://github.com/{call.ArgAt<string>(0)}/{call.ArgAt<string>(1)}"));
 

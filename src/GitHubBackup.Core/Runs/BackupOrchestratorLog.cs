@@ -120,11 +120,16 @@ internal static partial class BackupOrchestratorLog
     public static partial void RepositoryFinished(ILogger logger, BackupItemStatus status, string? archive, TimeSpan duration);
 
     /// <summary>
-    /// Logs that the wiki of a repository is not backed up because the wiki feature is disabled.
+    /// Logs once per run how many of the checked wikis have the wiki feature disabled, so they are not backed up.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    [LoggerMessage(EventId = 12, Level = LogLevel.Debug, Message = "Wiki skipped: the wiki feature is disabled")]
-    public static partial void WikiDisabled(ILogger logger);
+    /// <param name="disabled">The number of repositories whose wiki feature is disabled.</param>
+    /// <param name="checked">The number of active repositories whose wiki feature was checked.</param>
+    [LoggerMessage(
+        EventId = 27,
+        Level = LogLevel.Debug,
+        Message = "Wiki is disabled for {Disabled} of {Checked} repositories")]
+    public static partial void WikisDisabled(ILogger logger, int disabled, int @checked);
 
     /// <summary>
     /// Logs that the wiki feature is enabled but the server has no wiki repository, so there is nothing to back up.
@@ -162,15 +167,30 @@ internal static partial class BackupOrchestratorLog
     public static partial void DiscoverySkipped(ILogger logger, string repository);
 
     /// <summary>
-    /// Logs a repository of the configuration that the filter of the run leaves out.
+    /// Logs how many repositories of the configuration the account filter of the run keeps.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="account">The login of the account the run is limited to.</param>
+    /// <param name="kept">The number of repositories the run processes.</param>
+    /// <param name="total">The number of repositories of the configuration.</param>
     [LoggerMessage(
-        EventId = 16,
-        Level = LogLevel.Debug,
-        Message = "Repository {Repository} is outside the filter of the run and is not processed")]
-    public static partial void RepositoryFilteredOut(ILogger logger, string repository);
+        EventId = 25,
+        Level = LogLevel.Information,
+        Message = "Run filter account {Account} keeps {Kept} of {Total} repositories")]
+    public static partial void RunFilterAccount(ILogger logger, string account, int kept, int total);
+
+    /// <summary>
+    /// Logs how many repositories of the configuration the repository filter of the run keeps.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository the run is limited to as <c>owner/name</c>.</param>
+    /// <param name="kept">The number of repositories the run processes.</param>
+    /// <param name="total">The number of repositories of the configuration.</param>
+    [LoggerMessage(
+        EventId = 26,
+        Level = LogLevel.Information,
+        Message = "Run filter repository {Repository} keeps {Kept} of {Total} repositories")]
+    public static partial void RunFilterRepository(ILogger logger, string repository, int kept, int total);
 
     /// <summary>
     /// Logs a new repository that the decision left out of the configuration, so it is reported as skipped.

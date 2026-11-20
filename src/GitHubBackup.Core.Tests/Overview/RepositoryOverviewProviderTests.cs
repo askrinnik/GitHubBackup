@@ -2,6 +2,7 @@ using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.Configuration;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.Overview;
+using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.State;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -256,6 +257,161 @@ public sealed class RepositoryOverviewProviderTests
 
         overview.StandaloneRepositories.ShouldHaveSingleItem().LastArchiveAt.ShouldBeNull();
     }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_ProcessedRepository_ReadsItsState()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool", "lib")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+        var state = BackupState.CreateEmpty(1, "octo/tool")
+            .WithArchive(BackupTarget.Repository, CreateRecord("new.zip", _lastCreatedAt), "octo/tool");
+        _stateStore.LoadAsync(@"C:\backup\octo\tool", 1, "octo/tool", Arg.Any<CancellationToken>()).Returns(state);
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult("octo/tool"), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].Repositories[0].LastArchiveAt.ShouldBe(_lastCreatedAt);
+        await _stateStore.Received(1).LoadAsync(
+            Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_UnprocessedRepository_KeepsPreviousStateWithoutReading()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool", "broken")] });
+        _stateStore.LoadAsync(@"C:\backup\octo\tool", 1, "octo/tool", Arg.Any<CancellationToken>())
+            .Returns(BackupState.CreateEmpty(1, "octo/tool")
+                .WithArchive(BackupTarget.Repository, CreateRecord("a.zip", _lastCreatedAt), "octo/tool"));
+        _stateStore.LoadAsync(@"C:\backup\octo\broken", 2, "octo/broken", Arg.Any<CancellationToken>())
+            .ThrowsAsync(new BackupStateException(@"C:\backup\octo\broken\.backup-state.json", ["Bad JSON."]));
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        var entries = overview.Accounts[0].Repositories;
+        entries[0].LastArchiveAt.ShouldBe(_lastCreatedAt);
+        entries[1].StateError.ShouldNotBeNull();
+        await _stateStore.DidNotReceiveWithAnyArgs().LoadAsync(default!, default, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_NewEntry_ReadsItsState()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool", "lib")] });
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].Repositories.Select(entry => entry.Name).ShouldBe(["tool", "lib"]);
+        await _stateStore.Received(1).LoadAsync(
+            @"C:\backup\octo\lib", 2, "octo/lib", Arg.Any<CancellationToken>());
+        await _stateStore.Received(1).LoadAsync(
+            Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_ChangedArchiveFolder_ReadsItsState()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+        UseConfig(new() { BackupRoot = @"C:\other", Accounts = [CreateAccount("octo", "tool")] });
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].Repositories[0].ArchiveFolder.ShouldBe(@"C:\other\octo\tool");
+        await _stateStore.Received(1).LoadAsync(
+            @"C:\other\octo\tool", 1, "octo/tool", Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_WikiResult_ReadsStateOfItsRepository()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool", "lib")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+
+        await _provider.LoadAfterRunAsync(
+            previous, CreateResult("octo/TOOL.wiki", BackupTarget.Wiki), TestContext.Current.CancellationToken);
+
+        await _stateStore.Received(1).LoadAsync(
+            @"C:\backup\octo\tool", 1, "octo/tool", Arg.Any<CancellationToken>());
+        await _stateStore.Received(1).LoadAsync(
+            Arg.Any<string>(), Arg.Any<long>(), Arg.Any<string>(), Arg.Any<CancellationToken>());
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_EntryWithoutId_MatchesPreviousByName()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Repositories = [CreateStandalone("octo", "tool", id: 0)] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        _stateStore.ClearReceivedCalls();
+
+        await _provider.LoadAfterRunAsync(previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        await _stateStore.DidNotReceiveWithAnyArgs().LoadAsync(default!, default, default!, TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_ExcludedByNewConfiguration_RecomputesStatus()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        UseConfig(new() { BackupRoot = _backupRoot, Exclude = ["octo/tool"], Accounts = [CreateAccount("octo", "tool")] });
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].Repositories.ShouldHaveSingleItem().Status.ShouldBe(RepositoryOverviewStatus.Excluded);
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_RemovedEntry_IsAbsent()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool", "lib")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });
+
+        var overview = await _provider.LoadAfterRunAsync(
+            previous, CreateResult(), TestContext.Current.CancellationToken);
+
+        overview.Accounts[0].Repositories.Select(entry => entry.Name).ShouldBe(["tool"]);
+    }
+
+    [Fact]
+    public async Task LoadAfterRunAsync_InvalidConfiguration_ThrowsBackupConfigException()
+    {
+        UseConfig(new() { BackupRoot = _backupRoot, Accounts = [CreateAccount("octo", "tool")] });
+        var previous = await _provider.LoadAsync(TestContext.Current.CancellationToken);
+        var error = new BackupConfigException(@"C:\app\backup-config.json", ["backupRoot must be set."]);
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).ThrowsAsync(error);
+
+        var exception = await Should.ThrowAsync<BackupConfigException>(
+            () => _provider.LoadAfterRunAsync(previous, CreateResult(), TestContext.Current.CancellationToken));
+
+        exception.ShouldBeSameAs(error);
+    }
+
+    /// <summary>
+    /// Creates a run result that processed the given repository.
+    /// </summary>
+    /// <param name="repository">The name of the processed repository as the result carries it, or none.</param>
+    /// <param name="target">What the result is about.</param>
+    /// <returns>The result.</returns>
+    private static BackupRunResult CreateResult(string? repository = null, BackupTarget target = BackupTarget.Repository) =>
+        new(
+            repository is null
+                ? []
+                : [new(repository, BackupItemStatus.Archived, null, TimeSpan.Zero, null) { Target = target }],
+            [],
+            []);
 
     /// <summary>
     /// Makes the configuration store return <paramref name="config"/>.

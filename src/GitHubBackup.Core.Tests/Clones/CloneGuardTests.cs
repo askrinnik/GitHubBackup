@@ -12,7 +12,7 @@ public sealed class CloneGuardTests
 {
     private const string _clonePath = @"D:\Work\MyRepo";
 
-    private static readonly RefSnapshot _remote = new([new("heads/main", "a"), new("heads/dev", "b")]);
+    private static readonly RemoteRefs _remote = new(new([new("heads/main", "a"), new("heads/dev", "b")]), "main");
 
     private readonly IGitClient _git = Substitute.For<IGitClient>();
     private readonly CloneGuard _guard;
@@ -24,7 +24,6 @@ public sealed class CloneGuardTests
     {
         _guard = new(_git, NullLogger<CloneGuard>.Instance);
         _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>()).Returns(_remote);
-        _git.GetDefaultBranchAsync(Arg.Any<GitRepositoryRequest>(), Arg.Any<CancellationToken>()).Returns("main");
     }
 
     private static CancellationToken Token => TestContext.Current.CancellationToken;
@@ -91,17 +90,18 @@ public sealed class CloneGuardTests
         var result = await CheckAsync(null);
 
         result.Problems.ShouldBe(["branch 'dev' instead of 'main'"]);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Token);
     }
 
     [Fact]
-    public async Task CheckAsync_ConfiguredBranchOnServer_ExpectsItWithoutAskingForDefault()
+    public async Task CheckAsync_ConfiguredBranchOnServer_ExpectsItAfterOneServerRead()
     {
         SetupStatus(Status(branch: "dev"));
 
         var result = await CheckAsync("dev");
 
         result.Passed.ShouldBeTrue();
-        await _git.DidNotReceiveWithAnyArgs().GetDefaultBranchAsync(default!, Token);
+        await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Token);
     }
 
     [Fact]
@@ -154,7 +154,6 @@ public sealed class CloneGuardTests
 
         result.Problems.ShouldBe(["untracked files", "branch 'feature' instead of 'main'"]);
         await _git.DidNotReceiveWithAnyArgs().GetRemoteRefsAsync(default!, Token);
-        await _git.DidNotReceiveWithAnyArgs().GetDefaultBranchAsync(default!, Token);
     }
 
     [Fact]
@@ -178,9 +177,36 @@ public sealed class CloneGuardTests
     }
 
     [Fact]
+    public async Task CheckAsync_RemoteGivenWithoutConfiguredBranch_ExpectsItsDefaultBranchWithoutServerRead()
+    {
+        SetupStatus(Status(branch: "main"));
+        RemoteRefs remote = new(_remote.Refs, "dev");
+
+        var result = await _guard.CheckAsync(Request(null), remote, null, Token);
+
+        result.Problems.ShouldBe(["branch 'main' instead of 'dev'"]);
+        result.ExpectedBranch.ShouldBe("dev");
+        await _git.DidNotReceiveWithAnyArgs().GetRemoteRefsAsync(default!, Token);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("gone")]
+    public async Task CheckAsync_DefaultBranchUnknownOrMissing_SkipsBranchCheck(string? defaultBranch)
+    {
+        SetupStatus(Status(branch: "feature"));
+        RemoteRefs remote = new(_remote.Refs, defaultBranch);
+
+        var result = await _guard.CheckAsync(Request(null), remote, null, Token);
+
+        result.Passed.ShouldBeTrue();
+        result.ExpectedBranch.ShouldBeNull();
+    }
+
+    [Fact]
     public async Task CheckAsync_EmptyServer_DoesNotCheckBranch()
     {
-        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Token).Returns(RefSnapshot.Empty);
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), Token).Returns(new RemoteRefs(RefSnapshot.Empty, null));
         SetupStatus(Status(branch: "feature"));
 
         var result = await CheckAsync("main");

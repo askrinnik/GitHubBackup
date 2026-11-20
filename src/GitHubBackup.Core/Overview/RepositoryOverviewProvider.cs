@@ -24,7 +24,59 @@ public sealed class RepositoryOverviewProvider(
     IOptions<BackupOptions> options) : IRepositoryOverviewProvider
 {
     /// <inheritdoc />
-    public async Task<RepositoryOverview> LoadAsync(CancellationToken cancellationToken)
+    public Task<RepositoryOverview> LoadAsync(CancellationToken cancellationToken) =>
+        BuildAsync(ReadStateAsync, cancellationToken);
+
+    /// <inheritdoc />
+    public Task<RepositoryOverview> LoadAfterRunAsync(
+        RepositoryOverview previous, BackupRunResult result, CancellationToken cancellationToken)
+    {
+        var processed = result.Items
+            .Select(item => item.Target == BackupTarget.Wiki ? TrimWikiSuffix(item.Repository) : item.Repository)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var byId = new Dictionary<long, RepositoryOverviewEntry>();
+        var byName = new Dictionary<string, RepositoryOverviewEntry>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in previous.Accounts.SelectMany(account => account.Repositories)
+                     .Concat(previous.StandaloneRepositories))
+        {
+            byName.TryAdd(entry.FullName, entry);
+            if (entry.RepositoryId != 0)
+            {
+                byId.TryAdd(entry.RepositoryId, entry);
+            }
+        }
+
+        return BuildAsync(
+            (item, token) =>
+            {
+                var old = item.Id != 0 && byId.TryGetValue(item.Id, out var found) ? found
+                    : byName.GetValueOrDefault(item.FullName);
+                return old is not null
+                       && string.Equals(old.ArchiveFolder, item.ArchiveFolder, StringComparison.OrdinalIgnoreCase)
+                       && !processed.Contains(item.FullName)
+                    ? Task.FromResult(new StateReading(old.LastArchiveAt, old.StateError))
+                    : ReadStateAsync(item, token);
+            },
+            cancellationToken);
+    }
+
+    /// <summary>
+    /// Removes the <c>.wiki</c> suffix of the name a wiki result carries.
+    /// </summary>
+    /// <param name="name">The <c>owner/name.wiki</c> of a wiki result.</param>
+    /// <returns>The <c>owner/name</c> of its repository.</returns>
+    private static string TrimWikiSuffix(string name) =>
+        name.EndsWith(".wiki", StringComparison.OrdinalIgnoreCase) ? name[..^".wiki".Length] : name;
+
+    /// <summary>
+    /// Reads the configuration and builds the overview, taking the state of each repository from
+    /// <paramref name="getState"/>.
+    /// </summary>
+    /// <param name="getState">Returns the date of the last archive and the state error of a repository.</param>
+    /// <param name="cancellationToken">Cancels reading the files.</param>
+    /// <returns>The accounts and the standalone repositories.</returns>
+    private async Task<RepositoryOverview> BuildAsync(
+        Func<BackupWorkItem, CancellationToken, Task<StateReading>> getState, CancellationToken cancellationToken)
     {
         var config = (await configStore.LoadAsync(cancellationToken)).Config;
         IReadOnlyList<BackupWorkItem> items;
@@ -49,7 +101,7 @@ public sealed class RepositoryOverviewProvider(
             var repositories = new List<RepositoryOverviewEntry>(account.Repositories.Count);
             for (var index = 0; index < account.Repositories.Count; index++)
             {
-                repositories.Add(await CreateEntryAsync(config, items[next++], cancellationToken));
+                repositories.Add(await CreateEntryAsync(config, items[next++], getState, cancellationToken));
             }
 
             accounts.Add(new(login, account.Url, repositories));
@@ -58,7 +110,7 @@ public sealed class RepositoryOverviewProvider(
         var standalone = new List<RepositoryOverviewEntry>(items.Count - next);
         while (next < items.Count)
         {
-            standalone.Add(await CreateEntryAsync(config, items[next++], cancellationToken));
+            standalone.Add(await CreateEntryAsync(config, items[next++], getState, cancellationToken));
         }
 
         return new(accounts, standalone);
@@ -69,30 +121,49 @@ public sealed class RepositoryOverviewProvider(
     /// </summary>
     /// <param name="config">The configuration that holds the exclusion masks.</param>
     /// <param name="item">The repository with its archive folder resolved.</param>
+    /// <param name="getState">Returns the date of the last archive and the state error of the repository.</param>
     /// <param name="cancellationToken">Cancels reading the state file.</param>
     /// <returns>The entry.</returns>
     private async Task<RepositoryOverviewEntry> CreateEntryAsync(
-        BackupConfig config, BackupWorkItem item, CancellationToken cancellationToken)
+        BackupConfig config,
+        BackupWorkItem item,
+        Func<BackupWorkItem, CancellationToken, Task<StateReading>> getState,
+        CancellationToken cancellationToken)
     {
         var status = exclusionMatcher.Match(config, item.Owner, item.Name) is not null ? RepositoryOverviewStatus.Excluded
             : item.IsActive ? RepositoryOverviewStatus.Active
             : RepositoryOverviewStatus.Unavailable;
-        DateTimeOffset? lastArchiveAt = null;
-        string? stateError = null;
-        try
-        {
-            var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
-            lastArchiveAt = state.GetLastArchive(BackupTarget.Repository)?.CreatedAt;
-        }
-        catch (BackupStateException exception)
-        {
-            stateError = exception.Message;
-        }
-
-        return new(item.Owner, item.Name, item.AccountLogin, status, lastArchiveAt, stateError)
+        var state = await getState(item, cancellationToken);
+        return new(item.Owner, item.Name, item.AccountLogin, status, state.LastArchiveAt, state.StateError)
         {
             RepositoryId = item.Id,
             ArchiveFolder = item.ArchiveFolder,
         };
     }
+
+    /// <summary>
+    /// Reads the state file of one repository.
+    /// </summary>
+    /// <param name="item">The repository with its archive folder resolved.</param>
+    /// <param name="cancellationToken">Cancels reading the state file.</param>
+    /// <returns>The date of the last archive, or the reason the state file cannot be read.</returns>
+    private async Task<StateReading> ReadStateAsync(BackupWorkItem item, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var state = await stateStore.LoadAsync(item.ArchiveFolder, item.Id, item.FullName, cancellationToken);
+            return new(state.GetLastArchive(BackupTarget.Repository)?.CreatedAt, null);
+        }
+        catch (BackupStateException exception)
+        {
+            return new(null, exception.Message);
+        }
+    }
+
+    /// <summary>
+    /// The state of a repository as the overview shows it.
+    /// </summary>
+    /// <param name="LastArchiveAt">The local time of the last archive, or <see langword="null"/>.</param>
+    /// <param name="StateError">Why the state file cannot be read, or <see langword="null"/>.</param>
+    private readonly record struct StateReading(DateTimeOffset? LastArchiveAt, string? StateError);
 }
