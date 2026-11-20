@@ -361,6 +361,51 @@ public sealed class SettingsEditorTests : IDisposable
         AssertNoElementExposes(session.MainWindow, "variable-secret");
     }
 
+    [Theory]
+    [InlineData(SettingsSection.General, "SettingsGeneralGroup", "SettingsFoldersCard,SettingsDiscoveryCard,SettingsAppearanceCard")]
+    [InlineData(SettingsSection.Accounts, "SettingsAccountsGroup", "SettingsAccountListCard,SettingsAccountCard,SettingsAccountRepositoriesCard")]
+    [InlineData(SettingsSection.Repositories, "SettingsRepositoriesGroup", "SettingsRepositoriesCard")]
+    [InlineData(SettingsSection.Tools, "SettingsToolsGroup", "SettingsToolsCard")]
+    [InlineData(SettingsSection.Telemetry, "SettingsTelemetryGroup", "SettingsTelemetryCard")]
+    [InlineData(SettingsSection.Token, "SettingsTokenGroup", "SettingsTokenCard,SettingsTokenCheckResultCard")]
+    public void SelectSection_ShowsCardsOfTheSectionBelowEachOther(SettingsSection section, string groupId, string cardIds)
+    {
+        OpenSettings();
+        _session.WaitFor("SettingsNavigationCard");
+
+        SelectSection(section);
+
+        var group = _session.WaitFor(groupId);
+        var cards = cardIds.Split(',').Select(id => AppSession.WaitFor(group, id)).ToArray();
+        foreach (var card in cards)
+        {
+            card.ControlType.ShouldBe(FlaUI.Core.Definitions.ControlType.Group);
+            card.Name.ShouldNotBeNullOrEmpty();
+        }
+
+        // The cards stand below or to the right of each other and never overlap.
+        for (var i = 1; i < cards.Length; i++)
+        {
+            var previous = cards[i - 1].BoundingRectangle;
+            var next = cards[i].BoundingRectangle;
+            (next.Top >= previous.Bottom || next.Left >= previous.Right).ShouldBeTrue($"{cards[i].AutomationId} overlaps {cards[i - 1].AutomationId}");
+        }
+    }
+
+    [Fact]
+    public void Open_ShowsSaveRightOfCancelAtTheRightEdge()
+    {
+        OpenSettings();
+
+        var cancel = _session.WaitFor("CancelSettingsButton").BoundingRectangle;
+        var save = _session.WaitFor("SaveSettingsButton").BoundingRectangle;
+        var window = _session.MainWindow.BoundingRectangle;
+        save.Left.ShouldBeGreaterThan(cancel.Right);
+        ((double)save.Top).ShouldBe(cancel.Top, 2);
+        (window.Right - save.Right).ShouldBeLessThan(save.Width);
+        cancel.Left.ShouldBeGreaterThan(window.Left + (window.Width / 2));
+    }
+
     [Fact]
     public void Open_ShowsOneSaveButtonWithoutGroupSaveButtons()
     {

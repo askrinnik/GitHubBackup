@@ -28,11 +28,6 @@
             <Setter Property="ResizeDirection" Value="Rows" />
             <Setter Property="ResizeBehavior" Value="PreviousAndNext" />
         </Style>
-        <!-- A list inside a card takes the fill of the card and draws no frame of its own. -->
-        <Style x:Key="CardListBoxStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-        </Style>
         <!-- The indent of a child node in the Fluent tree view item: the expander column of its parent. -->
         <GridLength x:Key="TreeChildIndent">19</GridLength>
         <!-- The width of one status slot; both slots keep it while empty, so the date column does not move. -->

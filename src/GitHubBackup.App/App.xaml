@@ -15,13 +15,19 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <converters:PixelGridLengthConverter x:Key="PixelGridLengthConverter" />
         <converters:OptionalRowHeightConverter x:Key="OptionalRowHeightConverter" />
-        <!-- A panel of the main window: a card set apart from the window and from the other panels. -->
+        <!-- A panel of the main window or of the settings editor: a card set apart from the window and from the other
+             panels. -->
         <Style x:Key="PanelCardStyle" TargetType="controls:CardPanel">
             <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <!-- A list inside a card takes the fill of the card and draws no frame of its own. -->
+        <Style x:Key="CardListBoxStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
         </Style>
         <!-- The glyphs of the tree node kinds, each in one place; the font is the one of the settings sections. -->
         <sys:String x:Key="AccountNodeGlyph">&#xE77B;</sys:String>

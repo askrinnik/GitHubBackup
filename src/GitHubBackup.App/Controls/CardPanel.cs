@@ -4,7 +4,7 @@ using System.Windows.Controls;
 namespace GitHubBackup.App.Controls;
 
 /// <summary>
-/// A panel of the main window drawn as a card: the fill, frame, corner radius and padding come from the shared
+/// A panel of the main window or of the settings editor drawn as a card: the fill, frame, corner radius and padding come from the shared
 /// <c>PanelCardStyle</c>. Unlike a plain <see cref="Border"/>, it is visible to UI Automation as a group, so tests
 /// and screen readers see the panel, its automation id and its bounds.
 /// </summary>

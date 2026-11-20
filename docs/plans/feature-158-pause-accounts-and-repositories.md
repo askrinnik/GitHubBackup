@@ -190,7 +190,7 @@
 - [x] К2: область обнаружения в `RepositoryDiscoveryService`
 - [x] К2: `BackupConfigJson` с паузой; тесты Core, Cli, App; PRD FR-2.7, FR-9.7; README (пауза)
 - [x] К3: флаги Overview; значки в ViewModel узлов; XAML-слоты, глифы, подсказки, UIA; сценарий `paused-entries`; development.md; тесты; PRD FR-12.1; README
-- [ ] К4: карточки разделов, заголовки, Save/Cancel справа с акцентом; PRD FR-12.5 «Вид»
+- [x] К4: карточки разделов, заголовки, Save/Cancel справа с акцентом; PRD FR-12.5 «Вид»
 - [ ] К5: `IsPaused`/`IsUnavailable` в ViewModel; заголовки колонок; флажок аккаунта; значки в `AccountsList`; тесты; PRD FR-12.5; README
 - [ ] Перед PR: полный набор, все UI-тесты (FlaUI и скриншоты), format check
 
