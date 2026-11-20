@@ -95,7 +95,10 @@ public sealed class ChangeDetector(
                     request.RemoteMayBeMissing);
             }
 
-            return Log(request, new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, refs));
+            return Log(
+                request,
+                new(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, refs),
+                request.CheckRemoteWithoutClone);
         }
 
         request.OperationProgress?.Report(BackupProgressStage.CheckingRemote);
@@ -395,10 +398,24 @@ public sealed class ChangeDetector(
     /// </summary>
     /// <param name="request">The request that was checked.</param>
     /// <param name="detection">The result.</param>
+    /// <param name="serverQueried">
+    /// Whether <paramref name="detection"/> holds the refs of the server; otherwise the log carries no ref counts.
+    /// </param>
     /// <returns><paramref name="detection"/>.</returns>
-    private ChangeDetection Log(ChangeDetectionRequest request, ChangeDetection detection)
+    private ChangeDetection Log(ChangeDetectionRequest request, ChangeDetection detection, bool serverQueried = true)
     {
-        ChangeDetectorLog.Decided(logger, request.Git.ClonePath, detection.Decision, detection.Reason, detection.Branch);
+        var path = request.Git.ClonePath;
+        if (serverQueried)
+        {
+            ChangeDetectorLog.Decided(
+                logger, path, detection.Decision, detection.Reason, detection.Branch,
+                detection.Refs.BranchCount, detection.Refs.TagCount);
+        }
+        else
+        {
+            ChangeDetectorLog.DecidedWithoutServer(logger, path, detection.Decision, detection.Reason, detection.Branch);
+        }
+
         return detection;
     }
 }

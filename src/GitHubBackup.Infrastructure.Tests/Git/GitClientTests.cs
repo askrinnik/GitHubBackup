@@ -364,6 +364,41 @@ public sealed class GitClientTests
     }
 
     [Fact]
+    public async Task GetRemoteRefsAsync_ValidRequest_RunsLsRemoteAtDebugLevel()
+    {
+        _respond = request => Output($"{_mainCommit}	refs/heads/main");
+
+        await CreateClient().GetRemoteRefsAsync(Request(_token), TestContext.Current.CancellationToken);
+
+        _requests.ShouldHaveSingleItem().LogLevel.ShouldBe(LogLevel.Debug);
+    }
+
+    [Fact]
+    public async Task GetRemoteRefsAsync_RemoteUrl_RunsLsRemoteAtDebugLevel()
+    {
+        _fileSystem.AddDirectory(_parentPath);
+        _respond = request => Output($"{_mainCommit}	refs/heads/main");
+
+        await CreateClient().GetRemoteRefsAsync(Request(_token), _remoteUrl, TestContext.Current.CancellationToken);
+
+        _requests.ShouldHaveSingleItem().LogLevel.ShouldBe(LogLevel.Debug);
+    }
+
+    [Fact]
+    public async Task CloneAsync_ValidRequest_RunsOnlyLsRemoteAtDebugLevel()
+    {
+        await CreateClient().CloneAsync(
+            Request() with { Branch = null }, _remoteUrl, TestContext.Current.CancellationToken);
+
+        var lsRemote = _requests.Where(request => request.Arguments[0] == "ls-remote").ToList();
+        lsRemote.ShouldNotBeEmpty();
+        lsRemote.ShouldAllBe(request => request.LogLevel == LogLevel.Debug);
+        var others = _requests.Where(request => request.Arguments[0] != "ls-remote").ToList();
+        others.ShouldContain(request => request.Arguments[0] == "clone");
+        others.ShouldAllBe(request => request.LogLevel == LogLevel.Information);
+    }
+
+    [Fact]
     public async Task GetRemoteRefsAsync_RemoteUrl_ListsOnlyBranchesAndTagsWithUrlAfterSeparator()
     {
         _fileSystem.AddDirectory(_parentPath);

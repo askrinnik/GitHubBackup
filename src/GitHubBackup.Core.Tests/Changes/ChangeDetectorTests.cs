@@ -8,7 +8,9 @@ using GitHubBackup.Core.State;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tests.Runs;
 using GitHubBackup.Core.Tests.Telemetry;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging.Testing;
 using NSubstitute;
 using NSubstitute.ExceptionExtensions;
 
@@ -23,6 +25,8 @@ public sealed class ChangeDetectorTests : IDisposable
     private const string _clonePath = @"C:\backup\clones\owner\repo";
     private const string _remoteUrl = "https://github.com/owner/repo";
     private const string _archiveFile = "repo.7z";
+    private const int _decidedEventId = 1;
+    private const int _decidedWithoutServerEventId = 2;
 
     /// <summary>The Windows attribute <c>FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS</c> that OneDrive sets on a file stored only in the cloud.</summary>
     private const FileAttributes _recallOnDataAccess = (FileAttributes)0x400000;
@@ -34,6 +38,7 @@ public sealed class ChangeDetectorTests : IDisposable
     private readonly MockFileSystem _fileSystem = new();
     private readonly TelemetryCapture _capture = new();
     private readonly RecordingProgress<BackupProgressStage> _progress = new();
+    private readonly FakeLogger<ChangeDetector> _logger = new();
 
     /// <summary>The branches and tags the server answers with.</summary>
     private RefSnapshot _remoteRefs = RefSnapshot.Empty;
@@ -581,6 +586,44 @@ public sealed class ChangeDetectorTests : IDisposable
         result.ShouldBe(new ChangeDetection(ChangeDecision.CloneNeeded, ChangeReason.NoClone, null, false, BaseRefs));
         await _git.Received(1).GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken);
         await NoCloneOrUpdate();
+    }
+
+    [Fact]
+    public async Task DetectAsync_Decided_LogsBranchAndTagCountsOfTheServer()
+    {
+        SetupClone(Sync("main", BaseRefs));
+
+        await DetectAsync(last: null);
+
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _decidedEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Branches").ShouldBe("2");
+        record.GetStructuredStateValue("Tags").ShouldBe("1");
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneAndCheckRemote_LogsCountsOfTheServer()
+    {
+        _git.GetRemoteRefsAsync(Arg.Any<GitRepositoryRequest>(), _remoteUrl, CancellationToken).Returns(BaseRefs);
+
+        await PreviewAsync(last: null, checkRemoteWithoutClone: true);
+
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _decidedEventId).ShouldHaveSingleItem();
+        record.GetStructuredStateValue("Branches").ShouldBe("2");
+        record.GetStructuredStateValue("Tags").ShouldBe("1");
+    }
+
+    [Fact]
+    public async Task PreviewAsync_NoCloneAndNoServerCheck_LogsWithoutCounts()
+    {
+        await PreviewAsync(last: null);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.ShouldNotContain(r => r.Id.Id == _decidedEventId);
+        var record = records.Where(r => r.Id.Id == _decidedWithoutServerEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Branches").ShouldBeNull();
+        record.GetStructuredStateValue("Tags").ShouldBeNull();
     }
 
     [Fact]
@@ -1158,12 +1201,12 @@ public sealed class ChangeDetectorTests : IDisposable
     };
 
     private Task<ChangeDetection> DetectAsync(ArchiveRecord? last, string? branch = "main") =>
-        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, _logger)
             .DetectAsync(CreateRequest(last, branch), CancellationToken);
 
     private Task<ChangeDetection> PreviewAsync(
         ArchiveRecord? last, string? branch = "main", bool checkRemoteWithoutClone = false) =>
-        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, NullLogger<ChangeDetector>.Instance)
+        new ChangeDetector(_git, _guard, _fileSystem, _capture.Telemetry, _logger)
             .PreviewAsync(CreateRequest(last, branch) with { CheckRemoteWithoutClone = checkRemoteWithoutClone }, CancellationToken);
 
     private void AddClone() => _fileSystem.AddDirectory(Path.Combine(_clonePath, ".git"));

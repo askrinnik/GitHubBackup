@@ -220,7 +220,7 @@ internal sealed class GitClient(
 
         var output = await RunGitAsync(
             request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
-            cancellationToken);
+            cancellationToken, LogLevel.Debug);
         return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteListing);
     }
 
@@ -248,7 +248,8 @@ internal sealed class GitClient(
         // The working directory plays the clone folder of the environment, so the ceiling is its parent and git looks
         // only at the working directory, which holds no repository, instead of walking up to an enclosing one.
         var output = await RunGitAsync(
-            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken);
+            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken,
+            LogLevel.Debug);
         return ParseOutput(request, arguments, output, GitRefParser.ParseRemoteRefs);
     }
 
@@ -812,7 +813,7 @@ internal sealed class GitClient(
         CancellationToken cancellationToken)
     {
         var output = await RunGitAsync(
-            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken);
+            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken, LogLevel.Debug);
         return GitRefParser.ParseDefaultBranch(output);
     }
 
@@ -858,6 +859,7 @@ internal sealed class GitClient(
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
+    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The lines the command wrote to standard output.</returns>
     /// <exception cref="GitRepositoryNotFoundException">The command fails because the remote URL has no repository.</exception>
     /// <exception cref="GitCommandException">The command exits with a non-zero code.</exception>
@@ -866,9 +868,11 @@ internal sealed class GitClient(
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        LogLevel logLevel = LogLevel.Information)
     {
-        var result = await RunGitProcessAsync(request, workingDirectory, environment, arguments, cancellationToken);
+        var result = await RunGitProcessAsync(
+            request, workingDirectory, environment, arguments, cancellationToken, logLevel);
         EnsureSucceeded(request, arguments, result);
         return result.StandardOutput;
     }
@@ -881,13 +885,15 @@ internal sealed class GitClient(
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
+    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The exit code and the output of the command.</returns>
     private Task<ProcessResult> RunGitProcessAsync(
         GitRepositoryRequest request,
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken,
+        LogLevel logLevel = LogLevel.Information) =>
         processRunner.RunAsync(
             new()
             {
@@ -895,6 +901,7 @@ internal sealed class GitClient(
                 WorkingDirectory = workingDirectory,
                 Arguments = arguments,
                 EnvironmentVariables = environment,
+                LogLevel = logLevel,
             },
             cancellationToken);
 

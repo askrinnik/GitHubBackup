@@ -165,7 +165,7 @@
 - [x] Коммит 2: итоговая строка фильтра в `SelectIncluded`; тесты
 - [x] Коммит 3: PRD FR-6.2 и FR-10.5; `RemoteRefs`, `IGitClient`, `GitRefParser`, `GitClient`, `ChangeDetector`, `CloneGuard`, `BackupTelemetry`; тесты; README и урок 5
 - [x] Коммит 4: `ToolLocator` — Trace для процессов, Information «is available at»; тесты
-- [ ] Коммит 5: `ls-remote` на Debug; счётчики в итоге детектора; тесты
+- [x] Коммит 5: `ls-remote` на Debug; счётчики в итоге детектора; тесты
 - [ ] Коммит 6: лимит GitHub API — Debug, Warning, строка Information в конце обнаружения; тесты
 - [ ] Коммит 7: одна строка о выключенной wiki; тесты
 - [ ] Сборка, тесты, `dotnet format`; проверка комментариев
