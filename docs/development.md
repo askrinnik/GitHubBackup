@@ -80,7 +80,7 @@ The tests run one at a time. A failing test saves screenshots of the application
 
 #### Screenshot tests
 
-`MainWindowScreenshotTests` and `DiscoveryDialogScreenshotTests` capture a window in a given state, in the light and the dark theme, and measure the capture. There are no reference images: each check measures one capture.
+`MainWindowScreenshotTests`, `DiscoveryDialogScreenshotTests` and `SettingsEditorScreenshotTests` capture a window in a given state, in the light and the dark theme, and measure the capture. There are no reference images: each check measures one capture.
 
 | Check | What it measures |
 |---|---|

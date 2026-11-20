@@ -173,6 +173,35 @@ internal static class LayoutMeasurement
     }
 
     /// <summary>
+    /// Returns the bounds of all ink in a region, lines of frames included, such as the box of a check box.
+    /// </summary>
+    /// <param name="image">The screenshot.</param>
+    /// <param name="region">The region, inside the image.</param>
+    /// <returns>The bounds of the ink, or <see langword="null"/> when the region holds none.</returns>
+    public static Rectangle? InkBounds(PixelImage image, Rectangle region)
+    {
+        var ink = InkMask(image, region, Background(image, region));
+        int? left = null, top = null, right = null, bottom = null;
+        for (var y = 0; y < region.Height; y++)
+        {
+            for (var x = 0; x < region.Width; x++)
+            {
+                if (ink[y, x])
+                {
+                    left = Math.Min(left ?? x, x);
+                    right = Math.Max(right ?? x, x);
+                    top ??= y;
+                    bottom = y;
+                }
+            }
+        }
+
+        return top is null
+            ? null
+            : Rectangle.FromLTRB(region.Left + left!.Value, region.Top + top.Value, region.Left + right!.Value + 1, region.Top + bottom!.Value + 1);
+    }
+
+    /// <summary>
     /// Returns how far apart the tops of the text of the cells of one table row are.
     /// </summary>
     /// <remarks>

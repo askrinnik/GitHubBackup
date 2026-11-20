@@ -97,12 +97,13 @@
         <Style x:Key="CenteredTableHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource TableHeaderStyle}">
             <Setter Property="TextAlignment" Value="Center" />
         </Style>
-        <!-- A check box of a table row, centred under its column header; the column header names it. It is as wide as
-             its box, so the empty content space of the Fluent template does not move the box off the centre. The
-             template raises MinWidth of a check box without content, so each row check box sets MinWidth itself: a
-             local value takes precedence over a template trigger, a style setter does not. -->
+        <!-- A check box of a table row, centred under its column header; the column header names it. It has no fixed
+             width: the Fluent template draws the box inside a border of its own, so the control is wider than the box,
+             and a width equal to the box cuts its right edge. Without content the template drops the content margin,
+             so the control is only as wide as the box and its border and stays centred. The template raises MinWidth
+             of a check box without content, so each row check box sets MinWidth itself: a local value takes
+             precedence over a template trigger, a style setter does not. -->
         <Style x:Key="TableCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
-            <Setter Property="Width" Value="20" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="HorizontalAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Top" />
