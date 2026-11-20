@@ -17,6 +17,7 @@ public sealed class RepositoryDiscoveryServiceTests
     private const int _idResolvedEventId = 4;
     private const int _idNotFoundEventId = 5;
     private const int _idConflictEventId = 6;
+    private const int _rateLimitAfterDiscoveryEventId = 8;
 
     private readonly IGitHubApi _api = Substitute.For<IGitHubApi>();
     private readonly FakeLogger<RepositoryDiscoveryService> _logger = new();
@@ -898,6 +899,55 @@ public sealed class RepositoryDiscoveryServiceTests
 
         result.HasChanges.ShouldBeFalse();
         await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_LastRateLimitKnown_LogsOneInformationLineAtTheEnd()
+    {
+        _api.LastRateLimit.Returns(new GitHubRateLimit(5000, 4321, new(2026, 11, 11, 11, 0, 0, TimeSpan.Zero)));
+
+        await _service.DiscoverAsync(new BackupConfig(), null, Token);
+
+        var records = _logger.Collector.GetSnapshot();
+        var record = records.Where(r => r.Id.Id == _rateLimitAfterDiscoveryEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue("Remaining").ShouldBe("4321");
+        record.GetStructuredStateValue("Limit").ShouldBe("5000");
+        records[^1].ShouldBe(record);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_LastRateLimitUnknown_LogsNoRateLimitLine()
+    {
+        await _service.DiscoverAsync(new BackupConfig(), null, Token);
+
+        _logger.Collector.GetSnapshot().ShouldNotContain(r => r.Id.Id == _rateLimitAfterDiscoveryEventId);
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_LastRateLimitKnown_LogsOneInformationLineAtTheEnd()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool"));
+        _api.LastRateLimit.Returns(new GitHubRateLimit(5000, 4321, new(2026, 11, 11, 11, 0, 0, TimeSpan.Zero)));
+
+        await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        var records = _logger.Collector.GetSnapshot();
+        var record = records.Where(r => r.Id.Id == _rateLimitAfterDiscoveryEventId).ShouldHaveSingleItem();
+        record.Level.ShouldBe(LogLevel.Information);
+        records[^1].ShouldBe(record);
+    }
+
+    [Fact]
+    public async Task CheckRepositoryAsync_LastRateLimitUnknown_LogsNoRateLimitLine()
+    {
+        var config = Config(Account("octo", Active(1, "tool")));
+        _api.GetRepositoryByIdAsync(1, Arg.Any<CancellationToken>()).Returns(Repo(1, "octo", "tool"));
+
+        await _service.CheckRepositoryAsync(config, Items(config)[0], Token);
+
+        _logger.Collector.GetSnapshot().ShouldNotContain(r => r.Id.Id == _rateLimitAfterDiscoveryEventId);
     }
 
     [Fact]

@@ -92,4 +92,17 @@ internal static partial class RepositoryDiscoveryServiceLog
         Level = LogLevel.Information,
         Message = "Check of {Repository} found {Missing} missing, {Returned} returned, {Renamed} renamed")]
     public static partial void Checked(ILogger logger, string repository, int missing, int returned, int renamed);
+
+    /// <summary>
+    /// Logs the rate limit state the GitHub API reported last, at the end of discovery.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="remaining">The number of requests left in the current window.</param>
+    /// <param name="limit">The number of requests allowed in the current window.</param>
+    /// <param name="resetAt">The time the window resets.</param>
+    [LoggerMessage(
+        EventId = 8,
+        Level = LogLevel.Information,
+        Message = "GitHub API rate limit after discovery: {Remaining}/{Limit} remaining, resets at {ResetAt}")]
+    public static partial void RateLimitAfterDiscovery(ILogger logger, int remaining, int limit, DateTimeOffset resetAt);
 }

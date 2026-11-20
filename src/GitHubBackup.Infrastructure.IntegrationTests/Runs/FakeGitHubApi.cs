@@ -41,6 +41,10 @@ internal sealed class FakeGitHubApi : IGitHubApi
     public void RemoveRepository(long id) => _repositories.Remove(id);
 
     /// <inheritdoc />
+    /// <remarks>The fake reports no rate limit.</remarks>
+    public GitHubRateLimit? LastRateLimit => null;
+
+    /// <inheritdoc />
     /// <remarks>The answers do not depend on the token.</remarks>
     public void UseToken(GitHubToken token)
     {

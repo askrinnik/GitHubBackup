@@ -12,7 +12,9 @@ namespace GitHubBackup.Infrastructure.GitHub;
 /// </summary>
 /// <remarks>
 /// The token set by <see cref="UseToken"/> goes with every following request. After every successful call the rate
-/// limit state of the last response is logged.
+/// limit state of the last response is kept in <see cref="LastRateLimit"/> and logged at debug level. A warning is
+/// logged once per run when less than a tenth of the limit remains; <see cref="UseToken"/>, which starts a run, resets
+/// the warning and <see cref="LastRateLimit"/>.
 /// </remarks>
 /// <param name="options">The GitHub options that hold the API address.</param>
 /// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
@@ -28,10 +30,17 @@ internal sealed class OctokitGitHubApi(
     private readonly ILogger<OctokitGitHubApi> _logger = logger;
     private readonly GitHubClient _client = new(OctokitConnectionFactory.Create(options.Value.ApiBaseUrl));
     private volatile bool _isAnonymous = true;
+    private volatile GitHubRateLimit? _lastRateLimit;
+    private int _lowRateLimitWarned;
+
+    /// <inheritdoc />
+    public GitHubRateLimit? LastRateLimit => _lastRateLimit;
 
     /// <inheritdoc />
     public void UseToken(GitHubToken token)
     {
+        _lastRateLimit = null;
+        Volatile.Write(ref _lowRateLimitWarned, 0);
         _client.Credentials = token.Value is { } value ? new Credentials(value) : Credentials.Anonymous;
         _isAnonymous = token.IsAnonymous;
     }
@@ -230,14 +239,20 @@ internal sealed class OctokitGitHubApi(
     }
 
     /// <summary>
-    /// Logs the rate limit state of the last response, when the server reported one.
+    /// Records the rate limit state of the last response, when the server reported one, and logs it. The low-limit
+    /// warning is logged by the first caller that sees the state; concurrent callers do not repeat it.
     /// </summary>
     private void LogRateLimit()
     {
         var rateLimit = _client.GetLastApiInfo()?.RateLimit;
         if (rateLimit is { Limit: > 0 })
         {
+            _lastRateLimit = new(rateLimit.Limit, rateLimit.Remaining, rateLimit.Reset);
             OctokitGitHubApiLog.RateLimit(_logger, rateLimit.Remaining, rateLimit.Limit, rateLimit.Reset);
+            if (rateLimit.Remaining * 10 < rateLimit.Limit && Interlocked.Exchange(ref _lowRateLimitWarned, 1) == 0)
+            {
+                OctokitGitHubApiLog.RateLimitLow(_logger, rateLimit.Remaining, rateLimit.Limit, rateLimit.Reset);
+            }
         }
     }
 }
