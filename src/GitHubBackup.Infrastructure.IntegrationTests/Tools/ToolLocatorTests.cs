@@ -40,7 +40,7 @@ public sealed class ToolLocatorTests : IDisposable
         var tools = await CreateLocator(new()).LocateAsync(TestContext.Current.CancellationToken);
 
         var found = _logger.Collector.GetSnapshot().Where(record => record.Id.Id == _toolFoundEventId).ToList();
-        found.ShouldAllBe(record => record.Level == LogLevel.Debug);
+        found.ShouldAllBe(record => record.Level == LogLevel.Information);
         found.Select(record => record.GetStructuredStateValue("Tool")).ShouldBe(["git", "Git LFS", "7-Zip"]);
         found.Select(record => record.GetStructuredStateValue("Version")).ShouldBe([tools.Git.Version, tools.GitLfsVersion, tools.SevenZip.Version]);
     }
