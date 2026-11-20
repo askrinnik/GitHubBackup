@@ -646,7 +646,7 @@ public sealed class BackupOrchestrator(
     }
 
     /// <summary>
-    /// Keeps the repositories the filter of the run covers and logs each one it leaves out.
+    /// Keeps the repositories the filter of the run covers and, when the run has a filter, logs how many it keeps.
     /// </summary>
     /// <param name="items">The repositories of the configuration.</param>
     /// <param name="filter">The filter of the run.</param>
@@ -664,10 +664,15 @@ public sealed class BackupOrchestrator(
             {
                 kept.Add(item);
             }
-            else
-            {
-                BackupOrchestratorLog.RepositoryFilteredOut(logger, item.FullName);
-            }
+        }
+
+        if (filter.AccountLogin is { } account)
+        {
+            BackupOrchestratorLog.RunFilterAccount(logger, account, kept.Count, items.Count);
+        }
+        else if ((filter.RepositoryFullName ?? (checkedId is null ? null : kept.FirstOrDefault()?.FullName)) is { } repository)
+        {
+            BackupOrchestratorLog.RunFilterRepository(logger, repository, kept.Count, items.Count);
         }
 
         return kept;

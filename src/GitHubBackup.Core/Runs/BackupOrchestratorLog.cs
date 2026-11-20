@@ -162,15 +162,30 @@ internal static partial class BackupOrchestratorLog
     public static partial void DiscoverySkipped(ILogger logger, string repository);
 
     /// <summary>
-    /// Logs a repository of the configuration that the filter of the run leaves out.
+    /// Logs how many repositories of the configuration the account filter of the run keeps.
     /// </summary>
     /// <param name="logger">The logger.</param>
-    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="account">The login of the account the run is limited to.</param>
+    /// <param name="kept">The number of repositories the run processes.</param>
+    /// <param name="total">The number of repositories of the configuration.</param>
     [LoggerMessage(
-        EventId = 16,
-        Level = LogLevel.Debug,
-        Message = "Repository {Repository} is outside the filter of the run and is not processed")]
-    public static partial void RepositoryFilteredOut(ILogger logger, string repository);
+        EventId = 25,
+        Level = LogLevel.Information,
+        Message = "Run filter account {Account} keeps {Kept} of {Total} repositories")]
+    public static partial void RunFilterAccount(ILogger logger, string account, int kept, int total);
+
+    /// <summary>
+    /// Logs how many repositories of the configuration the repository filter of the run keeps.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository the run is limited to as <c>owner/name</c>.</param>
+    /// <param name="kept">The number of repositories the run processes.</param>
+    /// <param name="total">The number of repositories of the configuration.</param>
+    [LoggerMessage(
+        EventId = 26,
+        Level = LogLevel.Information,
+        Message = "Run filter repository {Repository} keeps {Kept} of {Total} repositories")]
+    public static partial void RunFilterRepository(ILogger logger, string repository, int kept, int total);
 
     /// <summary>
     /// Logs a new repository that the decision left out of the configuration, so it is reported as skipped.
