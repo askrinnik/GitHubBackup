@@ -543,6 +543,98 @@ public sealed class SettingsEditorTests : IDisposable
         _session.WaitFor("TelemetryHeadersTextBox").Patterns.Value.Pattern.Value.Value.ShouldBe(_headersValue);
     }
 
+    [Fact]
+    public void Save_AccountAndItsRepositoryChecked_WritesPausedAndStatus()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Accounts);
+
+        Toggle("AccountPausedCheckBox");
+        Toggle("AccountRepositoryPausedCheckBox");
+        Toggle("AccountRepositoryUnavailableCheckBox");
+        _session.Invoke("SaveSettingsButton");
+
+        _session.WaitFor("RepositoryTree");
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.BackupConfigPath));
+        var account = document.RootElement.GetProperty("accounts")[0];
+        account.GetProperty("paused").GetBoolean().ShouldBeTrue();
+        var repository = account.GetProperty("repositories")[0];
+        repository.GetProperty("paused").GetBoolean().ShouldBeTrue();
+        repository.GetProperty("status").GetString().ShouldBe("Unavailable");
+        document.RootElement.GetProperty("repositories")[0].TryGetProperty("paused", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Save_StandaloneRepositoryChecked_WritesPausedAndStatus()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Repositories);
+
+        Toggle("RepositoryPausedCheckBox");
+        Toggle("RepositoryUnavailableCheckBox");
+        _session.Invoke("SaveSettingsButton");
+
+        _session.WaitFor("RepositoryTree");
+        using var document = JsonDocument.Parse(File.ReadAllText(_installation.BackupConfigPath));
+        var repository = document.RootElement.GetProperty("repositories")[0];
+        repository.GetProperty("paused").GetBoolean().ShouldBeTrue();
+        repository.GetProperty("status").GetString().ShouldBe("Unavailable");
+        document.RootElement.GetProperty("accounts")[0].TryGetProperty("paused", out _).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AccountPausedCheckBox_Toggled_ChangesStatusIconInAccountList()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Accounts);
+        var item = AccountItems(_session.WaitFor("AccountsList")).ShouldHaveSingleItem();
+        var icon = AppSession.WaitFor(item, "AccountListStatusIcon");
+        icon.Name.ShouldBe("Active");
+
+        Toggle("AccountPausedCheckBox");
+
+        AppSession.WaitUntil(() => icon.Name == "Paused", "the pause icon of the account");
+        var name = item.Properties.BoundingRectangle.Value;
+        icon.BoundingRectangle.Left.ShouldBeGreaterThan(name.Left + (name.Width / 2));
+    }
+
+    [Theory]
+    [InlineData(SettingsSection.Accounts, "AccountRepositoriesList", "AccountRepository", "Branch")]
+    [InlineData(SettingsSection.Repositories, "RepositoriesList", "Repository", "Url")]
+    public void RepositoryTable_ManyRows_HeaderLinesUpWithFieldsAndStaysWhileListScrolls(
+        SettingsSection section, string listId, string prefix, string firstField)
+    {
+        using var api = new GitHubApiStub();
+        using var installation = new AppInstallation(api.Url);
+        var rows = Enumerable.Range(1, 40).ToArray();
+        var config = installation.NewBackupConfig()
+            .WithAccount("acme", [.. rows.Select(index => ($"tool-{index:D2}", (long)index))]);
+        foreach (var index in rows)
+        {
+            config.WithRepository("octo", $"lib-{index:D2}", 100 + index);
+        }
+
+        config.WriteTo(installation.BackupConfigPath);
+        using var session = AppSession.Start(installation);
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select($"SettingsSection{section}");
+        var list = session.WaitFor(listId);
+        var scroll = list.Patterns.Scroll.Pattern;
+        AppSession.WaitUntil(() => scroll.VerticallyScrollable.Value, "the list to scroll");
+        var header = session.WaitFor($"{prefix}{firstField}Header").BoundingRectangle;
+
+        AssertHeadersLineUp(session, list, prefix);
+        scroll.SetScrollPercent(-1, 100);
+
+        AppSession.WaitUntil(() => scroll.VerticalScrollPercent.Value >= 100, "the list to scroll to the end");
+        session.WaitFor($"{prefix}{firstField}Header").BoundingRectangle.ShouldBe(header);
+        AssertHeadersLineUp(session, list, prefix);
+        list.BoundingRectangle.Top.ShouldBeGreaterThanOrEqualTo(header.Bottom);
+    }
+
     /// <summary>
     /// Stops the application, then deletes the installation and stops the API stub.
     /// </summary>
@@ -577,6 +669,52 @@ public sealed class SettingsEditorTests : IDisposable
     /// <returns>The entries, in order.</returns>
     private static AutomationElement[] AccountItems(AutomationElement list) =>
         list.FindAllChildren(condition => condition.ByControlType(FlaUI.Core.Definitions.ControlType.ListItem));
+
+    /// <summary>
+    /// Toggles a check box of the main window through its toggle pattern once it is enabled.
+    /// </summary>
+    /// <param name="automationId">The automation id of the check box.</param>
+    private void Toggle(string automationId)
+    {
+        var checkBox = _session.WaitFor(automationId);
+        AppSession.WaitUntil(() => checkBox.IsEnabled, $"'{automationId}' to be enabled");
+        checkBox.Patterns.Toggle.Pattern.Toggle();
+    }
+
+    /// <summary>
+    /// Asserts that the column headers of a repository table stand above the fields of its first visible row: a text
+    /// header starts where its field starts, a check box header is centred over its check box.
+    /// </summary>
+    /// <param name="session">The running application.</param>
+    /// <param name="list">The list of rows.</param>
+    /// <param name="prefix">The prefix of the automation ids of the table, <c>AccountRepository</c> or <c>Repository</c>.</param>
+    private static void AssertHeadersLineUp(AppSession session, AutomationElement list, string prefix)
+    {
+        var visible = list.BoundingRectangle;
+        var fieldIds = prefix == "Repository"
+            ? new[] { "UrlBox", "BranchBox", "PathBox", "PausedCheckBox", "UnavailableCheckBox" }
+            : ["BranchBox", "PathBox", "PausedCheckBox", "UnavailableCheckBox"];
+        foreach (var fieldId in fieldIds)
+        {
+            var field = list.FindAllDescendants(condition => condition.ByAutomationId(prefix + fieldId))
+                .Select(element => element.BoundingRectangle)
+                .Where(bounds => bounds.Top >= visible.Top && bounds.Bottom <= visible.Bottom)
+                .OrderBy(bounds => bounds.Top)
+                .First();
+            var column = fieldId.Replace("Box", string.Empty, StringComparison.Ordinal).Replace("Check", string.Empty, StringComparison.Ordinal);
+            var header = session.WaitFor($"{prefix}{column}Header").BoundingRectangle;
+            if (fieldId.EndsWith("CheckBox", StringComparison.Ordinal))
+            {
+                (header.Left + (header.Width / 2.0)).ShouldBe(field.Left + (field.Width / 2.0), 2, $"{column} header over its check box");
+            }
+            else
+            {
+                ((double)header.Left).ShouldBe(field.Left, 1, $"{column} header at the left edge of its field");
+            }
+
+            header.Bottom.ShouldBeLessThanOrEqualTo(visible.Top);
+        }
+    }
 
     /// <summary>
     /// Asserts that no element below <paramref name="root"/> has <paramref name="secret"/> in its name or help text.

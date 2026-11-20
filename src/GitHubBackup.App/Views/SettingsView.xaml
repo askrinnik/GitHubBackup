@@ -41,8 +41,14 @@
         <Style x:Key="LabelStyle" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,0,2" />
         </Style>
+        <!-- The Remove button of a table row: an icon, so the columns of a narrow table keep their room; the tooltip
+             and the UI Automation name say what it does. -->
         <Style x:Key="RowButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="Content" Value="&#xE74D;" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="ToolTip" Value="Remove the repository" />
+            <Setter Property="AutomationProperties.Name" Value="Remove" />
+            <Setter Property="Padding" Value="8,8" />
             <Setter Property="Margin" Value="8,0,0,6" />
             <Setter Property="VerticalAlignment" Value="Top" />
         </Style>
@@ -74,6 +80,58 @@
         <ItemsPanelTemplate x:Key="VirtualizingPanelTemplate">
             <VirtualizingStackPanel />
         </ItemsPanelTemplate>
+        <!-- The Fluent scroll bar of a table lies over the right edge of its rows. The header and the rows keep that
+             strip free, so they have the same width whether the bar shows or not and the bar covers no field. -->
+        <Thickness x:Key="TableRowMargin">0,0,14,0</Thickness>
+        <!-- The widths of the fixed columns of a table, the same in its header and its rows. -->
+        <GridLength x:Key="BranchColumnWidth">100</GridLength>
+        <GridLength x:Key="PausedColumnWidth">60</GridLength>
+        <GridLength x:Key="UnavailableColumnWidth">80</GridLength>
+        <!-- A column header of a table: its tooltip tells what an empty field of the column means. -->
+        <Style x:Key="TableHeaderStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Setter Property="Margin" Value="0,0,0,4" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="ToolTipService.InitialShowDelay" Value="300" />
+        </Style>
+        <Style x:Key="CenteredTableHeaderStyle" TargetType="TextBlock" BasedOn="{StaticResource TableHeaderStyle}">
+            <Setter Property="TextAlignment" Value="Center" />
+        </Style>
+        <!-- A check box of a table row, centred under its column header; the column header names it. It is as wide as
+             its box, so the empty content space of the Fluent template does not move the box off the centre. The
+             template raises MinWidth of a check box without content, so each row check box sets MinWidth itself: a
+             local value takes precedence over a template trigger, a style setter does not. -->
+        <Style x:Key="TableCheckBoxStyle" TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}">
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Top" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
+        <!-- The status icon of an account in the list of accounts: the check of an account an unfiltered run backs
+             up, or the pause. -->
+        <Style x:Key="AccountListStatusIconStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusIconStyle}">
+            <Setter Property="Width" Value="20" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="Text" Value="{StaticResource ActiveStatusGlyph}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPaused, Mode=OneWay}" Value="True">
+                    <Setter Property="Text" Value="{StaticResource PausedStatusGlyph}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- The name of an account in the list of accounts: muted while the account is paused. -->
+        <Style x:Key="AccountListNameStyle" TargetType="TextBlock">
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsPaused, Mode=OneWay}" Value="True">
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
     </UserControl.Resources>
     <DockPanel Margin="8">
         <!-- Save is the main action: it stands last, at the right edge, in the accent style. -->
@@ -274,14 +332,17 @@
                                 </ListBox.ItemContainerStyle>
                                 <ListBox.ItemTemplate>
                                     <DataTemplate DataType="{x:Type vm:AccountSettingsViewModel}">
+                                        <!-- The status icon stands at the right edge, so the icons of all accounts line up. -->
                                         <DockPanel>
+                                            <TextBlock DockPanel.Dock="Right"
+                                                       Style="{StaticResource AccountListStatusIconStyle}"
+                                                       AutomationProperties.AutomationId="AccountListStatusIcon" />
                                             <TextBlock DockPanel.Dock="Right"
                                                        Style="{StaticResource ErrorIconStyle}"
                                                        Visibility="{Binding HasAnyErrors, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                        AutomationProperties.AutomationId="AccountErrorIcon" />
                                             <TextBlock Text="{Binding DisplayName, Mode=OneWay}"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center" />
+                                                       Style="{StaticResource AccountListNameStyle}" />
                                         </DockPanel>
                                     </DataTemplate>
                                 </ListBox.ItemTemplate>
@@ -320,6 +381,11 @@
                                     <TextBox Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                              Style="{StaticResource FormTextBoxStyle}"
                                              AutomationProperties.AutomationId="AccountUrlBox" />
+                                    <CheckBox Content="Paused"
+                                              IsChecked="{Binding IsPaused, Mode=TwoWay}"
+                                              ToolTip="A run without a filter skips the account and all its repositories; Backup account still backs it up."
+                                              Margin="0,0,0,6"
+                                              AutomationProperties.AutomationId="AccountPausedCheckBox" />
                                     <TextBlock Text="Archive folder of the account (empty: backup root\owner)" Style="{StaticResource LabelStyle}" />
                                     <TextBox Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                              Style="{StaticResource FormTextBoxStyle}"
@@ -334,28 +400,64 @@
                                                 Style="{StaticResource NextCardStyle}"
                                                 AutomationProperties.Name="Repositories of the account"
                                                 AutomationProperties.AutomationId="SettingsAccountRepositoriesCard">
-                                <Grid>
+                                <!-- The header sits outside the scrolling list, so it stays in place; the shared size
+                                     group gives its last column the width of the Remove buttons of the rows. -->
+                                <Grid Grid.IsSharedSizeScope="True">
                                     <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="Auto" />
                                         <RowDefinition Height="*" />
                                     </Grid.RowDefinitions>
                                     <TextBlock Grid.Row="0" Text="Repositories of the account" Style="{StaticResource CardTitleStyle}" />
-                                    <StackPanel Grid.Row="1">
-                                        <TextBlock Text="Repositories: branch (empty: default) and archive folder (empty: derived from the account)" Style="{StaticResource LabelStyle}" TextWrapping="Wrap" />
-                                        <DockPanel Margin="0,0,0,6">
-                                            <TextBlock Text="Filter by name" VerticalAlignment="Center" Margin="0,0,8,0" />
-                                            <TextBox Text="{Binding RepositoryView.Filter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                                     AutomationProperties.Name="Filter repositories by name"
-                                                     AutomationProperties.AutomationId="AccountRepositoryFilterBox" />
-                                        </DockPanel>
-                                    </StackPanel>
-                                    <TextBlock Grid.Row="2"
+                                    <DockPanel Grid.Row="1" Margin="0,0,0,6">
+                                        <TextBlock Text="Filter by name" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                        <TextBox Text="{Binding RepositoryView.Filter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                 AutomationProperties.Name="Filter repositories by name"
+                                                 AutomationProperties.AutomationId="AccountRepositoryFilterBox" />
+                                    </DockPanel>
+                                    <Grid Grid.Row="2" Margin="{StaticResource TableRowMargin}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="{StaticResource PausedColumnWidth}" />
+                                            <ColumnDefinition Width="{StaticResource UnavailableColumnWidth}" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="AccountRepositoryRemoveColumn" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Text="Name"
+                                                   Style="{StaticResource TableHeaderStyle}"
+                                                   ToolTip="The name of the repository on GitHub, without the owner."
+                                                   AutomationProperties.AutomationId="AccountRepositoryNameHeader" />
+                                        <TextBlock Grid.Column="1"
+                                                   Text="Branch"
+                                                   Style="{StaticResource TableHeaderStyle}"
+                                                   ToolTip="The branch checked out in the clone. Empty: the default branch of the repository."
+                                                   AutomationProperties.AutomationId="AccountRepositoryBranchHeader" />
+                                        <TextBlock Grid.Column="2"
+                                                   Text="Archive folder"
+                                                   Style="{StaticResource TableHeaderStyle}"
+                                                   Margin="8,0,0,4"
+                                                   ToolTip="The folder of the archives. Empty: the folder of the account, then the repository name."
+                                                   AutomationProperties.AutomationId="AccountRepositoryPathHeader" />
+                                        <TextBlock Grid.Column="3"
+                                                   Text="Paused"
+                                                   Style="{StaticResource CenteredTableHeaderStyle}"
+                                                   ToolTip="A run without a filter skips a paused repository; Backup repository still backs it up."
+                                                   AutomationProperties.AutomationId="AccountRepositoryPausedHeader" />
+                                        <TextBlock Grid.Column="4"
+                                                   Text="Unavailable"
+                                                   Style="{StaticResource CenteredTableHeaderStyle}"
+                                                   ToolTip="The repository was not found on GitHub. Clear the mark to check it again on the next run."
+                                                   AutomationProperties.AutomationId="AccountRepositoryUnavailableHeader" />
+                                    </Grid>
+                                    <TextBlock Grid.Row="3"
                                                Style="{StaticResource NoMatchStyle}"
                                                Visibility="{Binding RepositoryView.HasNoMatch, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                                AutomationProperties.AutomationId="AccountRepositoriesNoMatch" />
-                                    <ItemsControl Grid.Row="3"
+                                    <ItemsControl Grid.Row="4"
                                                   ItemsSource="{Binding RepositoryView.Items, Mode=OneWay}"
                                                   Template="{StaticResource ScrollingItemsTemplate}"
                                                   ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
@@ -365,14 +467,16 @@
                                                   AutomationProperties.AutomationId="AccountRepositoriesList">
                                         <ItemsControl.ItemTemplate>
                                             <DataTemplate DataType="{x:Type vm:AccountRepositorySettingsViewModel}">
-                                                <Grid>
+                                                <Grid Margin="{StaticResource TableRowMargin}">
                                                     <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="180" />
-                                                        <ColumnDefinition Width="140" />
                                                         <ColumnDefinition Width="*" />
-                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="{StaticResource PausedColumnWidth}" />
+                                                        <ColumnDefinition Width="{StaticResource UnavailableColumnWidth}" />
+                                                        <ColumnDefinition Width="Auto" SharedSizeGroup="AccountRepositoryRemoveColumn" />
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBlock Grid.Column="0" Text="{Binding Name, Mode=OneWay}" Margin="0,2,8,0" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="0" Text="{Binding Name, Mode=OneWay}" ToolTip="{Binding Name, Mode=OneWay}" Margin="0,2,8,0" TextTrimming="CharacterEllipsis" />
                                                     <TextBox Grid.Column="1"
                                                              Text="{Binding Branch, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                              Style="{StaticResource FormTextBoxStyle}"
@@ -382,8 +486,19 @@
                                                              Style="{StaticResource FormTextBoxStyle}"
                                                              Margin="8,0,0,6"
                                                              AutomationProperties.AutomationId="AccountRepositoryPathBox" />
-                                                    <Button Grid.Column="3"
-                                                            Content="Remove"
+                                                    <CheckBox Grid.Column="3"
+                                                              IsChecked="{Binding IsPaused, Mode=TwoWay}"
+                                                              Style="{StaticResource TableCheckBoxStyle}"
+                                                              MinWidth="0"
+                                                              AutomationProperties.Name="Paused"
+                                                              AutomationProperties.AutomationId="AccountRepositoryPausedCheckBox" />
+                                                    <CheckBox Grid.Column="4"
+                                                              IsChecked="{Binding IsUnavailable, Mode=TwoWay}"
+                                                              Style="{StaticResource TableCheckBoxStyle}"
+                                                              MinWidth="0"
+                                                              AutomationProperties.Name="Unavailable"
+                                                              AutomationProperties.AutomationId="AccountRepositoryUnavailableCheckBox" />
+                                                    <Button Grid.Column="5"
                                                             Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=ItemsControl}, Mode=OneWay}"
                                                             CommandParameter="{Binding Mode=OneWay}"
                                                             Style="{StaticResource RowButtonStyle}"
@@ -408,8 +523,11 @@
                 <controls:CardPanel Style="{StaticResource PanelCardStyle}"
                                     AutomationProperties.Name="Standalone repositories"
                                     AutomationProperties.AutomationId="SettingsRepositoriesCard">
-                    <Grid>
+                    <!-- The header sits outside the scrolling list, so it stays in place; the shared size group gives
+                         its last column the width of the Remove buttons of the rows. -->
+                    <Grid Grid.IsSharedSizeScope="True">
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -422,9 +540,10 @@
                                     Padding="8,2"
                                     Margin="8,0,0,0"
                                     AutomationProperties.AutomationId="AddRepositoryButton" />
-                            <TextBlock Text="Standalone repositories: URL, branch (empty: default) and archive folder (empty: backup root\owner\repo)"
-                                       VerticalAlignment="Center"
-                                       TextWrapping="Wrap" />
+                            <TextBlock Text="Standalone repositories"
+                                       Style="{StaticResource CardTitleStyle}"
+                                       Margin="0"
+                                       VerticalAlignment="Center" />
                         </DockPanel>
                         <DockPanel Grid.Row="1" Margin="0,0,0,6">
                             <TextBlock Text="Filter by URL" VerticalAlignment="Center" Margin="0,0,8,0" />
@@ -432,11 +551,48 @@
                                      AutomationProperties.Name="Filter repositories by URL"
                                      AutomationProperties.AutomationId="RepositoryFilterBox" />
                         </DockPanel>
-                        <TextBlock Grid.Row="2"
+                        <Grid Grid.Row="2" Margin="{StaticResource TableRowMargin}">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
+                                <ColumnDefinition Width="2*" />
+                                <ColumnDefinition Width="{StaticResource PausedColumnWidth}" />
+                                <ColumnDefinition Width="{StaticResource UnavailableColumnWidth}" />
+                                <ColumnDefinition Width="Auto" SharedSizeGroup="RepositoryRemoveColumn" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0"
+                                       Text="URL"
+                                       Style="{StaticResource TableHeaderStyle}"
+                                       ToolTip="The repository URL, https://github.com/&lt;owner&gt;/&lt;repo&gt;."
+                                       AutomationProperties.AutomationId="RepositoryUrlHeader" />
+                            <TextBlock Grid.Column="1"
+                                       Text="Branch"
+                                       Style="{StaticResource TableHeaderStyle}"
+                                       Margin="8,0,0,4"
+                                       ToolTip="The branch checked out in the clone. Empty: the default branch of the repository."
+                                       AutomationProperties.AutomationId="RepositoryBranchHeader" />
+                            <TextBlock Grid.Column="2"
+                                       Text="Archive folder"
+                                       Style="{StaticResource TableHeaderStyle}"
+                                       Margin="8,0,0,4"
+                                       ToolTip="The folder of the archives. Empty: backup root\owner\repo."
+                                       AutomationProperties.AutomationId="RepositoryPathHeader" />
+                            <TextBlock Grid.Column="3"
+                                       Text="Paused"
+                                       Style="{StaticResource CenteredTableHeaderStyle}"
+                                       ToolTip="A run without a filter skips a paused repository; Backup repository still backs it up."
+                                       AutomationProperties.AutomationId="RepositoryPausedHeader" />
+                            <TextBlock Grid.Column="4"
+                                       Text="Unavailable"
+                                       Style="{StaticResource CenteredTableHeaderStyle}"
+                                       ToolTip="The repository was not found on GitHub. Clear the mark to check it again on the next run."
+                                       AutomationProperties.AutomationId="RepositoryUnavailableHeader" />
+                        </Grid>
+                        <TextBlock Grid.Row="3"
                                    Style="{StaticResource NoMatchStyle}"
                                    Visibility="{Binding RepositoryView.HasNoMatch, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                    AutomationProperties.AutomationId="RepositoriesNoMatch" />
-                        <ItemsControl Grid.Row="3"
+                        <ItemsControl Grid.Row="4"
                                       ItemsSource="{Binding RepositoryView.Items, Mode=OneWay}"
                                       Template="{StaticResource ScrollingItemsTemplate}"
                                       ItemsPanel="{StaticResource VirtualizingPanelTemplate}"
@@ -446,12 +602,14 @@
                                       AutomationProperties.AutomationId="RepositoriesList">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate DataType="{x:Type vm:RepositorySettingsViewModel}">
-                                    <Grid>
+                                    <Grid Margin="{StaticResource TableRowMargin}">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="2*" />
-                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="{StaticResource BranchColumnWidth}" />
                                             <ColumnDefinition Width="2*" />
-                                            <ColumnDefinition Width="Auto" />
+                                            <ColumnDefinition Width="{StaticResource PausedColumnWidth}" />
+                                            <ColumnDefinition Width="{StaticResource UnavailableColumnWidth}" />
+                                            <ColumnDefinition Width="Auto" SharedSizeGroup="RepositoryRemoveColumn" />
                                         </Grid.ColumnDefinitions>
                                         <TextBox Grid.Column="0"
                                                  Text="{Binding Url, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -467,8 +625,19 @@
                                                  Style="{StaticResource FormTextBoxStyle}"
                                                  Margin="8,0,0,6"
                                                  AutomationProperties.AutomationId="RepositoryPathBox" />
-                                        <Button Grid.Column="3"
-                                                Content="Remove"
+                                        <CheckBox Grid.Column="3"
+                                                  IsChecked="{Binding IsPaused, Mode=TwoWay}"
+                                                  Style="{StaticResource TableCheckBoxStyle}"
+                                                  MinWidth="0"
+                                                  AutomationProperties.Name="Paused"
+                                                  AutomationProperties.AutomationId="RepositoryPausedCheckBox" />
+                                        <CheckBox Grid.Column="4"
+                                                  IsChecked="{Binding IsUnavailable, Mode=TwoWay}"
+                                                  Style="{StaticResource TableCheckBoxStyle}"
+                                                  MinWidth="0"
+                                                  AutomationProperties.Name="Unavailable"
+                                                  AutomationProperties.AutomationId="RepositoryUnavailableCheckBox" />
+                                        <Button Grid.Column="5"
                                                 Command="{Binding DataContext.RemoveRepositoryCommand, RelativeSource={RelativeSource AncestorType=UserControl}, Mode=OneWay}"
                                                 CommandParameter="{Binding Mode=OneWay}"
                                                 Style="{StaticResource RowButtonStyle}"

@@ -5,8 +5,8 @@ using GitHubBackup.Core.BackupConfiguration;
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// One repository of a tracked account in the settings editor: its branch and archive folder can be changed, its
-/// name, id, status and pause are kept as read.
+/// One repository of a tracked account in the settings editor: its branch, archive folder, pause and status can be
+/// changed, its name and id are kept as read.
 /// </summary>
 /// <param name="source">The entry as read.</param>
 /// <param name="edited">Called after the user changes a field.</param>
@@ -17,12 +17,6 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
 
     /// <summary>The GitHub id, written back unchanged.</summary>
     private readonly long _id = source.Id;
-
-    /// <summary>The status, written back unchanged.</summary>
-    private readonly RepositoryStatus _status = source.Status;
-
-    /// <summary>Whether the repository is paused, written back unchanged.</summary>
-    private readonly bool _paused = source.Paused;
 
     /// <summary>The branch checked out in the clone; empty selects the default branch.</summary>
     [ObservableProperty]
@@ -39,19 +33,27 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
     /// <summary>Gets the repository name, without the owner.</summary>
     public string Name { get; } = source.Name;
 
-    /// <summary>Gets whether the repository is marked as not found on GitHub.</summary>
-    public bool IsUnavailable => _status == RepositoryStatus.Unavailable;
+    /// <summary>Whether an unfiltered run skips the repository (<c>paused</c>).</summary>
+    [ObservableProperty]
+    private bool _isPaused = source.Paused;
+
+    /// <summary>
+    /// Whether the repository is marked as not found on GitHub: the <see cref="RepositoryStatus.Unavailable"/> status,
+    /// <see cref="RepositoryStatus.Active"/> otherwise. A run that finds the repository again sets the status anew.
+    /// </summary>
+    [ObservableProperty]
+    private bool _isUnavailable = source.Status == RepositoryStatus.Unavailable;
 
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry with the name, id, status and pause as read.</returns>
+    /// <returns>The entry with the name and id as read.</returns>
     internal AccountRepositoryConfig ToConfig() => new()
     {
         Name = Name,
         Id = _id,
-        Status = _status,
-        Paused = _paused,
+        Status = IsUnavailable ? RepositoryStatus.Unavailable : RepositoryStatus.Active,
+        Paused = IsPaused,
         Branch = NullIfBlank(Branch),
         Path = NullIfBlank(Path),
     };
@@ -75,4 +77,12 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
     /// <summary>Tells the editor that the archive folder changed.</summary>
     /// <param name="value">The new folder.</param>
     partial void OnPathChanged(string value) => _edited();
+
+    /// <summary>Tells the editor that the pause changed.</summary>
+    /// <param name="value">The new pause.</param>
+    partial void OnIsPausedChanged(bool value) => _edited();
+
+    /// <summary>Tells the editor that the status changed.</summary>
+    /// <param name="value">Whether the repository is now marked as unavailable.</param>
+    partial void OnIsUnavailableChanged(bool value) => _edited();
 }
