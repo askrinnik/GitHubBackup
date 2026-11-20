@@ -122,6 +122,9 @@ public sealed partial class RepositoriesViewModel(
     /// </summary>
     private int _runNumber;
 
+    /// <summary>The overview read last, or <see langword="null"/> when the last read failed or none happened.</summary>
+    private RepositoryOverview? _overview;
+
     /// <summary>Gets the live log of the current or the last run.</summary>
     public RunLogViewModel RunLog { get; } = new(uiDispatcher);
 
@@ -225,18 +228,18 @@ public sealed partial class RepositoriesViewModel(
     private bool CanStartBackup(BackupScope scope) => !IsRunning && !IsConfigMissing && CreateFilter(scope) is not null;
 
     /// <summary>
-    /// Reads the tree again, runs the backup of <paramref name="scope"/> and shows its summary.
+    /// Runs the backup of <paramref name="scope"/>, shows its summary and updates the tree.
     /// </summary>
     /// <remarks>
-    /// A tree that cannot be read does not stop the run: the orchestrator reads the configuration itself, reports the
-    /// error and records the run in the history, as the console application does. An unexpected failure has no
-    /// result to summarize, so it is shown in a dialog. The progress of the run is shown while it works and cleared when
+    /// The run reads the configuration itself and reports an unreadable one, so the tree is not read before it. After a
+    /// run with a result the tree reads the state files only of the repositories the run processed; a run without a
+    /// result reads all of them. An unexpected failure has no result to summarize, so it is shown in a dialog. The progress of the run is shown while it works and cleared when
     /// it ends. The live log is cleared when the run starts and receives the log entries until the run ends; it keeps
     /// them afterwards so the user can read them next to the summary.
     /// </remarks>
     /// <param name="scope">The repositories the run covers.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
-    /// <returns>A task that completes when the run has finished and the tree is read again.</returns>
+    /// <returns>A task that completes when the run has finished and the tree is updated.</returns>
     [RelayCommand(CanExecute = nameof(CanStartBackup), IncludeCancelCommand = true)]
     private async Task StartBackupAsync(BackupScope scope, CancellationToken cancellationToken)
     {
@@ -250,13 +253,13 @@ public sealed partial class RepositoriesViewModel(
         Summary = null;
         var run = ++_runNumber;
         CurrentProgress = null;
+        BackupRunResult? result = null;
         RunLog.Clear();
         var logSubscription = liveLogFeed.Subscribe(RunLog.Add);
         var progress = new UiProgress<BackupProgress>(uiDispatcher, value => ShowProgress(run, value));
         try
         {
-            await LoadAsync(cancellationToken);
-            var result = await runService.RunAsync(filter, dryRun, progress, cancellationToken);
+            result = await runService.RunAsync(filter, dryRun, progress, cancellationToken);
             Summary = RunSummaryViewModel.FromResult(result, GetLogPath(), secretMasker);
         }
         catch (OperationCanceledException)
@@ -274,7 +277,10 @@ public sealed partial class RepositoriesViewModel(
             logSubscription.Dispose();
             _runNumber++;
             CurrentProgress = null;
-            await LoadAsync(CancellationToken.None);
+            await (result is not null && _overview is { } previous
+                ? ApplyOverviewAsync(
+                    token => overviewProvider.LoadAfterRunAsync(previous, result, token), CancellationToken.None)
+                : LoadAsync(CancellationToken.None));
             IsRunning = false;
         }
     }
@@ -326,13 +332,26 @@ public sealed partial class RepositoriesViewModel(
     /// <param name="cancellationToken">Cancels reading.</param>
     /// <returns>A task that completes when the nodes are rebuilt or the error is set.</returns>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
-    private async Task LoadAsync(CancellationToken cancellationToken)
+    private Task LoadAsync(CancellationToken cancellationToken) =>
+        ApplyOverviewAsync(overviewProvider.LoadAsync, cancellationToken);
+
+    /// <summary>
+    /// Reads the overview with <paramref name="read"/>, remembers it and rebuilds the nodes as <see cref="LoadAsync"/>
+    /// does.
+    /// </summary>
+    /// <param name="read">Reads the overview.</param>
+    /// <param name="cancellationToken">Cancels reading.</param>
+    /// <returns>A task that completes when the nodes are rebuilt or the error is set.</returns>
+    /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>
+    private async Task ApplyOverviewAsync(
+        Func<CancellationToken, Task<RepositoryOverview>> read, CancellationToken cancellationToken)
     {
         var selectedKey = SelectedNode?.Key;
         var collapsedKeys = Nodes.Where(node => !node.IsExpanded).Select(node => node.Key).ToHashSet();
         try
         {
-            var overview = await overviewProvider.LoadAsync(cancellationToken);
+            var overview = await read(cancellationToken);
+            _overview = overview;
             SelectedNode = null;
             Nodes = BuildNodes(overview, collapsedKeys);
             LoadError = null;
@@ -346,6 +365,7 @@ public sealed partial class RepositoriesViewModel(
         catch (BackupConfigNotFoundException exception)
         {
             AppLog.BackupConfigMissing(logger, exception.ConfigPath);
+            _overview = null;
             SelectedNode = null;
             Nodes = [];
             IsEmpty = false;
@@ -355,6 +375,7 @@ public sealed partial class RepositoriesViewModel(
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             AppLog.RepositoryTreeLoadFailed(logger, exception);
+            _overview = null;
             SelectedNode = null;
             Nodes = [];
             IsEmpty = false;

@@ -1,4 +1,5 @@
 using GitHubBackup.Core.BackupConfiguration;
+using GitHubBackup.Core.Runs;
 
 namespace GitHubBackup.Core.Overview;
 
@@ -21,4 +22,21 @@ public interface IRepositoryOverviewProvider
     /// that is not valid.
     /// </exception>
     Task<RepositoryOverview> LoadAsync(CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads the configuration again and the state files only of the repositories a backup run changed.
+    /// </summary>
+    /// <remarks>
+    /// A state file is read for a repository the run processed (a wiki result counts for its repository), for an
+    /// entry that <paramref name="previous"/> does not hold and for an entry whose archive folder differs. Every other
+    /// entry keeps the date and the state error of <paramref name="previous"/>. The status of every entry is computed
+    /// from the new configuration.
+    /// </remarks>
+    /// <param name="previous">The overview read before the run.</param>
+    /// <param name="result">The outcome of the run.</param>
+    /// <param name="cancellationToken">Cancels reading the files.</param>
+    /// <returns>The accounts and the standalone repositories.</returns>
+    /// <exception cref="BackupConfigException">As for <see cref="LoadAsync"/>.</exception>
+    Task<RepositoryOverview> LoadAfterRunAsync(
+        RepositoryOverview previous, BackupRunResult result, CancellationToken cancellationToken);
 }
