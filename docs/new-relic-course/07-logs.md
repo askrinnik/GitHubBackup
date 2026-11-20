@@ -83,7 +83,7 @@ FROM Log SELECT keyset() WHERE service.name = 'GitHubBackup' SINCE 1 day ago
 **Patterns** собирает похожие строки в шаблоны. Переменные части (имена, числа) New Relic заменяет на маску. Так видно, какие сообщения пишутся чаще всего, и какой шаблон появился впервые.
 
 - Откройте **Patterns** в разделе Logs.
-- Если видно сообщение «Patterns are turned off», нажмите **Configure patterns**. Первые шаблоны могут появиться только через сутки.
+- Если видно сообщение «Patterns are turned off», нажмите **Turn on Patterns**. Первые шаблоны могут появиться только через сутки.
 - Шаблон записывается в атрибут `newrelic.logPattern`. По нему можно группировать в NRQL.
 
 ## Live tail
