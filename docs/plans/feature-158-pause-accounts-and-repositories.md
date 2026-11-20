@@ -185,10 +185,10 @@
 - [x] К1: `Paused` в `AccountConfig`, `AccountRepositoryConfig`, `RepositoryConfig`; модификатор JSON пишет только `true`
 - [x] К1: сквозной `paused` в `ToConfig` ViewModel редактора и при смене owner в `DiscoveryDecisionApplier`
 - [x] К1: тесты чтения, записи и ошибок; тест Save в редакторе; PRD FR-1.2, FR-1.3, FR-1.4, FR-1.9, §7.3, версия 0.51 и строка истории; README (ключ)
-- [ ] К2: `BackupWorkItem.IsPaused`/`IsAccountPaused`, `BackupRunFilter.Pauses`
-- [ ] К2: оркестратор (пропуск, счёт, лог, `ResolveIdsAsync`), `BackupRunResult.PausedCount`, `FormatTotals`
-- [ ] К2: область обнаружения в `RepositoryDiscoveryService`
-- [ ] К2: `BackupConfigJson` с паузой; тесты Core, Cli, App; PRD FR-2.7, FR-9.7; README (пауза)
+- [x] К2: `BackupWorkItem.IsPaused`/`IsAccountPaused`, `BackupRunFilter.Pauses`
+- [x] К2: оркестратор (пропуск, счёт, лог, `ResolveIdsAsync`), `BackupRunResult.PausedCount`, `FormatTotals`
+- [x] К2: область обнаружения в `RepositoryDiscoveryService`
+- [x] К2: `BackupConfigJson` с паузой; тесты Core, Cli, App; PRD FR-2.7, FR-9.7; README (пауза)
 - [ ] К3: флаги Overview; значки в ViewModel узлов; XAML-слоты, глифы, подсказки, UIA; сценарий `paused-entries`; development.md; тесты; PRD FR-12.1; README
 - [ ] К4: карточки разделов, заголовки, Save/Cancel справа с акцентом; PRD FR-12.5 «Вид»
 - [ ] К5: `IsPaused`/`IsUnavailable` в ViewModel; заголовки колонок; флажок аккаунта; значки в `AccountsList`; тесты; PRD FR-12.5; README

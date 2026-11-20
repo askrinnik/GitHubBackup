@@ -270,6 +270,42 @@ public sealed class BackupSummaryRendererTests : IDisposable
     }
 
     [Fact]
+    public async Task RenderAsync_PausedRepositories_WritesPausedCounterLast()
+    {
+        var result = new BackupRunResult(
+            [new("octocat/same", BackupItemStatus.UpToDate, null, TimeSpan.FromMilliseconds(420), null)], [], [])
+        {
+            PausedCount = 2,
+        };
+
+        await Render(result);
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            ┌──────────────┬──────────┬─────────┬──────────┬───────┐
+            │ Repository   │ Status   │ Archive │ Duration │ Error │
+            ├──────────────┼──────────┼─────────┼──────────┼───────┤
+            │ octocat/same │ UpToDate │         │ 0:00.4   │       │
+            └──────────────┴──────────┴─────────┴──────────┴───────┘
+            Archived: 0, UpToDate: 1, Warning: 0, Failed: 0, Skipped: 0, Paused: 2
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
+    [Fact]
+    public async Task RenderAsync_EveryRepositoryPaused_WritesMessageAndTotalsWithPausedCounter()
+    {
+        await Render(new([], [], []) { PausedCount = 3 });
+
+        Normalize(_output.Output).ShouldBe(Normalize(
+            """
+            No repositories to back up.
+            Archived: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Paused: 3
+            Log: C:\app\logs\githubbackup-20261111.log
+            """));
+    }
+
+    [Fact]
     public async Task RenderAsync_RunStopped_WritesErrorsAndLogPathToErrorOutput()
     {
         await Render(BackupRunResult.Stopped(["git was not found.", "Second error."], []));

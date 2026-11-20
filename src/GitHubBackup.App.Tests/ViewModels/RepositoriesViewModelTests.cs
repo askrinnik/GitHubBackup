@@ -398,6 +398,33 @@ public sealed class RepositoriesViewModelTests
     }
 
     [Theory]
+    [InlineData(BackupScope.All, true, true)]
+    [InlineData(BackupScope.Account, false, true)]
+    [InlineData(BackupScope.Repository, false, false)]
+    public async Task StartBackup_Scope_PassesFilterThatLiftsPauseOfSelection(
+        BackupScope scope, bool skipsEntryOfPausedAccount, bool skipsPausedEntry)
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        FindNode("octo/tool").IsSelected = true;
+        var item = new BackupWorkItem("octo", "tool", 1, null, @"C:\b\octo\tool", @"C:\s\octo\tool", true, @"C:\s\octo\tool.wiki")
+        {
+            AccountLogin = "octo",
+        };
+        var entryOfPausedAccount = item with { IsAccountPaused = true };
+        var pausedEntry = item with { IsPaused = true };
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(scope);
+
+        await _runService.Received(1).RunAsync(
+            Arg.Is<BackupRunFilter>(filter =>
+                filter.Pauses(entryOfPausedAccount) == skipsEntryOfPausedAccount
+                && filter.Pauses(pausedEntry) == skipsPausedEntry),
+            false,
+            Arg.Any<IProgress<BackupProgress>?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public async Task StartBackup_DryRunToggle_PassesDryRun(bool dryRun)

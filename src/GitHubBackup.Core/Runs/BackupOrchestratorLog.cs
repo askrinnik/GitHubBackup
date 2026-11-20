@@ -91,6 +91,18 @@ internal static partial class BackupOrchestratorLog
     public static partial void RepositoryExcluded(ILogger logger, string repository, string mask, ExclusionScope scope);
 
     /// <summary>
+    /// Logs a repository of the list that the run does not back up because the entry or its account is paused.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="repository">The repository as <c>owner/name</c>.</param>
+    /// <param name="accountPaused">Whether the pause comes from the account that lists the repository.</param>
+    [LoggerMessage(
+        EventId = 28,
+        Level = LogLevel.Information,
+        Message = "Repository {Repository} is paused (account paused: {AccountPaused}) and is not backed up")]
+    public static partial void RepositoryPaused(ILogger logger, string repository, bool accountPaused);
+
+    /// <summary>
     /// Logs a warning about a repository, such as the default branch used instead of a missing one.
     /// </summary>
     /// <param name="logger">The logger.</param>

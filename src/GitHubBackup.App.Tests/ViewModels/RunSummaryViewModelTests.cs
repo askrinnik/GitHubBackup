@@ -18,6 +18,30 @@ public sealed class RunSummaryViewModelTests
     private readonly SecretMasker _masker = new();
 
     [Fact]
+    public void FromResult_PausedRepositories_EndsTotalsWithPausedCounter()
+    {
+        var result = new BackupRunResult(
+            [new("octo/tool", BackupItemStatus.UpToDate, null, TimeSpan.FromSeconds(1), null)], [], [])
+        {
+            PausedCount = 2,
+        };
+
+        var summary = RunSummaryViewModel.FromResult(result, _logPath, _masker);
+
+        summary.TotalsLine.ShouldBe("Archived: 0, UpToDate: 1, Warning: 0, Failed: 0, Skipped: 0, Paused: 2");
+    }
+
+    [Fact]
+    public void FromResult_EveryRepositoryPaused_ShowsNoRepositoriesLineAndPausedCounter()
+    {
+        var summary = RunSummaryViewModel.FromResult(new([], [], []) { PausedCount = 3 }, _logPath, _masker);
+
+        summary.NoRepositoriesLine.ShouldBe(BackupRunSummary.NoRepositoriesLine);
+        summary.TotalsLine.ShouldBe("Archived: 0, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Paused: 3");
+        summary.HasItems.ShouldBeFalse();
+    }
+
+    [Fact]
     public void FromResult_Items_BuildsRowsTotalsAndLogPath()
     {
         var result = new BackupRunResult(

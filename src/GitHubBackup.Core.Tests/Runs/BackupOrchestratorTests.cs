@@ -45,6 +45,7 @@ public sealed class BackupOrchestratorTests : IDisposable
     private const int _repositoryFailedEventId = 8;
     private const int _temporaryFolderIsLinkEventId = 10;
     private const int _repositoryExcludedEventId = 11;
+    private const int _repositoryPausedEventId = 28;
     private const int _wikiNotFoundEventId = 13;
     private const int _wikiLookupFailedEventId = 14;
     private const int _wikisDisabledEventId = 27;
@@ -898,6 +899,154 @@ public sealed class BackupOrchestratorTests : IDisposable
         record.GetStructuredStateValue("Repository").ShouldBe("octocat/secret");
         record.GetStructuredStateValue("Mask").ShouldBe("sec*");
         record.GetStructuredStateValue("Scope").ShouldBe(nameof(ExclusionScope.Account));
+    }
+
+    [Fact]
+    public async Task RunAsync_NoFilterWithPausedEntriesAndAccount_SkipsThemWithoutItemsAndCountsRepositoriesOnly()
+    {
+        SetupWiki(hasWiki: true);
+        _config.Accounts.Add(new()
+        {
+            Url = "https://github.com/octocat",
+            Paused = true,
+            Repositories = [new() { Name = "open", Id = 10 }, new() { Name = "held", Id = 11, Paused = true }],
+        });
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/idle", Id = 12, Paused = true });
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe(
+        [
+            ("owner/repo", BackupItemStatus.Archived),
+            ("owner/repo.wiki", BackupItemStatus.Archived),
+        ]);
+        result.PausedCount.ShouldBe(3);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        await _detector.ReceivedWithAnyArgs(2).DetectAsync(default!, CancellationToken);
+        _config.Accounts[0].Paused.ShouldBeTrue();
+        _config.Repositories[1].Paused.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task RunAsync_PausedEntriesAndAccount_LogsEachPausedRepository()
+    {
+        _config.Accounts.Add(new()
+        {
+            Url = "https://github.com/octocat",
+            Paused = true,
+            Repositories = [new() { Name = "open", Id = 10 }],
+        });
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/idle", Id = 12, Paused = true });
+
+        await RunAsync();
+
+        Records(_repositoryPausedEventId).Select(record => (
+                record.Level,
+                record.GetStructuredStateValue("Repository"),
+                record.GetStructuredStateValue("AccountPaused")))
+            .ShouldBe(
+            [
+                (LogLevel.Information, "octocat/open", "True"),
+                (LogLevel.Information, "owner/idle", "False"),
+            ]);
+    }
+
+    [Fact]
+    public async Task RunAsync_AccountFilterOnPausedAccount_BacksUpAccountAndSkipsItsPausedEntries()
+    {
+        _config.Accounts.Add(new()
+        {
+            Url = "https://github.com/octocat",
+            Paused = true,
+            Repositories = [new() { Name = "open", Id = 10 }, new() { Name = "held", Id = 11, Paused = true }],
+        });
+
+        var result = await RunAsync(BackupRunFilter.ForAccount("octocat"));
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("octocat/open", BackupItemStatus.Archived)]);
+        result.PausedCount.ShouldBe(1);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        _config.Accounts[0].Paused.ShouldBeTrue();
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_RepositoryFilterOnPausedEntryOfPausedAccount_BacksUpEntry()
+    {
+        _config.Accounts.Add(new()
+        {
+            Url = "https://github.com/octocat",
+            Paused = true,
+            Repositories = [new() { Name = "held", Id = 11, Paused = true }],
+        });
+
+        var result = await RunAsync(BackupRunFilter.ForRepository("octocat", "held"));
+
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("octocat/held", BackupItemStatus.Archived)]);
+        result.PausedCount.ShouldBe(0);
+        Records(_repositoryPausedEventId).ShouldBeEmpty();
+        _config.Accounts[0].Repositories[0].Paused.ShouldBeTrue();
+        await _configStore.DidNotReceiveWithAnyArgs().SaveAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_PausedEntryMatchesExclusion_CountsAsExcludedOnly()
+    {
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/old-archive", Id = 2, Paused = true });
+        _config.Exclude.Add("owner/*-archive");
+
+        var result = await RunAsync();
+
+        result.Items.Select(item => item.Repository).ShouldBe(["owner/repo"]);
+        result.PausedCount.ShouldBe(0);
+        SingleRecord(_repositoryExcludedEventId).GetStructuredStateValue("Repository").ShouldBe("owner/old-archive");
+        Records(_repositoryPausedEventId).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_DryRunWithPausedEntry_SkipsAndCountsIt()
+    {
+        SetupPreview(ChangeDecision.ArchiveNeeded);
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/idle", Id = 2, Paused = true });
+
+        var result = await DryRunAsync();
+
+        result.IsDryRun.ShouldBeTrue();
+        result.Items.Select(item => (item.Repository, item.Status)).ShouldBe([("owner/repo", BackupItemStatus.WouldArchive)]);
+        result.PausedCount.ShouldBe(1);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
+    [Fact]
+    public async Task RunAsync_EveryEntryPaused_ReturnsNoItemsAndSucceeds()
+    {
+        _config.Repositories[0].Paused = true;
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBeEmpty();
+        result.PausedCount.ShouldBe(1);
+        result.ExitCode.ShouldBe(ExitCode.Success);
+        await _detector.DidNotReceiveWithAnyArgs().DetectAsync(default!, CancellationToken);
+    }
+
+    [Fact]
+    public async Task RunAsync_CancelledWithPausedEntry_KeepsPausedCount()
+    {
+        AddRepository("other");
+        _config.Repositories.Add(new() { Url = "https://github.com/owner/idle", Id = 3, Paused = true });
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(CancellationToken);
+        _detector.DetectAsync(Arg.Any<ChangeDetectionRequest>(), Arg.Any<CancellationToken>()).Returns(_ =>
+        {
+            cancellation.Cancel();
+            return Task.FromException<ChangeDetection>(new OperationCanceledException(cancellation.Token));
+        });
+
+        var result = await CreateOrchestrator().RunAsync(Request(), cancellation.Token);
+
+        result.IsCancelled.ShouldBeTrue();
+        result.Items.Select(item => item.Repository).ShouldBe(["owner/repo", "owner/other"]);
+        result.PausedCount.ShouldBe(1);
     }
 
     [Fact]
@@ -2555,6 +2704,19 @@ public sealed class BackupOrchestratorTests : IDisposable
 
         resolvedItems.ShouldNotBeNull().Select(item => item.FullName).ShouldBe(["octocat/listed"]);
         _config.Accounts[0].Repositories[0].Id.ShouldBe(9);
+    }
+
+    [Fact]
+    public async Task Run_PausedEntryWithoutId_NotResolved()
+    {
+        _config.Repositories[0].Id = 0;
+        _config.Repositories[0].Paused = true;
+
+        var result = await RunAsync();
+
+        result.Items.ShouldBeEmpty();
+        result.PausedCount.ShouldBe(1);
+        await _discovery.DidNotReceiveWithAnyArgs().ResolveIdsAsync(default!, default!, CancellationToken);
     }
 
     [Fact]

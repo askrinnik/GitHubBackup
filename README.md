@@ -411,7 +411,7 @@ To back up an organization, add it to `accounts`. To back up a repository where 
 
 Each repository entry in `backup-config.json` stores the GitHub ID (`id`). The ID is how the program recognizes a rename. In an entry you add by hand (alone or in an account list), you can leave `id` out: a missing `id`, `"id": null` and `"id": 0` mean the same. Never write an arbitrary `id`: an entry with the ID of another repository is taken for a renamed repository. A negative `id` is a validation error. `validate` does not call GitHub and accepts an entry without `id`.
 
-At the start of a run, before discovery, `backup` looks up such an entry by name (`GET /repos/{owner}/{repo}`). It writes the found ID to `backup-config.json` without a question, in one save together with the discovery changes. It looks up only the entries the run processes: it respects `--account` and `--repo` and skips excluded entries. Filling in an ID does not by itself cause exit code `3`.
+At the start of a run, before discovery, `backup` looks up such an entry by name (`GET /repos/{owner}/{repo}`). It writes the found ID to `backup-config.json` without a question, in one save together with the discovery changes. It looks up only the entries the run processes: it respects `--account` and `--repo` and skips excluded entries and the entries the run skips as paused (see [Pause](#pause-paused)). Filling in an ID does not by itself cause exit code `3`.
 
 - If GitHub answers 404 or 403, the entry gets `Failed` with the error `The repository was not found on GitHub.` It stays without `id` and is not marked `Unavailable`. The other repositories are processed.
 - If the found ID already belongs to another entry, the program does not write it, and the entry gets `Failed` with an error that names that entry.
@@ -420,6 +420,26 @@ At the start of a run, before discovery, `backup` looks up such an entry by name
 The program saves the changed `backup-config.json` before it processes repositories. For each repository, it updates the clone and, if something changed, creates a new archive. It skips a repository with the status `Unavailable`. An error in one repository does not stop the run.
 
 At the end, the program prints a table with the repository, status (`Archived`, `UpToDate`, `Warning`, `Failed`, `Skipped`, `Cancelled`), archive, duration and error. Below it are the totals by status and the path of the text log of the day.
+
+### Pause (`paused`)
+
+`"paused": true` on an account or a repository entry of `backup-config.json` takes it out of the backup for a while. The entry stays in the file, and removing the key brings it back. A pause is not an exclusion: an `exclude` mask removes a repository for good, a pause only skips it.
+
+| Run | Paused repository entry | Paused account |
+|---|---|---|
+| `backup` (no filter) | Skipped | All of its repositories and their wikis are skipped |
+| `backup --account <login>` | Skipped | Backed up; its paused entries are still skipped |
+| `backup --repo <owner/repo>` | Backed up, also when its account is paused | Not relevant: the run covers one entry |
+
+- An explicit `--account` or `--repo` lifts the pause for that run only. The run does not change `paused` in the file.
+- A skipped entry has no row in the table. The totals line ends with the number of skipped repositories, wikis not counted, for example `Archived: 1, UpToDate: 4, Warning: 0, Failed: 0, Skipped: 0, Paused: 2`. Without paused repositories, there is no `Paused` counter. When every entry is paused, the summary shows `No repositories to back up.` and the totals with the counter. The run history does not store the counter.
+- Discovery without a filter leaves a paused account out: the program does not list its repositories, does not report its entries as missing, returned or renamed, and does not offer the repositories of its owner as new, also not as single repositories with `discoverAccessibleRepositories: true`. It still lists the repositories of your token (`/user/repos`). Paused entries of other accounts and paused single repositories are compared as usual. With `--account` for a paused account, discovery covers it as usual.
+- An entry without `id` that the run skips as paused is not looked up.
+- If an exclusion mask matches a paused entry, the exclusion wins: the log shows the exclusion warning, and the entry is not counted as paused.
+- `--dry-run` skips and counts paused entries like a normal run.
+- A pause does not change the status (`Active`, `Unavailable`) of an entry and does not change the exit code.
+
+In the desktop app, **Backup all** skips paused entries like `backup` without a filter, **Backup account** works like `--account` and **Backup repository** works like `--repo`, so it backs up a paused entry too. The totals of the summary show the same `Paused` counter.
 
 ### Cancel a run
 

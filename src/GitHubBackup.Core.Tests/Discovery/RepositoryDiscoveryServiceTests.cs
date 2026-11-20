@@ -714,6 +714,88 @@ public sealed class RepositoryDiscoveryServiceTests
     }
 
     [Fact]
+    public async Task DiscoverAsync_NoFilterPausedAccount_ListsUserRepositoriesButNotTheAccount()
+    {
+        SetAccount("octo", GitHubAccountType.User);
+        SetAccount("acme", GitHubAccountType.Organization, Repo(1, "acme", "lib"));
+
+        var result = await _service.DiscoverAsync(Config(Account("octo"), Paused(Account("acme"))), null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        await _api.Received(1).GetCurrentUserRepositoriesAsync(Arg.Any<CancellationToken>());
+        await _api.Received(1).GetAccountAsync("octo", Arg.Any<CancellationToken>());
+        await _api.DidNotReceive().GetAccountAsync("acme", Arg.Any<CancellationToken>());
+        await _api.DidNotReceiveWithAnyArgs().GetOrganizationRepositoriesAsync(default!, Token);
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_NoFilterPausedAccountEntries_AreNotMissingReturnedOrRenamed()
+    {
+        SetCurrentUser(Repo(2, "acme", "back"), Repo(3, "acme", "old-v2"));
+        var config = Config(Paused(Account("acme", Active(1, "gone"), Unavailable(2, "back"), Active(3, "old"))));
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.HasChanges.ShouldBeFalse();
+        result.Returned.ShouldBeEmpty();
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryAsync(default!, default!, Token);
+        await _api.DidNotReceiveWithAnyArgs().GetRepositoryByIdAsync(default, Token);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DiscoverAsync_NoFilterUserRepositoryOfPausedAccountOwner_IsNotNew(bool discoverAccessible)
+    {
+        SetCurrentUser(Repo(5, "acme", "fresh"));
+        var config = Config(Paused(Account("acme")));
+        config.DiscoverAccessibleRepositories = discoverAccessible;
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.NewInAccounts.ShouldBeEmpty();
+        result.NewStandalone.ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_PausedEntryInEnabledAccount_IsMissing()
+    {
+        SetAccount("octo", GitHubAccountType.User);
+        var entry = Active(1, "tool");
+        entry.Paused = true;
+
+        var result = await _service.DiscoverAsync(Config(Account("octo", entry)), null, Token);
+
+        result.Missing.ShouldHaveSingleItem().FullName.ShouldBe("octo/tool");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_PausedStandaloneEntry_IsRenamed()
+    {
+        SetCurrentUser(Repo(3, "friend", "shared-v2"));
+        var config = Config();
+        var entry = Standalone("friend", "shared", 3);
+        entry.Paused = true;
+        config.Repositories.Add(entry);
+
+        var result = await _service.DiscoverAsync(config, null, Token);
+
+        result.Renamed.ShouldHaveSingleItem().Current.FullName.ShouldBe("friend/shared-v2");
+    }
+
+    [Fact]
+    public async Task DiscoverAsync_AccountFilterOnPausedAccount_DiscoversItFully()
+    {
+        SetAccount("acme", GitHubAccountType.Organization, Repo(1, "acme", "new"));
+        var config = Config(Paused(Account("acme", Active(2, "gone"))));
+
+        var result = await _service.DiscoverAsync(config, "acme", Token);
+
+        result.NewInAccounts.ShouldHaveSingleItem().Repository.Id.ShouldBe(1);
+        result.Missing.ShouldHaveSingleItem().Id.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task DiscoverAsync_UnknownAccountFilter_ThrowsBeforeAnyRequest()
     {
         await Should.ThrowAsync<ArgumentException>(
@@ -1143,6 +1225,12 @@ public sealed class RepositoryDiscoveryServiceTests
 
     private static AccountConfig Account(string login, params AccountRepositoryConfig[] repositories) =>
         new() { Url = $"https://github.com/{login}", Repositories = [.. repositories] };
+
+    private static AccountConfig Paused(AccountConfig account)
+    {
+        account.Paused = true;
+        return account;
+    }
 
     private static AccountRepositoryConfig Active(long id, string name) =>
         new() { Id = id, Name = name, Status = RepositoryStatus.Active };

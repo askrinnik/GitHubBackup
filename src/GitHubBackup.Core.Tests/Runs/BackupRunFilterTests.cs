@@ -47,6 +47,42 @@ public sealed class BackupRunFilterTests
     }
 
     [Theory]
+    [InlineData("all", false, false, false)]
+    [InlineData("all", true, false, true)]
+    [InlineData("all", false, true, true)]
+    [InlineData("all", true, true, true)]
+    [InlineData("account", false, false, false)]
+    [InlineData("account", true, false, true)]
+    [InlineData("account", false, true, false)]
+    [InlineData("account", true, true, true)]
+    [InlineData("repository", false, false, false)]
+    [InlineData("repository", true, false, false)]
+    [InlineData("repository", false, true, false)]
+    [InlineData("repository", true, true, false)]
+    public void Pauses_FilterAndPauseOfEntryAndAccount_SkipsByExplicitSelection(
+        string scope, bool entryPaused, bool accountPaused, bool expected)
+    {
+        var filter = scope switch
+        {
+            "account" => BackupRunFilter.ForAccount("octocat"),
+            "repository" => BackupRunFilter.ForRepository("octocat", "tool"),
+            _ => BackupRunFilter.All,
+        };
+        var item = _accountItem with { IsPaused = entryPaused, IsAccountPaused = accountPaused };
+
+        filter.Pauses(item).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Pauses_PausedStandaloneEntry_SkippedOnlyWithoutRepositoryFilter()
+    {
+        var item = _standaloneItem with { IsPaused = true };
+
+        BackupRunFilter.All.Pauses(item).ShouldBeTrue();
+        BackupRunFilter.ForRepository("octocat", "solo").Pauses(item).ShouldBeFalse();
+    }
+
+    [Theory]
     [InlineData("", "repo")]
     [InlineData("owner", " ")]
     public void ForRepository_EmptyPart_Throws(string owner, string name) =>

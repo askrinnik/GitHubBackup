@@ -123,6 +123,19 @@ public sealed class BackupRunResultTests
         result.ExitCode.ShouldBe(ExitCode.Success);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ExitCode_PausedRepositories_DoNotChangeIt(bool dryRun)
+    {
+        var result = new BackupRunResult([Item(BackupItemStatus.Archived)], [], []) { IsDryRun = dryRun, PausedCount = 4 };
+
+        result.ExitCode.ShouldBe(ExitCode.Success);
+    }
+
+    [Fact]
+    public void PausedCount_NotSet_IsZero() => new BackupRunResult([], [], []).PausedCount.ShouldBe(0);
+
     [Fact]
     public void ExitCode_CancelledWithoutItems_IsCritical()
     {

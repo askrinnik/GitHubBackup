@@ -21,10 +21,13 @@ public sealed class RepositoryDiscoveryService(
         BackupConfig config, string? accountLogin, CancellationToken cancellationToken)
     {
         var accounts = ParseAccounts(config, out var tracked);
-        var scopeAccounts = SelectScopeAccounts(accounts, accountLogin);
-        var scopeTracked = accountLogin is null
-            ? tracked
-            : [.. tracked.Where(item => item.AccountLogin is not null && IsSameName(item.AccountLogin, scopeAccounts[0]))];
+        var scopeAccounts = SelectScopeAccounts(config, accounts, accountLogin);
+        List<TrackedRepository> scopeTracked =
+        [
+            .. tracked.Where(item => item.AccountLogin is null
+                ? accountLogin is null
+                : scopeAccounts.Exists(login => IsSameName(login, item.AccountLogin))),
+        ];
 
         var collected = await CollectAsync(scopeAccounts, cancellationToken);
         var knownIds = tracked.Where(item => item.Id != 0).Select(item => item.Id).ToHashSet();
@@ -48,7 +51,8 @@ public sealed class RepositoryDiscoveryService(
             var owningAccount = accounts.Find(login => IsSameName(login, repository.Owner));
 
             // The collected list stays unfiltered because configured entries are matched against it by id; only the
-            // choice of new repositories drops owners outside the tracked accounts.
+            // choice of new repositories drops owners outside the tracked accounts. A repository of a tracked account
+            // outside the scope, such as a paused one, is not new either.
             if (owningAccount is null && (accountLogin is not null || !config.DiscoverAccessibleRepositories))
             {
                 continue;
@@ -284,17 +288,19 @@ public sealed class RepositoryDiscoveryService(
     }
 
     /// <summary>
-    /// Returns the accounts discovery covers: all of them, or the one named by <paramref name="accountLogin"/>.
+    /// Returns the accounts discovery covers: every account that is not paused, or the one named by
+    /// <paramref name="accountLogin"/>, paused or not.
     /// </summary>
+    /// <param name="config">The configuration whose accounts <paramref name="accounts"/> lists, in the same order.</param>
     /// <param name="accounts">The tracked account logins.</param>
-    /// <param name="accountLogin">The requested login, or <see langword="null"/> for every account.</param>
+    /// <param name="accountLogin">The requested login, or <see langword="null"/> for every account that is not paused.</param>
     /// <returns>The logins in scope, as configured.</returns>
     /// <exception cref="ArgumentException"><paramref name="accountLogin"/> is not a tracked account.</exception>
-    private static List<string> SelectScopeAccounts(List<string> accounts, string? accountLogin)
+    private static List<string> SelectScopeAccounts(BackupConfig config, List<string> accounts, string? accountLogin)
     {
         if (accountLogin is null)
         {
-            return accounts;
+            return [.. accounts.Where((_, index) => !config.Accounts[index].Paused)];
         }
 
         var match = accounts.Find(login => IsSameName(login, accountLogin))

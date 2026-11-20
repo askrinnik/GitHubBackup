@@ -20,12 +20,13 @@ public sealed class BackupConfigJson(string backupRoot)
     /// <param name="name">The repository name.</param>
     /// <param name="id">The repository id.</param>
     /// <param name="status">The status of the entry, <c>Active</c> or <c>Unavailable</c>.</param>
+    /// <param name="paused">Whether the entry sets <c>"paused": true</c>.</param>
     /// <returns>This builder.</returns>
-    public BackupConfigJson WithRepository(string owner, string name, long id, string status = "Active")
+    public BackupConfigJson WithRepository(string owner, string name, long id, string status = "Active", bool paused = false)
     {
         _repositories.Add(
             $$"""
-            { "url": "https://github.com/{{owner}}/{{name}}", "id": {{id}}, "branch": null, "path": null, "status": "{{status}}" }
+            { "url": "https://github.com/{{owner}}/{{name}}", "id": {{id}}, "branch": null, "path": null{{PausedKey(paused)}}, "status": "{{status}}" }
             """);
         return this;
     }
@@ -51,15 +52,25 @@ public sealed class BackupConfigJson(string backupRoot)
     /// <param name="login">The account login.</param>
     /// <param name="repositories">The name and id of each repository of the account.</param>
     /// <returns>This builder.</returns>
-    public BackupConfigJson WithAccount(string login, params (string Name, long Id)[] repositories)
+    public BackupConfigJson WithAccount(string login, params (string Name, long Id)[] repositories) =>
+        WithAccount(login, paused: false, [.. repositories.Select(repository => (repository.Name, repository.Id, false))]);
+
+    /// <summary>
+    /// Adds an account with its active repositories, each of them and the account paused or not.
+    /// </summary>
+    /// <param name="login">The account login.</param>
+    /// <param name="paused">Whether the account sets <c>"paused": true</c>.</param>
+    /// <param name="repositories">The name, id and pause of each repository of the account.</param>
+    /// <returns>This builder.</returns>
+    public BackupConfigJson WithAccount(string login, bool paused, params (string Name, long Id, bool Paused)[] repositories)
     {
         var entries = repositories.Select(repository =>
             $$"""
-            { "name": "{{repository.Name}}", "id": {{repository.Id}}, "branch": null, "path": null, "status": "Active" }
+            { "name": "{{repository.Name}}", "id": {{repository.Id}}, "branch": null, "path": null{{PausedKey(repository.Paused)}}, "status": "Active" }
             """);
         _accounts.Add(
             $$"""
-            { "url": "https://github.com/{{login}}", "path": null, "exclude": [], "repositories": [ {{string.Join(",", entries)}} ] }
+            { "url": "https://github.com/{{login}}", "path": null, "exclude": []{{PausedKey(paused)}}, "repositories": [ {{string.Join(",", entries)}} ] }
             """);
         return this;
     }
@@ -90,6 +101,14 @@ public sealed class BackupConfigJson(string backupRoot)
           "repositories": [ {{string.Join(",", _repositories)}} ]
         }
         """;
+
+    /// <summary>
+    /// Returns the <c>paused</c> key with its leading comma, written only for <see langword="true"/> as the program
+    /// writes it.
+    /// </summary>
+    /// <param name="paused">Whether the entry is paused.</param>
+    /// <returns>The key, or an empty string.</returns>
+    private static string PausedKey(bool paused) => paused ? ", \"paused\": true" : string.Empty;
 
     /// <summary>
     /// Writes the JSON text to <paramref name="path"/>.
