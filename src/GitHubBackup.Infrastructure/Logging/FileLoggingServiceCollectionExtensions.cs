@@ -40,10 +40,31 @@ public static class FileLoggingServiceCollectionExtensions
         {
             services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<SerilogOptions>, SerilogOptionsValidator>());
             services.AddOptions<SerilogOptions>().BindSection(configuration, SerilogOptions.SectionName).ValidateOnStart();
+            services.AddOptions<LiveLogOptions>()
+                .Validate(
+                    static options => options.BufferCapacity is >= 0 and <= LiveLogOptions.MaxBufferCapacity,
+                    $"{nameof(LiveLogOptions)}:{nameof(LiveLogOptions.BufferCapacity)} must be from 0 to {LiveLogOptions.MaxBufferCapacity}.")
+                .ValidateOnStart();
             services.TryAddSingleton<LiveLogSink>();
             services.TryAddSingleton<ILiveLogFeed>(provider => provider.GetRequiredService<LiveLogSink>());
             services.AddSerilog(ConfigureLogger, preserveStaticLogger: true, writeToProviders: true);
 
+            return services;
+        }
+
+        /// <summary>
+        /// Makes the <see cref="ILiveLogFeed"/> keep the last <paramref name="capacity"/> entries, so a subscriber that
+        /// comes later still receives the entries written since the host started.
+        /// </summary>
+        /// <remarks>
+        /// Only a host that shows the feed calls it; without it the feed keeps no entries. The value is validated on
+        /// start with the other options of <see cref="AddGitHubBackupLogging"/>.
+        /// </remarks>
+        /// <param name="capacity">The number of entries kept, from <c>0</c> to <see cref="LiveLogOptions.MaxBufferCapacity"/>.</param>
+        /// <returns>The same service collection, for chaining.</returns>
+        public IServiceCollection AddGitHubBackupLiveLogBuffer(int capacity)
+        {
+            services.Configure<LiveLogOptions>(options => options.BufferCapacity = capacity);
             return services;
         }
     }

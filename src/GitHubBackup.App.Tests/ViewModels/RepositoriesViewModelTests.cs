@@ -25,7 +25,7 @@ namespace GitHubBackup.App.Tests.ViewModels;
 /// Tests <see cref="RepositoriesViewModel"/>: reading the tree, the availability of the backup commands, the runs, their
 /// summary, cancellation and closing the window during a run.
 /// </summary>
-public sealed class RepositoriesViewModelTests
+public sealed class RepositoriesViewModelTests : IDisposable
 {
     private static readonly DateTimeOffset _archivedAt = new(2026, 11, 5, 9, 7, 0, TimeSpan.FromHours(2));
 
@@ -61,6 +61,8 @@ public sealed class RepositoriesViewModelTests
 
     private readonly FakeLiveLogFeed _logFeed = new();
 
+    private readonly RunLogViewModel _runLog;
+
     private const string _logPath = @"C:\app\logs\githubbackup-20261113.log";
 
     private readonly FakeLogger<RepositoriesViewModel> _logger = new();
@@ -84,7 +86,8 @@ public sealed class RepositoriesViewModelTests
         environment.ContentRootPath.Returns(@"C:\app");
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 13, 12, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.Utc);
-        _viewModel = new(_provider, _runService, _dispatcher, _logFeed, _dialogs, new SecretMasker(), environment, timeProvider, _navigation, _layout, _logger);
+        _runLog = new(_dispatcher, _logFeed);
+        _viewModel = new(_provider, _runService, _dispatcher, _runLog, _dialogs, new SecretMasker(), environment, timeProvider, _navigation, _layout, _logger);
     }
 
     [Fact]
@@ -872,7 +875,7 @@ public sealed class RepositoriesViewModelTests
     }
 
     [Fact]
-    public async Task StartBackup_RunEnds_UnsubscribesAndKeepsEntries()
+    public async Task StartBackup_RunEnds_KeepsSubscriptionAndEntries()
     {
         var (run, _) = UseRunInProgress();
         var execution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
@@ -884,23 +887,26 @@ public sealed class RepositoriesViewModelTests
         _logFeed.Write(new(_archivedAt, LogLevel.Information, "After the run"));
         _dispatcher.RunAll();
 
-        _logFeed.SubscriberCount.ShouldBe(0);
-        _viewModel.RunLog.Entries.Select(entry => entry.Message).ShouldBe(["Archiving octo/tool"]);
+        _logFeed.SubscriberCount.ShouldBe(1);
+        _viewModel.RunLog.Entries.Select(entry => entry.Message).ShouldBe(["Archiving octo/tool", "After the run"]);
     }
 
     [Fact]
-    public async Task StartBackup_RunFails_Unsubscribes()
+    public async Task StartBackup_RunFails_KeepsSubscription()
     {
         _runService.RunAsync(Arg.Any<BackupRunFilter>(), Arg.Any<bool>(), Arg.Any<IProgress<BackupProgress>?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new InvalidOperationException("Unexpected"));
 
         await _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _logFeed.Write(new(_archivedAt, LogLevel.Information, "After the failure"));
+        _dispatcher.RunAll();
 
-        _logFeed.SubscriberCount.ShouldBe(0);
+        _logFeed.SubscriberCount.ShouldBe(1);
+        _viewModel.RunLog.Entries.Select(entry => entry.Message).ShouldBe(["After the failure"]);
     }
 
     [Fact]
-    public async Task StartBackup_NewRun_ClearsLogOfPreviousRun()
+    public async Task StartBackup_NewRun_KeepsLogOfPreviousRun()
     {
         var (first, _) = UseRunInProgress();
         var firstExecution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
@@ -911,11 +917,26 @@ public sealed class RepositoriesViewModelTests
 
         var (second, _) = UseRunInProgress();
         var secondExecution = _viewModel.StartBackupCommand.ExecuteAsync(BackupScope.All);
+        _dispatcher.RunAll();
 
-        _viewModel.RunLog.Entries.ShouldBeEmpty();
+        _viewModel.RunLog.Entries.Select(entry => entry.Message).ShouldBe(["First run"]);
         second.SetResult(new([], [], []));
         await secondExecution;
     }
+
+    [Fact]
+    public void RunLog_EntriesBeforeAnyRun_AreShown()
+    {
+        var entry = new LiveLogEntry(_archivedAt, LogLevel.Information, "Loaded the backup configuration");
+
+        _logFeed.Write(entry);
+        _dispatcher.RunAll();
+
+        _viewModel.RunLog.Entries.ShouldBe([entry]);
+    }
+
+    [Fact]
+    public void RunLog_IsInjectedInstance() => _viewModel.RunLog.ShouldBeSameAs(_runLog);
 
     [Theory]
     [InlineData(BackupProgressStage.CheckingRemote, "Checking the server for changes")]
@@ -981,4 +1002,9 @@ public sealed class RepositoriesViewModelTests
             : AccountNodeViewModel.CreateKey(path);
         return _viewModel.Nodes.Concat(_viewModel.Nodes.SelectMany(node => node.Children)).Single(node => node.Key == key);
     }
+
+    /// <summary>
+    /// Unsubscribes the live log from the feed.
+    /// </summary>
+    public void Dispose() => _runLog.Dispose();
 }

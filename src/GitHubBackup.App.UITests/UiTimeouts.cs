@@ -19,4 +19,7 @@ internal static class UiTimeouts
 
     /// <summary>The time between two checks of a condition the tests wait for.</summary>
     public static readonly TimeSpan PollInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>The time a control of the Fluent theme takes to finish the animation it starts when the mouse enters it.</summary>
+    public static readonly TimeSpan Animation = TimeSpan.FromSeconds(1);
 }

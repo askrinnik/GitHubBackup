@@ -1,13 +1,14 @@
 using System.Drawing;
 using FlaUI.Core.AutomationElements;
+using FlaUI.Core.Input;
 using GitHubBackup.TestUtilities;
 
 namespace GitHubBackup.App.UITests;
 
 /// <summary>
 /// Takes screenshots of the main window, in the light and the dark theme, and measures the results panel after a dry
-/// run (aligned table rows, no cut text at the smallest panel height, cards and lines that stand out) and the status
-/// icons of the repository tree.
+/// run (aligned table rows, no cut text at the smallest panel height, cards and lines that stand out, the Clear log button
+/// of the live log) and the status icons of the repository tree.
 /// </summary>
 /// <remarks>
 /// The tests need an unlocked interactive desktop: Windows does not render windows while the workstation is locked,
@@ -174,6 +175,47 @@ public sealed class MainWindowScreenshotTests : IDisposable
         var active = TextContrast(image, tree, window, "active-repository");
         TextContrast(image, tree, window, "paused-repository").ShouldBeLessThan(active, $"{description}: a paused entry is muted");
         TextContrast(image, tree, window, "quiet-repository").ShouldBeLessThan(active, $"{description}: an entry of a paused account is muted");
+    }
+
+    [Theory]
+    [InlineData("light")]
+    [InlineData("dark")]
+    public void RunLog_ClearButton_SitsInTopRightCornerBesideScrollBarAndDrawsWhole(string theme)
+    {
+        var shot = DryRun(UiScenarios.ManyRows, theme, logPanelHeight: 100);
+        var log = AppSession.WaitFor(shot.Window, "RunLog");
+        log.Patterns.Scroll.Pattern.VerticallyScrollable.Value.ShouldBeTrue($"{shot.Description}: the live log does not scroll vertically");
+        var logBounds = shot.Bounds("RunLog");
+        var button = shot.Bounds("ClearRunLogButton");
+        var tolerance = (int)Math.Ceiling(2 * shot.Scale);
+
+        button.Top.ShouldBeLessThanOrEqualTo(logBounds.Top + tolerance, $"{shot.Description}: the button at {button} is not at the top of the live log {logBounds}");
+        (logBounds.Right - button.Right).ShouldBeLessThanOrEqualTo((int)Math.Ceiling(24 * shot.Scale), $"{shot.Description}: the button at {button} is not in the right corner of the live log {logBounds}");
+
+        // The Fluent scroll bar is a thin line until the mouse is over the list; then it widens and shows the arrow
+        // that scrolls up in the top right corner of the list. The strip at the right edge of the list then holds that
+        // arrow only, and a button that covers the scroll bar puts its own frame there.
+        var screen = log.BoundingRectangle;
+        Mouse.MoveTo(new Point(screen.Right - (int)Math.Ceiling(4 * shot.Scale), screen.Top + (screen.Height / 2)));
+        Thread.Sleep(UiTimeouts.Animation);
+        var hovered = ScreenCapture.Window(shot.Window, $"the main window with the mouse over the live log ({shot.Description})");
+        var strip = Rectangle.FromLTRB(logBounds.Right - (int)Math.Ceiling(16 * shot.Scale), logBounds.Top, logBounds.Right, button.Bottom);
+        var arrow = LayoutMeasurement.InkBounds(hovered, strip)
+            .ShouldNotBeNull($"{shot.Description}: the scroll bar shows no arrow in {strip}");
+        arrow.Left.ShouldBeGreaterThan(button.Right, $"{shot.Description}: the button at {button} covers the scroll bar, whose ink starts at {arrow}");
+
+        // The cross is square and drawn inside the frame of the button; a button smaller than its template cuts it.
+        var inner = Rectangle.Inflate(button, -tolerance, -tolerance);
+        var glyph = LayoutMeasurement.InkBounds(shot.Image, inner).ShouldNotBeNull($"{shot.Description}: the button at {button} shows no glyph");
+        Math.Abs(glyph.Width - glyph.Height).ShouldBeLessThanOrEqualTo(tolerance, $"{shot.Description}: the glyph at {glyph} is not whole");
+        glyph.Left.ShouldBeGreaterThan(inner.Left, $"{shot.Description}: the glyph at {glyph} touches the left of the button");
+        glyph.Right.ShouldBeLessThan(inner.Right, $"{shot.Description}: the glyph at {glyph} touches the right of the button");
+        glyph.Top.ShouldBeGreaterThan(inner.Top, $"{shot.Description}: the glyph at {glyph} touches the top of the button");
+        glyph.Bottom.ShouldBeLessThan(inner.Bottom, $"{shot.Description}: the glyph at {glyph} touches the bottom of the button");
+        Math.Abs(glyph.Left - inner.Left - (inner.Right - glyph.Right))
+            .ShouldBeLessThanOrEqualTo(tolerance, $"{shot.Description}: the glyph at {glyph} is not centred in the button at {button}");
+        LayoutMeasurement.TextContrast(shot.Image, inner)
+            .ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinTextContrast, $"{shot.Description}: the glyph of the button stands out");
     }
 
     /// <summary>

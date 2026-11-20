@@ -26,9 +26,11 @@ namespace GitHubBackup.App.ViewModels;
 /// <param name="overviewProvider">Reads the configuration and the dates of the last archives.</param>
 /// <param name="runService">Runs the backup.</param>
 /// <param name="uiDispatcher">
-/// Brings the progress reports and the log entries of a run from the thread of the core to the UI thread.
+/// Brings the progress reports of a run from the thread of the core to the UI thread.
 /// </param>
-/// <param name="liveLogFeed">Delivers the log entries that the live log shows while a run works.</param>
+/// <param name="runLog">
+/// The live log of the session, shared by every instance of the screen so that leaving the screen keeps its entries.
+/// </param>
 /// <param name="dialogs">Shows an unexpected failure of a run and asks before the window closes during a run.</param>
 /// <param name="secretMasker">
 /// Masks secrets in exception messages before the window shows them, because an exception from a lower layer can
@@ -43,7 +45,7 @@ public sealed partial class RepositoriesViewModel(
     IRepositoryOverviewProvider overviewProvider,
     IBackupRunService runService,
     IUiDispatcher uiDispatcher,
-    ILiveLogFeed liveLogFeed,
+    RunLogViewModel runLog,
     IDialogService dialogs,
     ISecretMasker secretMasker,
     IHostEnvironment environment,
@@ -125,8 +127,8 @@ public sealed partial class RepositoriesViewModel(
     /// <summary>The overview read last, or <see langword="null"/> when the last read failed or none happened.</summary>
     private RepositoryOverview? _overview;
 
-    /// <summary>Gets the live log of the current or the last run.</summary>
-    public RunLogViewModel RunLog { get; } = new(uiDispatcher);
+    /// <summary>Gets the live log of the application session.</summary>
+    public RunLogViewModel RunLog { get; } = runLog;
 
     /// <summary>Gets the preferences that hold the heights of the live log and summary panels.</summary>
     public UiPreferences Layout { get; } = layout;
@@ -254,8 +256,6 @@ public sealed partial class RepositoriesViewModel(
         var run = ++_runNumber;
         CurrentProgress = null;
         BackupRunResult? result = null;
-        RunLog.Clear();
-        var logSubscription = liveLogFeed.Subscribe(RunLog.Add);
         var progress = new UiProgress<BackupProgress>(uiDispatcher, value => ShowProgress(run, value));
         try
         {
@@ -274,7 +274,6 @@ public sealed partial class RepositoriesViewModel(
         }
         finally
         {
-            logSubscription.Dispose();
             _runNumber++;
             CurrentProgress = null;
             await (result is not null && _overview is { } previous

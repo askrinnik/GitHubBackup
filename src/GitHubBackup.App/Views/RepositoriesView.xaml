@@ -276,40 +276,56 @@
             <controls:CardPanel Grid.Row="2"
                                 Style="{StaticResource PanelCardStyle}"
                                 AutomationProperties.AutomationId="RunLogPanel">
-                <ListBox x:Name="RunLogList"
-                         ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
-                         Style="{StaticResource CardListBoxStyle}"
-                         FontFamily="Consolas"
-                         VirtualizingPanel.IsVirtualizing="True"
-                         VirtualizingPanel.VirtualizationMode="Recycling"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         ItemContainerStyle="{StaticResource CompactListBoxItemStyle}"
-                         AutomationProperties.AutomationId="RunLog">
-                    <ListBox.ItemTemplate>
-                        <DataTemplate>
-                            <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
-                                <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
-                                <TextBlock Text="{Binding Message, Mode=OneWay}" />
-                                <StackPanel.Style>
-                                    <Style TargetType="StackPanel">
-                                        <Style.Triggers>
-                                            <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
-                                                <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
-                                                <Setter Property="TextElement.Foreground" Value="Firebrick" />
-                                            </DataTrigger>
-                                            <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
-                                                <Setter Property="TextElement.Foreground" Value="Firebrick" />
-                                            </DataTrigger>
-                                        </Style.Triggers>
-                                    </Style>
-                                </StackPanel.Style>
-                            </StackPanel>
-                        </DataTemplate>
-                    </ListBox.ItemTemplate>
-                </ListBox>
+                <Grid>
+                    <ListBox x:Name="RunLogList"
+                             ItemsSource="{Binding RunLog.Entries, Mode=OneWay}"
+                             Style="{StaticResource CardListBoxStyle}"
+                             FontFamily="Consolas"
+                             VirtualizingPanel.IsVirtualizing="True"
+                             VirtualizingPanel.VirtualizationMode="Recycling"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ItemContainerStyle="{StaticResource CompactListBoxItemStyle}"
+                             AutomationProperties.AutomationId="RunLog">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="{Binding Timestamp, Mode=OneWay, StringFormat='HH:mm:ss'}" Margin="0,0,8,0" />
+                                    <TextBlock Text="{Binding Level, Mode=OneWay}" MinWidth="80" Margin="0,0,8,0" />
+                                    <TextBlock Text="{Binding Message, Mode=OneWay}" />
+                                    <StackPanel.Style>
+                                        <Style TargetType="StackPanel">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Warning">
+                                                    <Setter Property="TextElement.Foreground" Value="DarkGoldenrod" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Error">
+                                                    <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                                </DataTrigger>
+                                                <DataTrigger Binding="{Binding Level, Mode=OneWay}" Value="Critical">
+                                                    <Setter Property="TextElement.Foreground" Value="Firebrick" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </StackPanel.Style>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                    <!-- The button lies over the list, so it takes no row of the panel; its right margin keeps the room of
+                         the vertical scroll bar free at all times, so the button neither covers the bar nor moves when the
+                         bar appears. -->
+                    <Button Content="&#xE894;"
+                            FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"
+                            Foreground="{DynamicResource TextFillColorPrimaryBrush}"
+                            Padding="6"
+                            HorizontalAlignment="Right"
+                            VerticalAlignment="Top"
+                            Margin="0,0,18,0"
+                            Command="{Binding RunLog.ClearCommand, Mode=OneWay}"
+                            ToolTip="Clear log"
+                            AutomationProperties.Name="Clear log"
+                            AutomationProperties.AutomationId="ClearRunLogButton" />
+                </Grid>
             </controls:CardPanel>
             <!-- A grid splitter between two fixed rows would resize only the upper one, the live log; this splitter
                  resizes the results panel below it instead, and the tree takes the rest. -->

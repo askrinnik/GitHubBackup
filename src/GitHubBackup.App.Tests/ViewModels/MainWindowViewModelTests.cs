@@ -54,7 +54,7 @@ public sealed class MainWindowViewModelTests
             Substitute.For<IRepositoryOverviewProvider>(),
             Substitute.For<IBackupRunService>(),
             Substitute.For<IUiDispatcher>(),
-            Substitute.For<ILiveLogFeed>(),
+            new RunLogViewModel(Substitute.For<IUiDispatcher>(), Substitute.For<ILiveLogFeed>()),
             Substitute.For<IDialogService>(),
             new SecretMasker(),
             Substitute.For<IHostEnvironment>(),
