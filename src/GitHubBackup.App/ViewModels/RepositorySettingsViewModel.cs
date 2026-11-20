@@ -18,6 +18,9 @@ public sealed partial class RepositorySettingsViewModel(RepositoryConfig source,
     /// <summary>The GitHub id, written back unchanged; <c>0</c> for a new entry, resolved by name on the next run.</summary>
     private readonly long _id = source.Id;
 
+    /// <summary>The folder of the user's own clone, written back unchanged; the editor does not show it.</summary>
+    private readonly string? _clonePath = source.ClonePath;
+
     /// <summary>The repository URL, <c>https://github.com/&lt;owner&gt;/&lt;repo&gt;</c>.</summary>
     [ObservableProperty]
     [NotifyDataErrorInfo]
@@ -50,11 +53,12 @@ public sealed partial class RepositorySettingsViewModel(RepositoryConfig source,
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry with the id as read.</returns>
+    /// <returns>The entry with the id and clone folder as read.</returns>
     internal RepositoryConfig ToConfig() => new()
     {
         Url = Url.Trim(),
         Id = _id,
+        ClonePath = _clonePath,
         Status = IsUnavailable ? RepositoryStatus.Unavailable : RepositoryStatus.Active,
         Paused = IsPaused,
         Branch = NullIfBlank(Branch),

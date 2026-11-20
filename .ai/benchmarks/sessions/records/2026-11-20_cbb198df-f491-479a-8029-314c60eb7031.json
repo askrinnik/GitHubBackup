@@ -1,0 +1,211 @@
+{
+  "schema": 2,
+  "profiler": "profile-session/8",
+  "session": "cbb198df-f491-479a-8029-314c60eb7031",
+  "workItem": "162",
+  "lane": "Bug",
+  "branch": "162-settings-save-keeps-clone-path",
+  "commit": null,
+  "author": "Alexander Skrinnik",
+  "profiled": "2026-11-20 20:21",
+  "started": "2026-11-20 20:14",
+  "ended": "2026-11-20 20:21",
+  "duration": {
+    "wall": 439,
+    "active": 396,
+    "waiting": 43,
+    "waits": 1
+  },
+  "version": "2.1.328",
+  "model": "claude-opus-5-5",
+  "account": "org-cca2",
+  "note": null,
+  "marker": null,
+  "calls": 18,
+  "humanTurns": 2,
+  "subagents": 1,
+  "subagentCalls": 10,
+  "tokens": {
+    "input": 74,
+    "cacheRead": 1877944,
+    "cacheWrite": 102936,
+    "output": 9702
+  },
+  "weights": {
+    "input": 1,
+    "cacheRead": 0.1,
+    "cacheWrite": 1.25,
+    "output": 5
+  },
+  "cost": {
+    "total": 365048,
+    "main": 305018,
+    "subagents": 60030
+  },
+  "costUsd": {
+    "total": 1.1253,
+    "main": 1.1193,
+    "subagents": 0.006
+  },
+  "prices": {
+    "updated": "2026-11-11",
+    "models": {
+      "claude-haiku-5-5": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheWrite5m": 0.125,
+        "cacheWrite1h": 0.2,
+        "cacheRead": 0.01,
+        "longPrompt": {
+          "above": 100000,
+          "input": 0.5,
+          "output": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1,
+          "cacheRead": 0.05
+        }
+      },
+      "claude-opus-5-5": {
+        "input": 4,
+        "output": 20,
+        "cacheWrite5m": 5,
+        "cacheWrite1h": 8,
+        "cacheRead": 0.2,
+        "fastMultiplier": 2
+      }
+    },
+    "unpriced": []
+  },
+  "cacheReadShare": 51.4,
+  "unitsPerCall": {
+    "first40": null,
+    "first70": null,
+    "whole": 16945
+  },
+  "context": {
+    "first": 73619,
+    "max": 112689,
+    "last": 112689,
+    "first40": null,
+    "first70": null
+  },
+  "cacheTtl": "1h",
+  "compactions": 0,
+  "idleRebuilds": {
+    "count": 0,
+    "cost": 0
+  },
+  "carryCost": 43897,
+  "diff": {
+    "files": 4,
+    "lines": 76
+  },
+  "byActivity": [
+    {
+      "activity": "bash (other)",
+      "calls": 4,
+      "cost": 94964,
+      "costUsd": 0.439
+    },
+    {
+      "activity": "ship",
+      "calls": 4,
+      "cost": 58439,
+      "costUsd": 0.1984
+    },
+    {
+      "activity": "build/test",
+      "calls": 2,
+      "cost": 42609,
+      "costUsd": 0.1796
+    },
+    {
+      "activity": "reply (no tools)",
+      "calls": 3,
+      "cost": 35525,
+      "costUsd": 0.0841
+    },
+    {
+      "activity": "implement",
+      "calls": 1,
+      "cost": 19096,
+      "costUsd": 0.0633
+    },
+    {
+      "activity": "plan",
+      "calls": 1,
+      "cost": 16188,
+      "costUsd": 0.0483
+    },
+    {
+      "activity": "other tool",
+      "calls": 1,
+      "cost": 14052,
+      "costUsd": 0.0401
+    },
+    {
+      "activity": "skill load",
+      "calls": 1,
+      "cost": 12336,
+      "costUsd": 0.0298
+    },
+    {
+      "activity": "explore (read/search)",
+      "calls": 1,
+      "cost": 11809,
+      "costUsd": 0.0367
+    }
+  ],
+  "subagentsByType": [
+    {
+      "type": "issue-kit:build-runner",
+      "model": "claude-haiku-5-5",
+      "agents": 1,
+      "calls": 10,
+      "cost": 60030,
+      "costUsd": 0.006
+    }
+  ],
+  "topCarriers": [
+    {
+      "tools": "Read",
+      "cost": 18409
+    },
+    {
+      "tools": "mcp__ccd_turn__update_plan + Bash",
+      "cost": 7358
+    },
+    {
+      "tools": "Bash + ToolSearch",
+      "cost": 3635
+    }
+  ],
+  "rulesLoaded": [
+    {
+      "rule": "csharp",
+      "tokens": 2797
+    },
+    {
+      "rule": "docs",
+      "tokens": 526
+    },
+    {
+      "rule": "security",
+      "tokens": 1338
+    },
+    {
+      "rule": "wpf-mvvm",
+      "tokens": 2537
+    }
+  ],
+  "rulesTokens": 7198,
+  "limit": {
+    "startPct": 81,
+    "startAt": "2026-11-20 20:14",
+    "endPct": 82,
+    "usedPct": 1,
+    "limitCost": 270085,
+    "unitsPerPct": 270085,
+    "reason": null
+  }
+}

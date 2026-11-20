@@ -18,6 +18,9 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
     /// <summary>The GitHub id, written back unchanged.</summary>
     private readonly long _id = source.Id;
 
+    /// <summary>The folder of the user's own clone, written back unchanged; the editor does not show it.</summary>
+    private readonly string? _clonePath = source.ClonePath;
+
     /// <summary>The branch checked out in the clone; empty selects the default branch.</summary>
     [ObservableProperty]
     [NotifyDataErrorInfo]
@@ -47,11 +50,12 @@ public sealed partial class AccountRepositorySettingsViewModel(AccountRepository
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry with the name and id as read.</returns>
+    /// <returns>The entry with the name, id and clone folder as read.</returns>
     internal AccountRepositoryConfig ToConfig() => new()
     {
         Name = Name,
         Id = _id,
+        ClonePath = _clonePath,
         Status = IsUnavailable ? RepositoryStatus.Unavailable : RepositoryStatus.Active,
         Paused = IsPaused,
         Branch = NullIfBlank(Branch),
