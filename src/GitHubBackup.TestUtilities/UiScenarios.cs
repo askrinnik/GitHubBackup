@@ -17,6 +17,12 @@ public static class UiScenarios
     /// <summary>The <c>owner/name</c> of the tracked repository that the API reports as gone.</summary>
     public const string MissingRepositoryName = Owner + "/gone-repository";
 
+    /// <summary>The owner of the standalone repositories of <see cref="PausedEntries"/>, which is no tracked account.</summary>
+    public const string StandaloneOwner = "loner";
+
+    /// <summary>The paused account of <see cref="PausedEntries"/>.</summary>
+    public const string PausedOwner = "sleeper";
+
     /// <summary>The number of tracked repositories that the API reports as gone in <see cref="ManyRows"/>.</summary>
     public const int ManyRowsCount = 12;
 
@@ -34,6 +40,9 @@ public static class UiScenarios
 
     /// <summary>The first id of the gone repositories of <see cref="ManyRows"/>.</summary>
     private const long _firstManyRowsId = 301;
+
+    /// <summary>The first id of the repositories of <see cref="PausedEntries"/>.</summary>
+    private const long _firstPausedEntriesId = 401;
 
     /// <summary>
     /// Gets the scenario with one tracked repository that the API answers with 404: a single-repository run asks to
@@ -92,9 +101,34 @@ public static class UiScenarios
             }
         });
 
+    /// <summary>
+    /// Gets the scenario whose tree shows every status icon: an active account with an active, a paused and an
+    /// excluded repository, a paused account, and standalone repositories that are unavailable, unavailable and
+    /// paused, and excluded and paused.
+    /// </summary>
+    public static UiScenario PausedEntries { get; } = new(
+        "paused-entries",
+        $"The tree shows the status icons: Active, Paused, Unavailable, Unavailable and paused, Excluded, and the paused account {PausedOwner}.",
+        (_, config) => config
+            .WithExclude("*/excluded-*")
+            .WithAccount(
+                Owner,
+                paused: false,
+                ("active-repository", _firstPausedEntriesId, false),
+                ("paused-repository", _firstPausedEntriesId + 1, true),
+                ("excluded-repository", _firstPausedEntriesId + 2, false))
+            .WithAccount(
+                PausedOwner,
+                paused: true,
+                ("quiet-repository", _firstPausedEntriesId + 3, false),
+                ("quiet-paused-repository", _firstPausedEntriesId + 4, true))
+            .WithRepository(StandaloneOwner, "unavailable-repository", _firstPausedEntriesId + 5, "Unavailable")
+            .WithRepository(StandaloneOwner, "unavailable-paused-repository", _firstPausedEntriesId + 6, "Unavailable", paused: true)
+            .WithRepository(StandaloneOwner, "excluded-paused-repository", _firstPausedEntriesId + 7, paused: true));
+
     /// <summary>Gets every scenario, in the order the test bench lists them.</summary>
     public static IReadOnlyList<UiScenario> All { get; } =
-        [MissingRepository, RenamedRepository, NewRepositories, DiscoveryReview, ManyRows];
+        [MissingRepository, RenamedRepository, NewRepositories, DiscoveryReview, ManyRows, PausedEntries];
 
     /// <summary>
     /// Returns the scenario with <paramref name="name"/>.

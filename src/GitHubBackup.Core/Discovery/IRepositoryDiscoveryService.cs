@@ -18,11 +18,16 @@ public interface IRepositoryDiscoveryService
     /// absent from the collected lists is looked up by name and then by id before it counts as missing. An entry
     /// without an ID is left out of the comparison: it is never missing or renamed, and a collected repository with its
     /// name is not new.
+    /// <para>
+    /// Without <paramref name="accountLogin"/>, a paused account is left out: its repositories are not listed, its
+    /// entries are not compared, and a repository of its owner is never new. The repositories of the token's user are
+    /// always listed. Paused entries of other accounts and paused standalone entries are compared as usual.
+    /// </para>
     /// </remarks>
     /// <param name="config">A configuration that has passed <see cref="IBackupConfigValidator"/>.</param>
     /// <param name="accountLogin">
-    /// The login of one tracked account to discover, ignoring case, or <see langword="null"/> for every account and the
-    /// standalone repositories.
+    /// The login of one tracked account to discover, ignoring case, paused or not, or <see langword="null"/> for every
+    /// account that is not paused and the standalone repositories.
     /// </param>
     /// <param name="cancellationToken">The token that cancels the discovery.</param>
     /// <returns>The classified repositories.</returns>

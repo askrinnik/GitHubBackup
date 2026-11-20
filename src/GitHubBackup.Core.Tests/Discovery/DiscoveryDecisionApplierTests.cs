@@ -468,6 +468,27 @@ public sealed class DiscoveryDecisionApplierTests
         clonePath.ShouldBe(@"D:\Work\App");
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ApplyAsync_OwnerChangedForPausedEntry_KeepsPause(bool targetTracked)
+    {
+        var config = Config(new AccountRepositoryConfig { Name = "app", Id = 1, Paused = true });
+        if (targetTracked)
+        {
+            config.Accounts.Add(new() { Url = "https://github.com/acme" });
+        }
+
+        _handler.DecideRenameAsync(default!, Token).ReturnsForAnyArgs(RenameDecision.RenameArchiveFolder);
+
+        await ApplyAsync(config, Renamed(Tracked("octo", "app", 1, "octo"), Repo(1, "acme", "app")));
+
+        var paused = targetTracked
+            ? config.Accounts[1].Repositories.ShouldHaveSingleItem().Paused
+            : config.Repositories.ShouldHaveSingleItem().Paused;
+        paused.ShouldBeTrue();
+    }
+
     [Fact]
     public async Task ApplyAsync_CloneHasLocalChanges_ReportsLocalChanges()
     {

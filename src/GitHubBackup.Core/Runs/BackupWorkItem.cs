@@ -42,6 +42,15 @@ public sealed record BackupWorkItem(
     /// </summary>
     public bool HasClonePath { get; init; }
 
+    /// <summary>Gets a value indicating whether the entry itself sets <c>paused</c>.</summary>
+    public bool IsPaused { get; init; }
+
+    /// <summary>
+    /// Gets a value indicating whether the tracked account that lists the repository sets <c>paused</c>; always
+    /// <see langword="false"/> for a standalone repository.
+    /// </summary>
+    public bool IsAccountPaused { get; init; }
+
     /// <summary>
     /// Lists the repositories of <paramref name="config"/>: the repositories of each account in file order, then the
     /// standalone repositories in file order.
@@ -74,6 +83,8 @@ public sealed record BackupWorkItem(
                 {
                     AccountLogin = login,
                     HasClonePath = repository.ClonePath is not null,
+                    IsPaused = repository.Paused,
+                    IsAccountPaused = account.Paused,
                 });
             }
         }
@@ -97,6 +108,7 @@ public sealed record BackupWorkItem(
                 pathResolver.GetWikiCloneFolder(config, owner, name, repository.ClonePath))
             {
                 HasClonePath = repository.ClonePath is not null,
+                IsPaused = repository.Paused,
             });
         }
 

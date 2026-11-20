@@ -30,6 +30,12 @@ public sealed record RepositoryOverviewEntry(
     /// <summary>Gets the absolute archive folder of the repository, the same folder a backup run uses.</summary>
     public required string ArchiveFolder { get; init; }
 
+    /// <summary>Gets whether the entry itself is paused (<c>paused</c> of the entry).</summary>
+    public bool IsPaused { get; init; }
+
+    /// <summary>Gets whether the account that lists the repository is paused; always <see langword="false"/> for a standalone repository.</summary>
+    public bool IsAccountPaused { get; init; }
+
     /// <summary>Gets the repository as <c>owner/name</c>.</summary>
     public string FullName => $"{Owner}/{Name}";
 }

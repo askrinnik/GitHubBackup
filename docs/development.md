@@ -89,7 +89,7 @@ The tests run one at a time. A failing test saves screenshots of the application
 | Borders stand out | The borders of the four cards and the line above the result table differ from the background on both sides by a calibrated contrast. |
 | Selection stays readable | The text of a selected row of the discovery dialog keeps a calibrated contrast to the selection. |
 
-The states are a dry run with one row, a dry run with many rows and discovery lines, the smallest results panel height, and the discovery dialog with a New, a Renamed, a Missing and a Returned row. The scenarios come from `UiScenarios` in `GitHubBackup.TestUtilities`; the test bench starts the same scenarios by name.
+The states are a dry run with one row, a dry run with many rows and discovery lines, the smallest results panel height, the discovery dialog with a New, a Renamed, a Missing and a Returned row, and the repository tree of `paused-entries`, whose status icons line up in their two places and whose paused entries are muted. The scenarios come from `UiScenarios` in `GitHubBackup.TestUtilities`; the test bench starts the same scenarios by name.
 
 The contrast limits are half of the lowest value measured on the current layout in both themes. They and their measured values are in `ScreenshotAssert`. `LayoutMeasurementTests` checks the measurements on synthetic images and needs no desktop.
 
@@ -119,7 +119,7 @@ The real installation, its settings, the credentials of the user in Windows Cred
 
 | Parameter | Effect |
 |---|---|
-| `-Scenario` | `missing-repository` (default), `renamed-repository`, `new-repositories`, `discovery-review` or `many-rows`; `-List` describes them |
+| `-Scenario` | `missing-repository` (default), `renamed-repository`, `new-repositories`, `discovery-review`, `many-rows` or `paused-entries`; `-List` describes them |
 | `-Theme` | `light`, `dark` or `system`; by default the application follows Windows |
 | `-SummaryPanelHeight` | the saved height of the results panel, such as the minimum 80 |
 | `-NoLaunch` | prepares the folder and the stub and prints the path of the executable and the git variables without starting the application |

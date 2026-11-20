@@ -16,7 +16,8 @@ namespace GitHubBackup.Infrastructure.BackupConfiguration;
 /// for a non-nullable property and numeric statuses, so a typo is reported instead of silently ignored. The <c>id</c>
 /// of a repository entry is the exception: <c>null</c>, like a missing <c>id</c>, reads as <c>0</c>, and an <c>id</c>
 /// of <c>0</c> is not written, so an entry whose ID is still unknown keeps its shape through a save. The optional
-/// <c>clonePath</c> of a repository entry is written only when it is set, so entries without it keep their shape.
+/// <c>clonePath</c> of a repository entry is written only when it is set, and the optional <c>paused</c> of an
+/// account or a repository entry only when it is <see langword="true"/>, so entries without them keep their shape.
 /// </remarks>
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
@@ -40,7 +41,7 @@ internal sealed partial class BackupConfigJsonContext : JsonSerializerContext
 
     /// <summary>
     /// Gets the metadata of <see cref="BackupConfig"/> with the options of this context plus an encoder that keeps
-    /// non-ASCII characters of paths readable instead of escaping them, and the handling of the repository <c>id</c>.
+    /// non-ASCII characters of paths readable instead of escaping them, and the handling of the optional keys.
     /// </summary>
     public static JsonTypeInfo<BackupConfig> BackupConfigTypeInfo => _backupConfigTypeInfo.Value;
 
@@ -53,7 +54,7 @@ internal sealed partial class BackupConfigJsonContext : JsonSerializerContext
         var options = new JsonSerializerOptions(Default.Options)
         {
             Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
-            TypeInfoResolver = Default.WithAddedModifier(ModifyRepositoryId),
+            TypeInfoResolver = Default.WithAddedModifier(ModifyOptionalKeys),
         };
 
         return (JsonTypeInfo<BackupConfig>)options.GetTypeInfo(typeof(BackupConfig));
@@ -61,14 +62,22 @@ internal sealed partial class BackupConfigJsonContext : JsonSerializerContext
 
     /// <summary>
     /// Makes the <c>id</c> of both kinds of repository entry read <c>null</c> as <c>0</c> and skips it on write when it
-    /// is <c>0</c>, and skips their <c>clonePath</c> on write when it is <see langword="null"/>.
+    /// is <c>0</c>, skips their <c>clonePath</c> on write when it is <see langword="null"/>, and skips the
+    /// <c>paused</c> of an account and of both kinds of repository entry on write when it is <see langword="false"/>.
     /// </summary>
     /// <param name="typeInfo">The metadata of one type of the configuration.</param>
-    private static void ModifyRepositoryId(JsonTypeInfo typeInfo)
+    private static void ModifyOptionalKeys(JsonTypeInfo typeInfo)
     {
-        if (typeInfo.Type != typeof(AccountRepositoryConfig) && typeInfo.Type != typeof(RepositoryConfig))
+        if (typeInfo.Type != typeof(AccountConfig)
+            && typeInfo.Type != typeof(AccountRepositoryConfig)
+            && typeInfo.Type != typeof(RepositoryConfig))
         {
             return;
+        }
+
+        foreach (var property in typeInfo.Properties.Where(property => property.Name == "paused"))
+        {
+            property.ShouldSerialize = static (_, value) => value is true;
         }
 
         foreach (var property in typeInfo.Properties.Where(property => property.Name == "id"))

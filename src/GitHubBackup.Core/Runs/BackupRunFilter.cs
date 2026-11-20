@@ -83,6 +83,18 @@ public sealed record BackupRunFilter
     }
 
     /// <summary>
+    /// Returns whether the run skips a repository it includes because the repository or its account is paused.
+    /// </summary>
+    /// <remarks>
+    /// An explicit selection lifts a pause for one run: a run limited to one account skips only the paused entries of
+    /// that account, and a run limited to one repository skips nothing.
+    /// </remarks>
+    /// <param name="item">The repository.</param>
+    /// <returns><see langword="true"/> when the run skips <paramref name="item"/> as paused.</returns>
+    public bool Pauses(BackupWorkItem item) =>
+        !IsRepository && (item.IsPaused || (AccountLogin is null && item.IsAccountPaused));
+
+    /// <summary>
     /// Compares two logins or names without regard to case, as GitHub does.
     /// </summary>
     /// <param name="left">The first name.</param>

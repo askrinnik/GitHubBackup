@@ -15,13 +15,19 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <converters:PixelGridLengthConverter x:Key="PixelGridLengthConverter" />
         <converters:OptionalRowHeightConverter x:Key="OptionalRowHeightConverter" />
-        <!-- A panel of the main window: a card set apart from the window and from the other panels. -->
+        <!-- A panel of the main window or of the settings editor: a card set apart from the window and from the other
+             panels. -->
         <Style x:Key="PanelCardStyle" TargetType="controls:CardPanel">
             <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
             <Setter Property="BorderBrush" Value="{DynamicResource {x:Static SystemColors.ActiveBorderBrushKey}}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="CornerRadius" Value="4" />
             <Setter Property="Padding" Value="8,6" />
+        </Style>
+        <!-- A list inside a card takes the fill of the card and draws no frame of its own. -->
+        <Style x:Key="CardListBoxStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
         </Style>
         <!-- The glyphs of the tree node kinds, each in one place; the font is the one of the settings sections. -->
         <sys:String x:Key="AccountNodeGlyph">&#xE77B;</sys:String>
@@ -34,6 +40,60 @@
             <Setter Property="Margin" Value="0,0,6,0" />
             <Setter Property="TextAlignment" Value="Center" />
             <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <!-- The glyphs of the status icons of the tree. -->
+        <sys:String x:Key="ActiveStatusGlyph">&#xE73E;</sys:String>
+        <sys:String x:Key="PausedStatusGlyph">&#xE769;</sys:String>
+        <sys:String x:Key="UnavailableStatusGlyph">&#xE733;</sys:String>
+        <sys:String x:Key="ExcludedStatusGlyph">&#xE738;</sys:String>
+        <!-- A status icon of a tree node: the status name of the node is its tooltip and its UI Automation name. -->
+        <Style x:Key="StatusIconStyle" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="ToolTip" Value="{Binding StatusName, Mode=OneWay}" />
+            <Setter Property="AutomationProperties.Name" Value="{Binding StatusName, Mode=OneWay}" />
+        </Style>
+        <!-- The first status slot: the check of a node an unfiltered run backs up, the pause, or the minus of an
+             excluded repository; the node shows at most one of them. -->
+        <Style x:Key="PrimaryStatusIconStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusIconStyle}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ShowsActiveIcon, Mode=OneWay}" Value="True">
+                    <Setter Property="Text" Value="{StaticResource ActiveStatusGlyph}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ShowsPausedIcon, Mode=OneWay}" Value="True">
+                    <Setter Property="Text" Value="{StaticResource PausedStatusGlyph}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+                <DataTrigger Binding="{Binding ShowsExcludedIcon, Mode=OneWay}" Value="True">
+                    <Setter Property="Text" Value="{StaticResource ExcludedStatusGlyph}" />
+                    <Setter Property="Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- The second status slot: the icon of an unavailable repository, in the status color of a warning. -->
+        <Style x:Key="UnavailableStatusIconStyle" TargetType="TextBlock" BasedOn="{StaticResource StatusIconStyle}">
+            <Setter Property="Text" Value="{StaticResource UnavailableStatusGlyph}" />
+            <Setter Property="Foreground" Value="DarkGoldenrod" />
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding ShowsUnavailableIcon, Mode=OneWay}" Value="True">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <!-- The text of a tree node: muted while the node or its account is paused. -->
+        <Style x:Key="TreeNodeRowStyle" TargetType="Grid">
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsMuted, Mode=OneWay}" Value="True">
+                    <Setter Property="TextElement.Foreground" Value="{DynamicResource TextFillColorTertiaryBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
         <!-- A text block without text takes no space, so optional lines of a panel leave no gap. -->
         <Style x:Key="OptionalLineStyle" TargetType="TextBlock">

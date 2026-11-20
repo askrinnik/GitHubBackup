@@ -92,6 +92,45 @@ public sealed class BackupWorkItemTests
     }
 
     [Fact]
+    public void CreateAll_PausedAccountAndEntries_SetsPauseFlags()
+    {
+        var config = new BackupConfig
+        {
+            BackupRoot = @"C:\backup",
+            Accounts =
+            [
+                new()
+                {
+                    Url = "https://github.com/octocat",
+                    Paused = true,
+                    Repositories = [new() { Name = "paused", Id = 1, Paused = true }, new() { Name = "plain", Id = 2 }],
+                },
+                new()
+                {
+                    Url = "https://github.com/other",
+                    Repositories = [new() { Name = "app", Id = 3 }],
+                },
+            ],
+            Repositories =
+            [
+                new() { Url = "https://github.com/someone/tool", Id = 4, Paused = true },
+                new() { Url = "https://github.com/someone/lib", Id = 5 },
+            ],
+        };
+
+        var items = BackupWorkItem.CreateAll(config, _resolver);
+
+        items.Select(item => (item.Name, item.IsPaused, item.IsAccountPaused)).ShouldBe(
+        [
+            ("paused", true, true),
+            ("plain", false, true),
+            ("app", false, false),
+            ("tool", true, false),
+            ("lib", false, false),
+        ]);
+    }
+
+    [Fact]
     public void CreateAll_EmptyConfig_ReturnsNoItems() =>
         BackupWorkItem.CreateAll(new BackupConfig { BackupRoot = @"C:\backup" }, _resolver).ShouldBeEmpty();
 

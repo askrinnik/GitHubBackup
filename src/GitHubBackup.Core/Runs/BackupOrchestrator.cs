@@ -307,7 +307,8 @@ public sealed class BackupOrchestrator(
         var missing = dryRun ? discovery.Missing.Select(repository => repository.Id).ToHashSet() : [];
         var locations = new LocationBook(recordedLocations, currentLocations, remoteUrlProvider);
         var settings = new RunSettings(tools, token, temporaryFolder, dryRun, request.Progress, locations, sourcesRoot);
-        var work = ExcludeMatching(config, SelectIncluded(items, filter, entryToCheck?.Id));
+        var notExcluded = ExcludeMatching(config, SelectIncluded(items, filter, entryToCheck?.Id));
+        var work = SkipPaused(filter, notExcluded, out var pausedCount);
         var results = new List<BackupItemResult>(work.Count);
         var unresolved = GetUnresolved(resolution);
         var discovered = MergeResolved(discovery.Repositories, resolution);
@@ -330,18 +331,20 @@ public sealed class BackupOrchestrator(
                 PlannedDiscovery = discovery.HasChanges ? discovery : null,
                 IsCancelled = cancelled,
                 SavedRepositoryIds = savedIds,
+                PausedCount = pausedCount,
             }
             : new(results, loaded.Warnings, [])
             {
                 Discovery = applied,
                 IsCancelled = cancelled,
                 SavedRepositoryIds = savedIds,
+                PausedCount = pausedCount,
             };
     }
 
     /// <summary>
-    /// Looks up by name the entries without an ID that the run covers: those the filter keeps and no exclusion mask
-    /// matches.
+    /// Looks up by name the entries without an ID that the run covers: those the filter keeps, no exclusion mask
+    /// matches and the run does not skip as paused.
     /// </summary>
     /// <param name="config">The configuration.</param>
     /// <param name="items">The repositories of the configuration.</param>
@@ -355,7 +358,10 @@ public sealed class BackupOrchestrator(
         List<BackupWorkItem> withoutId =
         [
             .. items.Where(item =>
-                item.Id == 0 && filter.Includes(item) && exclusionMatcher.Match(config, item.Owner, item.Name) is null),
+                item.Id == 0
+                && filter.Includes(item)
+                && !filter.Pauses(item)
+                && exclusionMatcher.Match(config, item.Owner, item.Name) is null),
         ];
         return withoutId.Count == 0
             ? RepositoryIdResolution.Empty
@@ -751,6 +757,37 @@ public sealed class BackupOrchestrator(
             else
             {
                 BackupOrchestratorLog.RepositoryExcluded(logger, item.FullName, match.Mask, match.Scope);
+            }
+        }
+
+        return kept;
+    }
+
+    /// <summary>
+    /// Removes the repositories the run skips because they or their account are paused, and logs each.
+    /// </summary>
+    /// <remarks>
+    /// The run calls it after <see cref="ExcludeMatching"/>, so an excluded entry that is also paused counts as excluded
+    /// only.
+    /// </remarks>
+    /// <param name="filter">The filter of the run, which decides whether a pause applies.</param>
+    /// <param name="items">The repositories the run would process.</param>
+    /// <param name="pausedCount">The number of repositories removed, wikis not counted.</param>
+    /// <returns>The repositories that are not skipped, in their original order.</returns>
+    private List<BackupWorkItem> SkipPaused(BackupRunFilter filter, List<BackupWorkItem> items, out int pausedCount)
+    {
+        var kept = new List<BackupWorkItem>(items.Count);
+        pausedCount = 0;
+        foreach (var item in items)
+        {
+            if (filter.Pauses(item))
+            {
+                pausedCount++;
+                BackupOrchestratorLog.RepositoryPaused(logger, item.FullName, !item.IsPaused);
+            }
+            else
+            {
+                kept.Add(item);
             }
         }
 

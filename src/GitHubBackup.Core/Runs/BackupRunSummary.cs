@@ -72,12 +72,27 @@ public static class BackupRunSummary
     /// <summary>
     /// Formats the totals of <paramref name="result"/>, such as <c>Archived: 1, UpToDate: 2, …</c>.
     /// </summary>
+    /// <remarks>
+    /// The line ends with <see cref="FormatPaused"/> when the run skipped paused repositories.
+    /// </remarks>
     /// <param name="result">The result of the run.</param>
     /// <returns>The totals line.</returns>
-    public static string FormatTotals(BackupRunResult result) => string.Join(
-        ", ",
-        GetTotalStatuses(result).Select(status =>
-            string.Create(CultureInfo.InvariantCulture, $"{status}: {result.Count(status)}")));
+    public static string FormatTotals(BackupRunResult result)
+    {
+        var counters = GetTotalStatuses(result).Select(status =>
+            string.Create(CultureInfo.InvariantCulture, $"{status}: {result.Count(status)}"));
+        return string.Join(", ", FormatPaused(result) is { } paused ? counters.Append(paused) : counters);
+    }
+
+    /// <summary>
+    /// Formats the number of repositories the run skipped as paused, such as <c>Paused: 2</c>.
+    /// </summary>
+    /// <param name="result">The result of the run.</param>
+    /// <returns>The counter, or <see langword="null"/> when the run skipped no paused repository.</returns>
+    private static string? FormatPaused(BackupRunResult result) =>
+        result.PausedCount > 0
+            ? string.Create(CultureInfo.InvariantCulture, $"Paused: {result.PausedCount}")
+            : null;
 
     /// <summary>
     /// Returns whether the summary of <paramref name="result"/> shows <see cref="NoRepositoriesLine"/>: the run went

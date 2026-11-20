@@ -37,7 +37,7 @@ public sealed class RepositoriesViewModelTests
                 new("octo", "old", "octo", RepositoryOverviewStatus.Unavailable, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
                 new("octo", "skip", "octo", RepositoryOverviewStatus.Excluded, null, "The state file is not valid JSON.") { RepositoryId = 1, ArchiveFolder = @"C:\backup" },
             ]),
-            new("empty", "https://github.com/empty", []),
+            new("empty", "https://github.com/empty", []) { IsPaused = true },
         ],
         [new("other", "lib", null, RepositoryOverviewStatus.Active, null, null) { RepositoryId = 1, ArchiveFolder = @"C:\backup" }]);
 
@@ -105,6 +105,8 @@ public sealed class RepositoriesViewModelTests
         _viewModel.Nodes.ShouldAllBe(node => node.IsExpanded);
         _viewModel.Nodes[0].Children.Select(node => node.DisplayName).ShouldBe(["tool", "old", "skip"]);
         _viewModel.Nodes[1].Children.ShouldBeEmpty();
+        ((AccountNodeViewModel)_viewModel.Nodes[0]).IsPaused.ShouldBeFalse();
+        ((AccountNodeViewModel)_viewModel.Nodes[1]).IsPaused.ShouldBeTrue();
         _viewModel.Nodes[2].Children.Select(node => node.DisplayName).ShouldBe(["other/lib"]);
         _viewModel.LoadError.ShouldBeNull();
         _viewModel.HasLoadError.ShouldBeFalse();
@@ -392,6 +394,33 @@ public sealed class RepositoriesViewModelTests
                 filter.AccountLogin == accountLogin
                 && filter.RepositoryOwner == repositoryOwner
                 && filter.RepositoryName == repositoryName),
+            false,
+            Arg.Any<IProgress<BackupProgress>?>(),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Theory]
+    [InlineData(BackupScope.All, true, true)]
+    [InlineData(BackupScope.Account, false, true)]
+    [InlineData(BackupScope.Repository, false, false)]
+    public async Task StartBackup_Scope_PassesFilterThatLiftsPauseOfSelection(
+        BackupScope scope, bool skipsEntryOfPausedAccount, bool skipsPausedEntry)
+    {
+        await _viewModel.RefreshCommand.ExecuteAsync(null);
+        FindNode("octo/tool").IsSelected = true;
+        var item = new BackupWorkItem("octo", "tool", 1, null, @"C:\b\octo\tool", @"C:\s\octo\tool", true, @"C:\s\octo\tool.wiki")
+        {
+            AccountLogin = "octo",
+        };
+        var entryOfPausedAccount = item with { IsAccountPaused = true };
+        var pausedEntry = item with { IsPaused = true };
+
+        await _viewModel.StartBackupCommand.ExecuteAsync(scope);
+
+        await _runService.Received(1).RunAsync(
+            Arg.Is<BackupRunFilter>(filter =>
+                filter.Pauses(entryOfPausedAccount) == skipsEntryOfPausedAccount
+                && filter.Pauses(pausedEntry) == skipsPausedEntry),
             false,
             Arg.Any<IProgress<BackupProgress>?>(),
             Arg.Any<CancellationToken>());

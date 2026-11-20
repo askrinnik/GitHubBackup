@@ -29,6 +29,12 @@ public sealed class RepositoryConfig
     /// </summary>
     public string? ClonePath { get; set; }
 
+    /// <summary>
+    /// Gets or sets whether the repository is paused: a run without a filter skips it, and it is backed up only when
+    /// it is selected explicitly.
+    /// </summary>
+    public bool Paused { get; set; }
+
     /// <summary>Gets or sets whether the repository is still found on GitHub.</summary>
     public RepositoryStatus Status { get; set; }
 }

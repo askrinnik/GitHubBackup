@@ -39,6 +39,11 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     [CustomValidation(typeof(SettingsFormViewModel), nameof(ValidateText))]
     private string _exclude = FormatMasks(source.Exclude);
 
+    /// <summary>Whether an unfiltered run skips the account and all its repositories (<c>paused</c>).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusName))]
+    private bool _isPaused = source.Paused;
+
     /// <summary>
     /// Whether a field of the account or of one of its repositories shows an error, as of the last
     /// <see cref="RefreshHasAnyErrors"/>.
@@ -55,6 +60,9 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     /// <summary>Gets the name shown in the list of accounts: the URL, or <see cref="NewAccountName"/> while it is empty.</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(Url) ? NewAccountName : Url.Trim();
 
+    /// <summary>Gets the name of the status icon in the list of accounts: active or paused.</summary>
+    public string StatusName => IsPaused ? TreeNodeViewModel.PausedStatusName : TreeNodeViewModel.ActiveStatusName;
+
     /// <summary>
     /// Updates <see cref="HasAnyErrors"/> from the errors shown at the fields of the account and its repositories.
     /// </summary>
@@ -63,12 +71,13 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     /// <summary>
     /// Creates the entry of the configuration that the row describes.
     /// </summary>
-    /// <returns>The entry.</returns>
+    /// <returns>The entry with its repositories.</returns>
     internal AccountConfig ToConfig() => new()
     {
         Url = Url.Trim(),
         Path = NullIfBlank(Path),
         Exclude = ParseMasks(Exclude),
+        Paused = IsPaused,
         Repositories = [.. Repositories.Select(repository => repository.ToConfig())],
     };
 
@@ -114,4 +123,8 @@ public sealed partial class AccountSettingsViewModel(AccountConfig source, Actio
     /// <summary>Tells the editor that the exclusion masks changed.</summary>
     /// <param name="value">The new masks.</param>
     partial void OnExcludeChanged(string value) => _edited();
+
+    /// <summary>Tells the editor that the pause changed.</summary>
+    /// <param name="value">The new pause.</param>
+    partial void OnIsPausedChanged(bool value) => _edited();
 }

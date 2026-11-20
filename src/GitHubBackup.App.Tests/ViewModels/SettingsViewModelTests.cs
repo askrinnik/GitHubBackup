@@ -311,6 +311,119 @@ public sealed class SettingsViewModelTests
     }
 
     [Fact]
+    public async Task Save_OtherFieldEdited_KeepsPausedOfEveryKindOfEntry()
+    {
+        var config = CreateConfig();
+        config.Accounts[0].Paused = true;
+        config.Accounts[0].Repositories[1].Paused = true;
+        config.Repositories[0].Paused = true;
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+
+        _viewModel.BackupRoot = @"D:\NewBackups";
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.Accounts[0].Paused.ShouldBeTrue();
+        saved.Accounts[0].Repositories.Select(repository => repository.Paused).ShouldBe([false, true]);
+        saved.Repositories.ShouldHaveSingleItem().Paused.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsPaused_CheckedOnEveryKindOfEntry_MarksDirtyAndSavesPaused()
+    {
+        await LoadAsync();
+        var account = _viewModel.Accounts.ShouldHaveSingleItem();
+
+        account.IsPaused = true;
+        _viewModel.IsDirty.ShouldBeTrue();
+        account.Repositories[0].IsPaused = true;
+        _viewModel.Repositories[0].IsPaused = true;
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.Accounts[0].Paused.ShouldBeTrue();
+        saved.Accounts[0].Repositories.Select(repository => repository.Paused).ShouldBe([true, false]);
+        saved.Repositories.ShouldHaveSingleItem().Paused.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsPaused_AccountRepositoryCleared_MarksDirtyAndSavesNotPaused()
+    {
+        var config = CreateConfig();
+        config.Accounts[0].Repositories[1].Paused = true;
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+        var repository = _viewModel.Accounts[0].Repositories[1];
+        repository.IsPaused.ShouldBeTrue();
+
+        repository.IsPaused = false;
+
+        _viewModel.IsDirty.ShouldBeTrue();
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+        SavedConfig().Accounts[0].Repositories[1].Paused.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task IsPaused_StandaloneRepositoryChecked_MarksDirty()
+    {
+        await LoadAsync();
+
+        _viewModel.Repositories[0].IsPaused = true;
+
+        _viewModel.IsDirty.ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task IsPaused_AccountChanged_UpdatesStatusName()
+    {
+        await LoadAsync();
+        var account = _viewModel.Accounts[0];
+        account.StatusName.ShouldBe(TreeNodeViewModel.ActiveStatusName);
+
+        account.IsPaused = true;
+
+        account.StatusName.ShouldBe(TreeNodeViewModel.PausedStatusName);
+    }
+
+    [Fact]
+    public async Task IsUnavailable_Toggled_MarksDirtyAndSavesStatus()
+    {
+        await LoadAsync();
+        var account = _viewModel.Accounts[0];
+        account.Repositories[0].IsUnavailable.ShouldBeFalse();
+        _viewModel.Repositories[0].IsUnavailable.ShouldBeFalse();
+
+        account.Repositories[0].IsUnavailable = true;
+        _viewModel.IsDirty.ShouldBeTrue();
+        account.Repositories[1].IsUnavailable = false;
+        _viewModel.Repositories[0].IsUnavailable = true;
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        var saved = SavedConfig();
+        saved.Accounts[0].Repositories.Select(repository => repository.Status)
+            .ShouldBe([RepositoryStatus.Unavailable, RepositoryStatus.Active]);
+        saved.Repositories.ShouldHaveSingleItem().Status.ShouldBe(RepositoryStatus.Unavailable);
+    }
+
+    [Fact]
+    public async Task IsUnavailable_StandaloneUnavailableEntry_ReadsStatusAndClearsToActive()
+    {
+        var config = CreateConfig();
+        config.Repositories[0].Status = RepositoryStatus.Unavailable;
+        _configStore.LoadAsync(Arg.Any<CancellationToken>()).Returns(new BackupConfigLoadResult(config, []));
+        await LoadAsync();
+        var repository = _viewModel.Repositories[0];
+        repository.IsUnavailable.ShouldBeTrue();
+
+        repository.IsUnavailable = false;
+
+        _viewModel.IsDirty.ShouldBeTrue();
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+        SavedConfig().Repositories[0].Status.ShouldBe(RepositoryStatus.Active);
+    }
+
+    [Fact]
     public async Task Save_InvalidBackupRoot_ShowsErrorAtFieldAndWritesNothing()
     {
         await LoadAsync();

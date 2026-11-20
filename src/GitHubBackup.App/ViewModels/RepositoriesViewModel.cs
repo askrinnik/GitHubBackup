@@ -395,7 +395,8 @@ public sealed partial class RepositoriesViewModel(
         var nodes = new List<TreeNodeViewModel>(overview.Accounts.Count + 1);
         foreach (var account in overview.Accounts)
         {
-            nodes.Add(new AccountNodeViewModel(account.Login, CreateRepositoryNodes(account.Repositories), OnNodeSelectionChanged));
+            nodes.Add(new AccountNodeViewModel(
+                account.Login, account.IsPaused, CreateRepositoryNodes(account.Repositories), OnNodeSelectionChanged));
         }
 
         if (overview.StandaloneRepositories.Count > 0)

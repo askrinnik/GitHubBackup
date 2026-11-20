@@ -6,4 +6,8 @@ namespace GitHubBackup.Core.Overview;
 /// <param name="Login">The login of the account, as parsed from <paramref name="Url"/>.</param>
 /// <param name="Url">The account URL as written in the file.</param>
 /// <param name="Repositories">The repositories of the account in file order; empty when the account lists none.</param>
-public sealed record AccountOverview(string Login, string Url, IReadOnlyList<RepositoryOverviewEntry> Repositories);
+public sealed record AccountOverview(string Login, string Url, IReadOnlyList<RepositoryOverviewEntry> Repositories)
+{
+    /// <summary>Gets whether the account is paused (<c>paused</c> of the account).</summary>
+    public bool IsPaused { get; init; }
+}

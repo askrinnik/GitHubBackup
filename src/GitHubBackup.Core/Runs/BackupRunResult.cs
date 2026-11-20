@@ -53,6 +53,15 @@ public sealed record BackupRunResult(
     public string? HistoryWarning { get; init; }
 
     /// <summary>
+    /// Gets the number of repositories the run skipped because they or their account are paused; their wikis are not
+    /// counted.
+    /// </summary>
+    /// <remarks>
+    /// A paused repository has no item in <see cref="Items"/> and leaves <see cref="ExitCode"/> unchanged.
+    /// </remarks>
+    public int PausedCount { get; init; }
+
+    /// <summary>
     /// Gets the exit code of the run: <see cref="ExitCode.Critical"/> when the run was stopped or cancelled,
     /// <see cref="ExitCode.RepositoriesFailed"/> when a repository is <see cref="BackupItemStatus.Failed"/>,
     /// <see cref="ExitCode.DiscoveryEvents"/> when discovery found new, missing or renamed repositories, in a dry run

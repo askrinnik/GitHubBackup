@@ -35,6 +35,36 @@ public sealed class RepositoryNodeViewModel(RepositoryOverviewEntry entry, Actio
     /// <summary>Gets whether a run backs up the repository, so a backup of it alone makes sense.</summary>
     public bool IsActive => Entry.Status == RepositoryOverviewStatus.Active;
 
+    /// <inheritdoc />
+    /// <remarks>An unfiltered run skips the repository while it or its account is paused.</remarks>
+    public override bool ShowsActiveIcon => IsActive && !Entry.IsPaused && !Entry.IsAccountPaused;
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// The pause of the account is shown once, on the account node; an excluded repository shows only the minus.
+    /// </remarks>
+    public override bool ShowsPausedIcon => !IsExcluded && Entry.IsPaused && !Entry.IsAccountPaused;
+
+    /// <inheritdoc />
+    public override bool ShowsExcludedIcon => IsExcluded;
+
+    /// <inheritdoc />
+    public override bool ShowsUnavailableIcon => Entry.Status == RepositoryOverviewStatus.Unavailable;
+
+    /// <inheritdoc />
+    public override bool IsMuted => Entry.IsPaused || Entry.IsAccountPaused;
+
+    /// <inheritdoc />
+    public override string? StatusName =>
+        IsExcluded ? ExcludedStatusName
+        : ShowsUnavailableIcon ? ShowsPausedIcon ? UnavailablePausedStatusName : UnavailableStatusName
+        : ShowsPausedIcon ? PausedStatusName
+        : ShowsActiveIcon ? ActiveStatusName
+        : null;
+
+    /// <summary>Gets whether an exclusion mask matches the repository.</summary>
+    private bool IsExcluded => Entry.Status == RepositoryOverviewStatus.Excluded;
+
     /// <summary>
     /// Gets the local time of the last archive in <see cref="DateFormat"/>, <see cref="NeverText"/> when there is
     /// none, or <see cref="UnknownText"/> when the state file cannot be read.

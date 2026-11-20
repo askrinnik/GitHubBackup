@@ -364,6 +364,47 @@ public sealed class CliEndToEndTests : IDisposable
         Directory.Exists(_installation.CloneFolder(_owner, "a")).ShouldBeFalse();
     }
 
+    [Fact]
+    public async Task Backup_SilentWithPausedEntryAndPausedAccount_SkipsThemAndCountsThemInTotals()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+        await _sandbox.CreateRemoteAsync(_owner + "/b", CancellationToken);
+        await _sandbox.CreateRemoteAsync(_account + "/x", CancellationToken);
+        GivenCurrentUserRepository("b", 2);
+        _currentUserRepositories.Add(_api.GivenRepository(10, _account, "x"));
+        _api.GivenCurrentUserRepositories([.. _currentUserRepositories]);
+        _config
+            .WithRepository(_owner, "b", 2, paused: true)
+            .WithAccount(_account, paused: true, ("x", 10, false))
+            .WriteTo(_installation.BackupConfigPath);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("backup", "--silent");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ShouldContain("Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Paused: 2");
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+        _installation.FindArchives(_owner, "b").ShouldBeEmpty();
+        _installation.FindArchives(_account, "x").ShouldBeEmpty();
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
+    [Fact]
+    public async Task Backup_SilentRepoFilterPausedEntry_BacksItUpAndKeepsPauseInConfig()
+    {
+        await _sandbox.CreateRemoteAsync(_owner + "/a", CancellationToken);
+        GivenCurrentUserRepository("a", 1);
+        _config.WithRepository(_owner, "a", 1, paused: true).WriteTo(_installation.BackupConfigPath);
+        var before = await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken);
+
+        var result = await _installation.RunAsync("backup", "--silent", "--repo", _owner + "/a");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ShouldNotContain("Paused:");
+        _installation.FindArchives(_owner, "a").ShouldHaveSingleItem();
+        (await File.ReadAllBytesAsync(_installation.BackupConfigPath, CancellationToken)).ShouldBe(before);
+    }
+
     /// <summary>
     /// Deletes the installation, stops the API stub and deletes the sandbox.
     /// </summary>

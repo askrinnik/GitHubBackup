@@ -41,6 +41,35 @@ public sealed class BackupRunSummaryTests
     }
 
     [Theory]
+    [InlineData(false, false, "Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Paused: 2")]
+    [InlineData(true, false, "WouldClone: 0, WouldArchive: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Paused: 2")]
+    [InlineData(false, true, "Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0, Cancelled: 0, Paused: 2")]
+    public void FormatTotals_PausedRepositories_EndsWithPausedCounter(bool dryRun, bool cancelled, string expected)
+    {
+        var item = Item("octo/a", dryRun ? BackupItemStatus.WouldArchive : BackupItemStatus.Archived);
+        var result = new BackupRunResult([item], [], []) { IsDryRun = dryRun, IsCancelled = cancelled, PausedCount = 2 };
+
+        BackupRunSummary.FormatTotals(result).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void FormatTotals_NoPausedRepository_HasNoPausedCounter()
+    {
+        var result = new BackupRunResult([Item("octo/a", BackupItemStatus.Archived)], [], []);
+
+        BackupRunSummary.FormatTotals(result).ShouldBe("Archived: 1, UpToDate: 0, Warning: 0, Failed: 0, Skipped: 0");
+    }
+
+    [Fact]
+    public void ShowsNoRepositoriesLine_EveryRepositoryPaused_IsShownWithPausedCounter()
+    {
+        var result = new BackupRunResult([], [], []) { PausedCount = 3 };
+
+        BackupRunSummary.ShowsNoRepositoriesLine(result).ShouldBeTrue();
+        BackupRunSummary.FormatTotals(result).ShouldEndWith(", Paused: 3");
+    }
+
+    [Theory]
     [InlineData(0, false, false, true)]
     [InlineData(1, false, false, false)]
     [InlineData(0, true, false, false)]

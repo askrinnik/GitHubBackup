@@ -28,10 +28,13 @@
             <Setter Property="ResizeDirection" Value="Rows" />
             <Setter Property="ResizeBehavior" Value="PreviousAndNext" />
         </Style>
-        <!-- A list inside a card takes the fill of the card and draws no frame of its own. -->
-        <Style x:Key="CardListBoxStyle" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
+        <!-- The indent of a child node in the Fluent tree view item: the expander column of its parent. -->
+        <GridLength x:Key="TreeChildIndent">19</GridLength>
+        <!-- The width of one status slot; both slots keep it while empty, so the date column does not move. -->
+        <GridLength x:Key="StatusSlotWidth">20</GridLength>
+        <!-- The status column of a tree node, after the name. -->
+        <Style x:Key="StatusColumnStyle" TargetType="Grid">
+            <Setter Property="Margin" Value="12,0,0,0" />
         </Style>
         <!-- A node of the tree: the selection and the expansion belong to the node of the ViewModel. -->
         <Style x:Key="TreeItemStyle" TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
@@ -154,13 +157,35 @@
                             <HierarchicalDataTemplate DataType="{x:Type vm:AccountNodeViewModel}"
                                                       ItemsSource="{Binding Children, Mode=OneWay}"
                                                       ItemContainerStyle="{StaticResource TreeItemStyle}">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="{StaticResource AccountNodeGlyph}"
+                                <!-- The name shares the width of the repository names, and the spacer after it has the
+                                     indent of a child node, so the status of the account lines up with the status of
+                                     the repositories one level deeper. -->
+                                <Grid Style="{StaticResource TreeNodeRowStyle}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" MinWidth="200" SharedSizeGroup="RepositoryNameColumn" />
+                                        <ColumnDefinition Width="{StaticResource TreeChildIndent}" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0"
+                                               Text="{StaticResource AccountNodeGlyph}"
                                                Style="{StaticResource TreeNodeIconStyle}"
                                                AutomationProperties.Name="Account"
                                                AutomationProperties.AutomationId="AccountNodeIcon" />
-                                    <TextBlock Text="{Binding DisplayName, Mode=OneWay}" FontWeight="SemiBold" />
-                                </StackPanel>
+                                    <TextBlock Grid.Column="1"
+                                               Text="{Binding DisplayName, Mode=OneWay}"
+                                               FontWeight="SemiBold"
+                                               AutomationProperties.AutomationId="AccountNameText" />
+                                    <Grid Grid.Column="3" Style="{StaticResource StatusColumnStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{StaticResource StatusSlotWidth}" />
+                                            <ColumnDefinition Width="{StaticResource StatusSlotWidth}" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Style="{StaticResource PrimaryStatusIconStyle}"
+                                                   AutomationProperties.AutomationId="AccountStatusIcon" />
+                                    </Grid>
+                                </Grid>
                             </HierarchicalDataTemplate>
                             <HierarchicalDataTemplate DataType="{x:Type vm:RepositoryGroupNodeViewModel}"
                                                       ItemsSource="{Binding Children, Mode=OneWay}"
@@ -174,14 +199,14 @@
                                 </StackPanel>
                             </HierarchicalDataTemplate>
                             <DataTemplate DataType="{x:Type vm:RepositoryNodeViewModel}">
-                                <!-- The shared size groups give the name and the status the width of the widest shown row,
-                                     so the columns line up across the accounts and the group of standalone repositories.
-                                     The icon column has one fixed width, so it does not move them. -->
-                                <Grid ToolTip="{Binding StateError, Mode=OneWay}">
+                                <!-- The shared size group gives the name the width of the widest shown row, so the
+                                     columns line up across the accounts and the group of standalone repositories. The
+                                     icon column and the two status slots have fixed widths, so they do not move them. -->
+                                <Grid Style="{StaticResource TreeNodeRowStyle}" ToolTip="{Binding StateError, Mode=OneWay}">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" MinWidth="200" SharedSizeGroup="RepositoryNameColumn" />
-                                        <ColumnDefinition Width="Auto" MinWidth="102" SharedSizeGroup="RepositoryStatusColumn" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="Auto" />
                                     </Grid.ColumnDefinitions>
                                     <TextBlock Grid.Column="0"
@@ -192,10 +217,18 @@
                                     <TextBlock Grid.Column="1"
                                                Text="{Binding DisplayName, Mode=OneWay}"
                                                AutomationProperties.AutomationId="RepositoryNameText" />
-                                    <TextBlock Grid.Column="2"
-                                               Text="{Binding Status, Mode=OneWay}"
-                                               Margin="12,0,0,0"
-                                               AutomationProperties.AutomationId="RepositoryStatusText" />
+                                    <Grid Grid.Column="2" Style="{StaticResource StatusColumnStyle}">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="{StaticResource StatusSlotWidth}" />
+                                            <ColumnDefinition Width="{StaticResource StatusSlotWidth}" />
+                                        </Grid.ColumnDefinitions>
+                                        <TextBlock Grid.Column="0"
+                                                   Style="{StaticResource PrimaryStatusIconStyle}"
+                                                   AutomationProperties.AutomationId="RepositoryStatusIcon" />
+                                        <TextBlock Grid.Column="1"
+                                                   Style="{StaticResource UnavailableStatusIconStyle}"
+                                                   AutomationProperties.AutomationId="RepositoryUnavailableIcon" />
+                                    </Grid>
                                     <TextBlock Grid.Column="3"
                                                Text="{Binding LastArchiveText, Mode=OneWay}"
                                                Margin="12,0,0,0"
