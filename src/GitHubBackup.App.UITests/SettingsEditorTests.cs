@@ -104,16 +104,21 @@ public sealed class SettingsEditorTests : IDisposable
         items.Select(item => item.AutomationId).ShouldBe(
         [
             "SettingsSectionGeneral", "SettingsSectionAccounts", "SettingsSectionRepositories",
-            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionToken",
+            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionLogging", "SettingsSectionToken",
         ]);
-        items.Select(item => item.Name).ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "GitHub token"]);
+        items.Select(item => item.Name)
+            .ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "Logging", "GitHub token"]);
         items[0].Patterns.SelectionItem.Pattern.IsSelected.Value.ShouldBeTrue();
         var general = _session.WaitFor("SettingsGeneralGroup");
         general.Name.ShouldBe("General");
         AppSession.WaitFor(general, "BackupRootBox");
         AppSession.WaitFor(general, "DiscoverAccessibleRepositoriesCheckBox");
         AppSession.WaitFor(general, "ThemeComboBox").IsEnabled.ShouldBeTrue();
-        foreach (var hidden in new[] { "SettingsAccountsGroup", "SettingsRepositoriesGroup", "SettingsToolsGroup", "SettingsTelemetryGroup", "SettingsTokenGroup" })
+        foreach (var hidden in new[]
+        {
+            "SettingsAccountsGroup", "SettingsRepositoriesGroup", "SettingsToolsGroup", "SettingsTelemetryGroup",
+            "SettingsLoggingGroup", "SettingsTokenGroup",
+        })
         {
             _session.MainWindow.FindFirstDescendant(condition => condition.ByAutomationId(hidden)).ShouldBeNull();
         }
@@ -124,6 +129,7 @@ public sealed class SettingsEditorTests : IDisposable
     [InlineData(SettingsSection.Repositories, "SettingsRepositoriesGroup", "Repositories", "RepositoriesList", "RepositoryFilterBox", "AddRepositoryButton")]
     [InlineData(SettingsSection.Tools, "SettingsToolsGroup", "Tools", "GitPathBox", "SevenZipPathBox", "GitPathBox")]
     [InlineData(SettingsSection.Telemetry, "SettingsTelemetryGroup", "Telemetry", "TelemetryEnabledCheckBox", "OtlpEndpointBox", "TelemetryHeadersBox")]
+    [InlineData(SettingsSection.Logging, "SettingsLoggingGroup", "Logging", "LogLevelFileComboBox", "LogLevelLiveLogComboBox", "LogLevelOpenTelemetryComboBox")]
     [InlineData(SettingsSection.Token, "SettingsTokenGroup", "GitHub token", "TokenBox", "CheckTokenButton", "TokenBox")]
     public void SelectSection_ShowsOnlyThatSectionWithItsFields(
         SettingsSection section, string groupId, string header, string field1, string field2, string field3)
@@ -226,6 +232,77 @@ public sealed class SettingsEditorTests : IDisposable
         File.ReadAllText(_installation.AppSettingsPath + ".bak").ShouldBe(before);
         File.Exists(_installation.UiSettingsPath).ShouldBeFalse();
         File.Exists(_installation.LegacyUserSettingsPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Open_ShowsLoggingGroupWithDefaultLevelsAndNotice()
+    {
+        OpenSettings();
+        SelectSection(SettingsSection.Logging);
+
+        var logging = _session.WaitFor("SettingsLoggingGroup");
+
+        AppSession.WaitFor(logging, "LoggingRestartNotice").Name.ShouldBe(SettingsViewModel.LoggingRestartNotice);
+        foreach (var (id, name) in LogLevelComboBoxes)
+        {
+            var comboBox = AppSession.WaitFor(logging, id).AsComboBox();
+            comboBox.Name.ShouldBe(name);
+            comboBox.SelectedItem.ShouldNotBeNull().Text.ShouldBe("Default (Information)");
+        }
+    }
+
+    [Fact]
+    public void Save_LogLevels_WritesEndpointLevelsKeepingOverridesAndMinimumLevel()
+    {
+        using var api = new GitHubApiStub();
+        using var installation = new AppInstallation(api.Url);
+        installation.WriteAppSettings($$"""
+            {
+              "GitHub": { "ApiBaseUrl": {{Json(api.Url)}}, "Token": "{{AppInstallation.Token}}" },
+              "Tools": { "SevenZipPath": {{Json(_sevenZip)}} },
+              "Serilog": {
+                "MinimumLevel": { "Default": "Warning", "Override": { "Microsoft": "Error" } },
+                "Endpoints": { "File": { "Level": "Error", "Override": { "GitHubBackup.Infrastructure": "Verbose" } } }
+              }
+            }
+            """);
+        installation.NewBackupConfig().WriteTo(installation.BackupConfigPath);
+        var before = File.ReadAllText(installation.AppSettingsPath);
+        using var session = AppSession.Start(installation);
+        session.WaitFor("RepositoryTree");
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionLogging");
+        var file = session.WaitFor("LogLevelFileComboBox").AsComboBox();
+        file.SelectedItem.ShouldNotBeNull().Text.ShouldBe("Error");
+
+        file.Select("Debug");
+        session.WaitFor("LogLevelConsoleComboBox").AsComboBox().Select("Off");
+        session.WaitFor("LogLevelOpenTelemetryComboBox").AsComboBox().Select("Default (Warning)");
+        AppSession.Invoke(save);
+
+        session.WaitFor("RepositoryTree");
+        session.WaitUntilGone("SaveSettingsButton");
+        using var document = JsonDocument.Parse(File.ReadAllText(installation.AppSettingsPath));
+        var serilog = document.RootElement.GetProperty("Serilog");
+        serilog.GetProperty("MinimumLevel").GetProperty("Default").GetString().ShouldBe("Warning");
+        serilog.GetProperty("MinimumLevel").GetProperty("Override").GetProperty("Microsoft").GetString().ShouldBe("Error");
+        var endpoints = serilog.GetProperty("Endpoints");
+        endpoints.GetProperty("File").GetProperty("Level").GetString().ShouldBe("Debug");
+        endpoints.GetProperty("File").GetProperty("Override").GetProperty("GitHubBackup.Infrastructure").GetString()
+            .ShouldBe("Verbose");
+        endpoints.GetProperty("Console").GetProperty("Level").GetString().ShouldBe("Off");
+        endpoints.GetProperty("LiveLog").GetProperty("Level").ValueKind.ShouldBe(JsonValueKind.Null);
+        endpoints.GetProperty("OpenTelemetry").GetProperty("Level").ValueKind.ShouldBe(JsonValueKind.Null);
+        document.RootElement.GetProperty("Tools").GetProperty("SevenZipPath").GetString().ShouldBe(_sevenZip);
+        File.ReadAllText(installation.AppSettingsPath + ".bak").ShouldBe(before);
+
+        session.Invoke("SettingsButton");
+        AppSession.WaitUntil(() => session.WaitFor("SaveSettingsButton").IsEnabled, "the settings to be read again");
+        session.Select("SettingsSectionLogging");
+        session.WaitFor("LogLevelFileComboBox").AsComboBox().SelectedItem.ShouldNotBeNull().Text.ShouldBe("Debug");
+        session.WaitFor("LogLevelConsoleComboBox").AsComboBox().SelectedItem.ShouldNotBeNull().Text.ShouldBe("Off");
     }
 
     [Fact]
@@ -687,6 +764,15 @@ public sealed class SettingsEditorTests : IDisposable
     /// </summary>
     /// <param name="section">The section.</param>
     private void SelectSection(SettingsSection section) => _session.Select($"SettingsSection{section}");
+
+    /// <summary>Gets the UI Automation ids and names of the level lists of the logging section, in order.</summary>
+    private static (string Id, string Name)[] LogLevelComboBoxes =>
+    [
+        ("LogLevelFileComboBox", "File"),
+        ("LogLevelConsoleComboBox", "Console (CLI)"),
+        ("LogLevelLiveLogComboBox", "Live log (UI)"),
+        ("LogLevelOpenTelemetryComboBox", "OpenTelemetry"),
+    ];
 
     /// <summary>
     /// Returns the entries of the list of accounts.

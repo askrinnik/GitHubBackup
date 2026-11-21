@@ -174,6 +174,17 @@ public sealed partial class AppHostTests : IDisposable
     }
 
     [Fact]
+    public void BuildHost_LogEndpoints_AttachLiveLogAndNoConsole()
+    {
+        using var host = BuildHost();
+        var consoleLogTarget = typeof(LiveLogOptions).Assembly.GetType("GitHubBackup.Infrastructure.Logging.ConsoleLogTarget");
+
+        host.Services.GetRequiredService<IOptions<LiveLogOptions>>().Value.Enabled.ShouldBeTrue();
+        consoleLogTarget.ShouldNotBeNull();
+        host.Services.GetRequiredService<IServiceProviderIsService>().IsService(consoleLogTarget).ShouldBeFalse();
+    }
+
+    [Fact]
     public void BuildHost_EntryWrittenBeforeRunLogExists_IsShown()
     {
         var dispatcher = new ManualUiDispatcher();

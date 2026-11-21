@@ -34,7 +34,8 @@ public static class TelemetryServiceCollectionExtensions
         /// <see langword="true"/>; otherwise adds nothing.
         /// </summary>
         /// <remarks>
-        /// The logger provider receives the entries that Serilog lets through its levels, and each record carries its
+        /// The logger provider receives the entries by the levels of the <c>OpenTelemetry</c> log endpoint of
+        /// <c>Serilog:Endpoints</c>, and each record carries its
         /// level as the <c>level</c> attribute; it requires <see cref="ISecretMasker"/> to be registered.
         /// The switch is read from <paramref name="configuration"/> because registration happens before the options
         /// exist. A value that is not a boolean registers nothing here and is reported by the validation of

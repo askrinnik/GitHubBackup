@@ -26,7 +26,8 @@ public sealed class CliApplicationTests : IDisposable
     /// </summary>
     /// <remarks>
     /// It sets <c>GitHub:Token</c> so that the token chain of the real host stops at its first source and never reads
-    /// the Credential Manager of the machine or starts the GitHub CLI.
+    /// the Credential Manager of the machine or starts the GitHub CLI. It switches the console log endpoint off, so the
+    /// error writer receives only the lines of the application; <see cref="ConsoleLogAppSettings"/> keeps it on.
     /// </remarks>
     internal const string ValidAppSettings =
         $$"""
@@ -36,9 +37,26 @@ public sealed class CliApplicationTests : IDisposable
           "Backup": { "ConfigPath": "backup-config.json", "ShortHashLength": 10, "VerifyArchive": true },
           "History": { "DatabasePath": "data\\history.db" },
           "OpenTelemetry": { "Enabled": false, "OtlpEndpoint": "http://localhost:4317" },
-          "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Warning" } } }
+          "Serilog": {
+            "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Warning" } },
+            "Endpoints": { "Console": { "Level": "Off" } }
+          }
         }
         """;
+
+    /// <summary>
+    /// A valid settings file without the <c>Serilog:Endpoints</c> section, so the console log endpoint writes to the
+    /// error writer at the default level; it sets <c>GitHub:Token</c> for the reason given on
+    /// <see cref="ValidAppSettings"/>.
+    /// </summary>
+    internal const string ConsoleLogAppSettings =
+        $$"""{ "GitHub": { "Token": "{{HostTestToken}}" } }""";
+
+    /// <summary>
+    /// The configuration key that switches the console log endpoint off, for a test that checks the exact lines of the
+    /// error writer over settings other than <see cref="ValidAppSettings"/>.
+    /// </summary>
+    private const string _consoleLogOffArgument = "--Serilog:Endpoints:Console:Level=Off";
 
     /// <summary>The token that <see cref="ValidAppSettings"/> configures.</summary>
     internal const string HostTestToken = "ghp_HostTestTokenValue0123456789abcdefAB";
@@ -99,6 +117,70 @@ public sealed class CliApplicationTests : IDisposable
 
         exitCode.ShouldBe(ExitCode.Success);
         _standardError.ToString().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RunAsync_ConsoleLevelNotSet_WritesLogEntriesToErrorInTextLogFormatWithTokenMasked()
+    {
+        var exitCode = await RunAsync(ConsoleLogAppSettings, "backup", $"--GitHub:Token={Token}");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        string[] textLogLines = [.. File.ReadAllLines(LogFilePath(LogFiles.TextExtension)).Where(line => line.Length > 0)];
+        textLogLines.ShouldNotBeEmpty();
+        var applicationLines = ErrorLines().Except(textLogLines).ToArray();
+        applicationLines.Length.ShouldBe(2);
+        applicationLines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
+        applicationLines[1].ShouldStartWith(BackupSummaryRenderer.LogPrefix);
+        ErrorLines().ShouldBeSubsetOf(textLogLines.Concat(applicationLines));
+        ErrorLines().ShouldNotContain(line => line.TrimStart().StartsWith("at ", StringComparison.Ordinal));
+        string[] entryLines = [.. textLogLines.Where(line => char.IsAsciiDigit(line[0]))];
+        entryLines.ShouldBeSubsetOf(ErrorLines());
+        _standardError.ToString().ShouldNotContain(Token);
+        _output.Output.ShouldNotContain(textLogLines[0]);
+    }
+
+    [Fact]
+    public async Task RunAsync_BackupSilent_WritesLogEntriesToError()
+    {
+        _isInputRedirected = true;
+
+        var exitCode = await RunAsync(ConsoleLogAppSettings, "backup", "--silent");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var textLogLines = File.ReadAllLines(LogFilePath(LogFiles.TextExtension));
+        textLogLines.ShouldNotBeEmpty();
+        ErrorLines().ShouldContain(textLogLines[0]);
+    }
+
+    [Fact]
+    public async Task RunAsync_ConsoleLevelOff_WritesOnlyErrorLinesToError()
+    {
+        var exitCode = await RunAsync(ConsoleLogAppSettings, "backup", "--Serilog:Endpoints:Console:Level=Off");
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        var lines = ErrorLines();
+        lines.Length.ShouldBe(2);
+        lines[0].ShouldStartWith(BackupSummaryRenderer.ErrorPrefix);
+        lines[1].ShouldStartWith(BackupSummaryRenderer.LogPrefix);
+    }
+
+    [Theory]
+    [InlineData(
+        "--Serilog:Endpoints:Fiel:Level=Debug",
+        "Serilog:Endpoints:Fiel is not a log endpoint; the endpoints are File, Console, LiveLog, OpenTelemetry.")]
+    [InlineData("--Serilog:Endpoints:Console=Warning", "Serilog:Endpoints:Console must be an object, not a value.")]
+    [InlineData(
+        "--Serilog:Endpoints:File:Level=Loud",
+        "Serilog:Endpoints:File:Level must be one of Verbose, Debug, Information, Warning, Error, Fatal, Off.")]
+    [InlineData(
+        "--Serilog:MinimumLevel:Default=Off",
+        "Serilog:MinimumLevel:Default must be one of Verbose, Debug, Information, Warning, Error, Fatal.")]
+    public async Task RunAsync_InvalidLogEndpointSetting_ReturnsCriticalNamingKey(string argument, string message)
+    {
+        var exitCode = await RunAsync(ConsoleLogAppSettings, argument);
+
+        exitCode.ShouldBe(ExitCode.Critical);
+        ErrorLines().ShouldBe([$"{CliApplication.ConfigurationErrorPrefix}{message}"]);
     }
 
     [Fact]
@@ -177,7 +259,7 @@ public sealed class CliApplicationTests : IDisposable
     [Fact]
     public async Task RunAsync_ShortHashLengthOutOfRange_ReturnsCriticalWithOneLineNamingKey()
     {
-        var exitCode = await RunAsync("""{ "Backup": { "ShortHashLength": 3 } }""");
+        var exitCode = await RunAsync("""{ "Backup": { "ShortHashLength": 3 } }""", _consoleLogOffArgument);
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().ShouldBe(["Configuration error: Backup:ShortHashLength must be between 4 and 40."]);
@@ -186,7 +268,7 @@ public sealed class CliApplicationTests : IDisposable
     [Fact]
     public async Task RunAsync_ValueOfWrongType_ReturnsCriticalNamingKey()
     {
-        var exitCode = await RunAsync("""{ "Backup": { "ShortHashLength": "ten" } }""");
+        var exitCode = await RunAsync("""{ "Backup": { "ShortHashLength": "ten" } }""", _consoleLogOffArgument);
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().ShouldBe(["Configuration error: Backup:ShortHashLength cannot be converted to System.Int32."]);
@@ -207,7 +289,8 @@ public sealed class CliApplicationTests : IDisposable
     public async Task RunAsync_TypeErrorsInSeveralSections_WritesOneLinePerKeyWithoutValues()
     {
         var exitCode = await RunAsync(
-            """{ "Backup": { "ShortHashLength": "ten" }, "OpenTelemetry": { "Enabled": "perhaps" } }""");
+            """{ "Backup": { "ShortHashLength": "ten" }, "OpenTelemetry": { "Enabled": "perhaps" } }""",
+            _consoleLogOffArgument);
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().Order(StringComparer.Ordinal).ShouldBe(
@@ -222,7 +305,8 @@ public sealed class CliApplicationTests : IDisposable
     public async Task RunAsync_SeveralSectionsInvalid_WritesOneLinePerErrorWithoutStackTrace()
     {
         var exitCode = await RunAsync(
-            """{ "GitHub": { "ApiBaseUrl": "api.github.com" }, "Tools": { "GitPath": "git.exe" }, "Backup": { "ShortHashLength": 41 } }""");
+            """{ "GitHub": { "ApiBaseUrl": "api.github.com" }, "Tools": { "GitPath": "git.exe" }, "Backup": { "ShortHashLength": 41 } }""",
+            _consoleLogOffArgument);
 
         exitCode.ShouldBe(ExitCode.Critical);
         ErrorLines().Order(StringComparer.Ordinal).ShouldBe(

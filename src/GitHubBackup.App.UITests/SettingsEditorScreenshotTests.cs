@@ -6,7 +6,8 @@ namespace GitHubBackup.App.UITests;
 
 /// <summary>
 /// Takes screenshots of the settings editor, in the light and the dark theme, and measures the check boxes of the
-/// repository tables: each box is drawn whole and sits centred under its column header.
+/// repository tables, each drawn whole and centred under its column header, and the level lists of the logging
+/// section, each with its whole text on the line of its label.
 /// </summary>
 /// <remarks>
 /// The tests need an unlocked interactive desktop: Windows does not render windows while the workstation is locked,
@@ -19,6 +20,16 @@ public sealed class SettingsEditorScreenshotTests : IDisposable
 
     /// <summary>The check box columns of a repository table, as they appear in the automation ids.</summary>
     private static readonly string[] _columns = ["Paused", "Unavailable"];
+
+    /// <summary>The level lists of the logging section, in order.</summary>
+    private static readonly string[] _logLevelComboBoxes =
+        ["LogLevelFileComboBox", "LogLevelConsoleComboBox", "LogLevelLiveLogComboBox", "LogLevelOpenTelemetryComboBox"];
+
+    /// <summary>
+    /// The width, in device-independent pixels, of the drop-down arrow at the right of a combo box with its margins;
+    /// text that reaches into it is cut.
+    /// </summary>
+    private const int _comboBoxArrowWidth = 32;
 
     private readonly GitHubApiStub _api = new();
     private readonly AppInstallation _installation;
@@ -77,6 +88,50 @@ public sealed class SettingsEditorScreenshotTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("light")]
+    [InlineData("dark")]
+    public void LoggingSection_LevelLists_DrawsCardAndWholeTextLinedUpWithLabels(string theme)
+    {
+        _installation.WriteUiSettings(new UiSettingsJson { Theme = theme, WindowSize = (1000, 720), LogPanelHeight = _logPanelHeight }.Build());
+        var session = _session = AppSession.Start(_installation);
+        var scale = session.WaitFor("RunLogPanel").BoundingRectangle.Height / _logPanelHeight;
+        session.Invoke("SettingsButton");
+        var save = session.WaitFor("SaveSettingsButton");
+        AppSession.WaitUntil(() => save.IsEnabled, "the settings to be read");
+        session.Select("SettingsSectionLogging");
+        var window = session.MainWindow;
+        var card = session.WaitFor("SettingsLoggingCard");
+        var comboBoxes = _logLevelComboBoxes.Select(id => session.WaitFor(id)).ToList();
+        var notice = session.WaitFor("LoggingRestartNotice");
+        var description = $"logging section, {theme} theme";
+        var image = ScreenCapture.Window(window, $"the settings editor ({description})");
+        image.Save(Path.Combine(ScreenshotFolder(), $"SettingsEditor-Logging-{theme}.png"));
+        var cardBounds = ScreenCapture.Bounds(card, window);
+        var tolerance = (int)Math.Ceiling(scale);
+        var inset = (int)Math.Ceiling(4 * scale);
+        var arrow = (int)Math.Ceiling(_comboBoxArrowWidth * scale);
+
+        LayoutMeasurement.BorderContrast(image, cardBounds, scale)
+            .ShouldBeGreaterThanOrEqualTo(ScreenshotAssert.MinBorderContrast, $"{description}: border of the card");
+        ScreenshotAssert.TextClear(image, ScreenCapture.Bounds(notice, window), scale, $"{description}: notice", requireText: true);
+        foreach (var comboBox in comboBoxes)
+        {
+            var bounds = ScreenCapture.Bounds(comboBox, window);
+            cardBounds.Contains(bounds).ShouldBeTrue($"{description}: {comboBox.AutomationId} at {bounds} lies outside the card");
+            var textRegion = Rectangle.FromLTRB(bounds.Left + inset, bounds.Top + 1, bounds.Right - arrow, bounds.Bottom - 1);
+            var label = Rectangle.FromLTRB(cardBounds.Left + inset, bounds.Top, bounds.Left - 1, bounds.Bottom);
+            var text = LayoutMeasurement.TextBounds(image, textRegion, scale)
+                .ShouldNotBeNull($"{description}: {comboBox.AutomationId} shows no text");
+
+            ScreenshotAssert.TextClear(image, textRegion, scale, $"{description}: {comboBox.AutomationId}", requireText: true);
+            ScreenshotAssert.TextClear(image, label, scale, $"{description}: label of {comboBox.AutomationId}", requireText: true);
+            text.Right.ShouldBeLessThan(textRegion.Right - 1, $"{description}: the text of {comboBox.AutomationId} runs under its arrow");
+            LayoutMeasurement.AlignmentSpread(image, [label, textRegion], scale)
+                .ShouldBeLessThanOrEqualTo(2 * tolerance, $"{description}: {comboBox.AutomationId} and its label are not on one line");
+        }
+    }
+
     /// <summary>
     /// Stops the application, then deletes the installation and stops the API stub.
     /// </summary>
@@ -95,4 +150,18 @@ public sealed class SettingsEditorScreenshotTests : IDisposable
     /// <returns>The elements in tree order.</returns>
     private static List<AutomationElement> Shown(AutomationElement root, string automationId) =>
         [.. root.FindAllDescendants(condition => condition.ByAutomationId(automationId)).Where(element => !element.IsOffscreen)];
+
+    /// <summary>
+    /// Returns the folder that keeps the measured screenshots for review: the folder named by
+    /// <c>UI_TEST_SCREENSHOTS</c>, as on CI, or <c>Screenshots</c> next to the test assembly.
+    /// </summary>
+    /// <returns>The path of the folder, which exists.</returns>
+    private static string ScreenshotFolder()
+    {
+        var folder = Environment.GetEnvironmentVariable("UI_TEST_SCREENSHOTS") is { Length: > 0 } configured
+            ? configured
+            : Path.Combine(AppContext.BaseDirectory, "Screenshots");
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
 }

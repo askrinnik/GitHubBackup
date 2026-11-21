@@ -97,6 +97,61 @@ public sealed class FileLoggingServiceCollectionExtensionsTests
         exception.Failures.ShouldHaveSingleItem().ShouldStartWith("LiveLogOptions:BufferCapacity must be from 0 to ");
     }
 
+    [Fact]
+    public void AddGitHubBackupLogging_EndpointsSection_BindsLevelsAndOverrides()
+    {
+        using var provider = BuildProvider(new()
+        {
+            ["Serilog:Endpoints:File:Level"] = "Debug",
+            ["Serilog:Endpoints:Console:Level"] = "Off",
+            ["Serilog:Endpoints:OpenTelemetry:Override:GitHubBackup"] = "Error",
+        });
+
+        var options = provider.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value;
+
+        options.File.Level.ShouldBe("Debug");
+        options.Console.Level.ShouldBe("Off");
+        options.LiveLog.Level.ShouldBeNull();
+        options.OpenTelemetry.Override.ShouldBe(new Dictionary<string, string?> { ["GitHubBackup"] = "Error" });
+        options.OpenTelemetry.Override.ContainsKey("githubbackup").ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AddGitHubBackupLogging_InvalidEndpointLevel_FailsStartupValidationNamingKey()
+    {
+        using var provider = BuildProvider(new() { ["Serilog:Endpoints:LiveLog:Level"] = "Loud" });
+
+        var exception = Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<IStartupValidator>().Validate());
+
+        exception.Failures.ShouldHaveSingleItem().ShouldStartWith("Serilog:Endpoints:LiveLog:Level must be one of ");
+    }
+
+    [Fact]
+    public void AddGitHubBackupLogging_NoBufferCall_LeavesLiveLogDisabled()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IOptions<LiveLogOptions>>().Value.Enabled.ShouldBeFalse();
+    }
+
+    [Fact]
+    public void AddGitHubBackupLiveLogBuffer_Called_EnablesLiveLog()
+    {
+        using var provider = BuildProvider(new(), services => services.AddGitHubBackupLiveLogBuffer(0));
+
+        provider.GetRequiredService<IOptions<LiveLogOptions>>().Value.Enabled.ShouldBeTrue();
+    }
+
+    [Fact]
+    public void AddGitHubBackupConsoleLog_Writer_RegistersConsoleTarget()
+    {
+        using var writer = new StringWriter();
+
+        using var provider = BuildProvider(new(), services => services.AddGitHubBackupConsoleLog(writer));
+
+        provider.GetRequiredService<ConsoleLogTarget>().Writer.ShouldBeSameAs(writer);
+    }
+
     /// <summary>
     /// Builds a service provider with the logging services registered over <paramref name="values"/>.
     /// </summary>

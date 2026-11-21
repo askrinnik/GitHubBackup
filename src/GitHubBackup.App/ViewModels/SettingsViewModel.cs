@@ -11,6 +11,7 @@ using GitHubBackup.App.Navigation;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
@@ -19,8 +20,8 @@ using Microsoft.Extensions.Logging;
 namespace GitHubBackup.App.ViewModels;
 
 /// <summary>
-/// Backs the settings editor: edits <c>backup-config.json</c>, the tool paths, the telemetry settings and the token
-/// saved in the token store with one Save, checks a token against the GitHub API and switches the theme.
+/// Backs the settings editor: edits <c>backup-config.json</c>, the tool paths, the telemetry settings, the log levels
+/// and the token saved in the token store with one Save, checks a token against the GitHub API and switches the theme.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -30,7 +31,7 @@ namespace GitHubBackup.App.ViewModels;
 /// </para>
 /// <para>
 /// The editor writes back every value it does not show, such as the id and status of a repository entry, as it was
-/// read. The tool paths and a saved token take effect when the application starts again.
+/// read. The tool paths, the log levels and a saved token take effect when the application starts again.
 /// </para>
 /// </remarks>
 public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGuard
@@ -76,6 +77,11 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         "OpenTelemetry:Headers was removed from appsettings.json and is kept in Windows Credential Manager. The previous "
         + "value stays in appsettings.json.bak in plain text until the next save.";
 
+    /// <summary>The note at the top of the logging section.</summary>
+    public const string LoggingRestartNotice =
+        "Log levels take effect after the application restarts. Source overrides (Override) are edited only in "
+        + "appsettings.json; Save keeps them.";
+
     /// <summary>The message shown when the user cancels the token check.</summary>
     public const string TokenCheckCancelledMessage = "The token check was cancelled.";
 
@@ -88,6 +94,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     private readonly IBackupConfigStore _configStore;
     private readonly IToolPathsStore _toolPathsStore;
     private readonly ITelemetrySettingsStore _telemetrySettingsStore;
+    private readonly ILogLevelSettingsStore _logLevelSettingsStore;
     private readonly ITokenStore _tokenStore;
     private readonly ITokenProvider _tokenProvider;
     private readonly IGitHubTokenInspector _tokenInspector;
@@ -109,6 +116,9 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Whether the telemetry settings changed since they were read or saved.</summary>
     private bool _telemetryDirty;
+
+    /// <summary>Whether the log levels changed since they were read or saved.</summary>
+    private bool _loggingDirty;
 
     /// <summary>Whether many fields are validated at once, so the error marks of the sections are updated once after.</summary>
     private bool _batchingErrors;
@@ -178,6 +188,22 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     [ObservableProperty]
     private bool _isTelemetryHeadersShown;
 
+    /// <summary>The entry chosen in the level list of the log files.</summary>
+    [ObservableProperty]
+    private LogLevelOption _selectedFileLogLevel;
+
+    /// <summary>The entry chosen in the level list of the standard error of the console application.</summary>
+    [ObservableProperty]
+    private LogLevelOption _selectedConsoleLogLevel;
+
+    /// <summary>The entry chosen in the level list of the live log feed.</summary>
+    [ObservableProperty]
+    private LogLevelOption _selectedLiveLogLevel;
+
+    /// <summary>The entry chosen in the level list of the OTLP export of the log entries.</summary>
+    [ObservableProperty]
+    private LogLevelOption _selectedOpenTelemetryLogLevel;
+
     /// <summary>The token typed by the user; cleared after it is saved.</summary>
     [ObservableProperty]
     private string _token = string.Empty;
@@ -235,12 +261,13 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     private bool _isDirty;
 
     /// <summary>
-    /// Initializes the editor with the tool paths and telemetry settings of the running application; the
-    /// configuration is read by <see cref="LoadCommand"/>.
+    /// Initializes the editor with the tool paths, the telemetry settings and the log levels of the running
+    /// application; the configuration is read by <see cref="LoadCommand"/>.
     /// </summary>
     /// <param name="configStore">Reads, validates and writes <c>backup-config.json</c>.</param>
     /// <param name="toolPathsStore">Reads, validates and writes the tool paths.</param>
     /// <param name="telemetrySettingsStore">Reads, validates and writes the telemetry settings.</param>
+    /// <param name="logLevelSettingsStore">Reads and writes the log levels.</param>
     /// <param name="tokenStore">Keeps the token the user saves.</param>
     /// <param name="tokenProvider">Finds the token the application uses, for the check and the shadowing warning.</param>
     /// <param name="tokenInspector">Asks the GitHub API about a token.</param>
@@ -254,6 +281,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         IBackupConfigStore configStore,
         IToolPathsStore toolPathsStore,
         ITelemetrySettingsStore telemetrySettingsStore,
+        ILogLevelSettingsStore logLevelSettingsStore,
         ITokenStore tokenStore,
         ITokenProvider tokenProvider,
         IGitHubTokenInspector tokenInspector,
@@ -267,6 +295,7 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         _configStore = configStore;
         _toolPathsStore = toolPathsStore;
         _telemetrySettingsStore = telemetrySettingsStore;
+        _logLevelSettingsStore = logLevelSettingsStore;
         _tokenStore = tokenStore;
         _tokenProvider = tokenProvider;
         _tokenInspector = tokenInspector;
@@ -292,13 +321,25 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
         // Headers in plain text in the file are a change to save: Save moves them to the header store.
         _telemetryDirty = IsTelemetryHeadersInAppSettings;
 
+        LogLevelOptions = LogLevelOption.Create(logLevelSettingsStore.DefaultLevel);
+        var levels = logLevelSettingsStore.Current;
+        _selectedFileLogLevel = FindLogLevelOption(levels.File);
+        _selectedConsoleLogLevel = FindLogLevelOption(levels.Console);
+        _selectedLiveLogLevel = FindLogLevelOption(levels.LiveLog);
+        _selectedOpenTelemetryLogLevel = FindLogLevelOption(levels.OpenTelemetry);
+
         GeneralSection = new(SettingsSection.General, "General", "\uE713") { IsSelected = true };
         AccountsSection = new(SettingsSection.Accounts, "Accounts", "\uE716");
         RepositoriesSection = new(SettingsSection.Repositories, "Repositories", "\uE8B7");
         ToolsSection = new(SettingsSection.Tools, "Tools", "\uE90F");
         TelemetrySection = new(SettingsSection.Telemetry, "Telemetry", "\uE9D9");
+        LoggingSection = new(SettingsSection.Logging, "Logging", "\uE8A5");
         TokenSection = new(SettingsSection.Token, "GitHub token", "\uE8D7");
-        Sections = [GeneralSection, AccountsSection, RepositoriesSection, ToolsSection, TelemetrySection, TokenSection];
+        Sections =
+        [
+            GeneralSection, AccountsSection, RepositoriesSection, ToolsSection, TelemetrySection, LoggingSection,
+            TokenSection,
+        ];
         RepositoryView = new(Repositories, repository => repository.Url);
 
         // The generated setters validate after OnXxxChanged runs, so the marks follow ErrorsChanged instead.
@@ -338,6 +379,9 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Gets the navigation entry of <see cref="SettingsSection.Telemetry"/>.</summary>
     public SettingsSectionItem TelemetrySection { get; }
 
+    /// <summary>Gets the navigation entry of <see cref="SettingsSection.Logging"/>.</summary>
+    public SettingsSectionItem LoggingSection { get; }
+
     /// <summary>Gets the navigation entry of <see cref="SettingsSection.Token"/>.</summary>
     public SettingsSectionItem TokenSection { get; }
 
@@ -346,6 +390,12 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
 
     /// <summary>Gets the entries of the theme list.</summary>
     public static IReadOnlyList<ThemeOption> ThemeOptions => ThemeOption.All;
+
+    /// <summary>
+    /// Gets the entries of every level list: the default, labelled with the default level of the running application,
+    /// then the levels.
+    /// </summary>
+    public IReadOnlyList<LogLevelOption> LogLevelOptions { get; }
 
     /// <summary>Gets the change of theme last started from the list, which completes when the theme is saved.</summary>
     internal Task ThemeChange { get; private set; } = Task.CompletedTask;
@@ -378,10 +428,11 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     public bool IsNewConfig => NewConfigMessage is not null;
 
     /// <summary>
-    /// Gets whether leaving the editor would lose a change: the configuration, the tool paths, the telemetry settings or a
-    /// typed token.
+    /// Gets whether leaving the editor would lose a change: the configuration, the tool paths, the telemetry settings, the
+    /// log levels or a typed token.
     /// </summary>
-    public bool HasUnsavedChanges => IsDirty || _toolsDirty || _telemetryDirty || !string.IsNullOrEmpty(Token);
+    public bool HasUnsavedChanges =>
+        IsDirty || _toolsDirty || _telemetryDirty || _loggingDirty || !string.IsNullOrEmpty(Token);
 
     /// <inheritdoc />
     /// <remarks>Unsaved changes are discarded only after the user confirms.</remarks>
@@ -442,8 +493,8 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// Validates every changed group, writes the changed groups and returns to the repository tree.
     /// </summary>
     /// <remarks>
-    /// The changed groups are the configuration, the tool paths, the telemetry settings and a typed token. All of them
-    /// are validated first; errors are shown at their fields and nothing is written while there are any. The groups are
+    /// The changed groups are the configuration, the tool paths, the telemetry settings, the log levels and a typed
+    /// token. All of them are validated first; errors are shown at their fields and nothing is written while there are any. The groups are
     /// then written in that order and each one that is written stops counting as changed. A failure to write stops the
     /// save, is shown in a dialog and keeps the editor open with the fields as they are, so a retry writes only the
     /// groups that are still unsaved.
@@ -526,6 +577,18 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
                 headersMoved = _telemetrySettingsStore.HeadersInAppSettings;
                 await _telemetrySettingsStore.SaveAsync(telemetry, cancellationToken);
                 _telemetryDirty = false;
+            }
+
+            if (_loggingDirty)
+            {
+                await _logLevelSettingsStore.SaveAsync(
+                    new LogLevelSettings(
+                        SelectedFileLogLevel.Value,
+                        SelectedConsoleLogLevel.Value,
+                        SelectedLiveLogLevel.Value,
+                        SelectedOpenTelemetryLogLevel.Value),
+                    cancellationToken);
+                _loggingDirty = false;
             }
 
             if (token is not null)
@@ -1140,6 +1203,30 @@ public sealed partial class SettingsViewModel : SettingsFormViewModel, ICloseGua
     /// <summary>Marks the telemetry settings as changed.</summary>
     /// <param name="value">The new headers.</param>
     partial void OnTelemetryHeadersChanged(string value) => _telemetryDirty = true;
+
+    /// <summary>Marks the log levels as changed.</summary>
+    /// <param name="value">The chosen entry.</param>
+    partial void OnSelectedFileLogLevelChanged(LogLevelOption value) => _loggingDirty = true;
+
+    /// <summary>Marks the log levels as changed.</summary>
+    /// <param name="value">The chosen entry.</param>
+    partial void OnSelectedConsoleLogLevelChanged(LogLevelOption value) => _loggingDirty = true;
+
+    /// <summary>Marks the log levels as changed.</summary>
+    /// <param name="value">The chosen entry.</param>
+    partial void OnSelectedLiveLogLevelChanged(LogLevelOption value) => _loggingDirty = true;
+
+    /// <summary>Marks the log levels as changed.</summary>
+    /// <param name="value">The chosen entry.</param>
+    partial void OnSelectedOpenTelemetryLogLevelChanged(LogLevelOption value) => _loggingDirty = true;
+
+    /// <summary>
+    /// Returns the entry of <see cref="LogLevelOptions"/> for <paramref name="level"/>.
+    /// </summary>
+    /// <param name="level">The level, or <see langword="null"/> for the default.</param>
+    /// <returns>The entry.</returns>
+    private LogLevelOption FindLogLevelOption(EndpointLogLevel? level) =>
+        LogLevelOptions.First(option => option.Value == level);
 
     /// <summary>Applies and saves the chosen theme.</summary>
     /// <param name="value">The chosen entry.</param>

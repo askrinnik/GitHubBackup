@@ -31,6 +31,9 @@ public sealed class SerilogFileLoggingTests
     /// <summary>A token in the classic GitHub format that is not registered anywhere.</summary>
     private const string _unregisteredToken = "ghp_TestTokenValue0123456789abcdefABCDEF";
 
+    /// <summary>The category of the entries the tests write.</summary>
+    private static readonly string _category = typeof(SerilogFileLoggingTests).FullName!;
+
     [Fact]
     public void Log_Entry_WritesBothDailyFilesInLogsFolder()
     {
@@ -164,7 +167,7 @@ public sealed class SerilogFileLoggingTests
     {
         using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
         var received = new List<LiveLogEntry>();
-        using (var host = contentRoot.BuildHost($"--GitHub:Token={_configuredToken}"))
+        using (var host = BuildLiveLogHost(contentRoot, $"--GitHub:Token={_configuredToken}"))
         {
             var logger = CreateLogger(host);
             using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
@@ -216,6 +219,117 @@ public sealed class SerilogFileLoggingTests
             (LogLevel.Information, "Before the window"),
             (LogLevel.Warning, "Calling with ***"),
             (LogLevel.Error, "After the window opened"),
+        ]);
+    }
+
+    [Fact]
+    public void Log_FileDebugAndDefaultWarning_FileReceivesDebugAndLiveLogKeepsDefault()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "MinimumLevel": { "Default": "Warning" }, "Endpoints": { "File": { "Level": "Debug" } } } }""");
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(contentRoot))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            WriteEachLevel(CreateLogger(host));
+        }
+
+        OwnFileTexts(contentRoot).ShouldBe(["Debug", "Information", "Warning", "Error"]);
+        received.Select(entry => entry.Message).ShouldBe(["Warning", "Error"]);
+    }
+
+    [Fact]
+    public void Log_FileOff_WritesNoLogFile()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "Endpoints": { "File": { "Level": "Off" } } } }""");
+
+        WriteEntry(contentRoot, WriteEachLevel);
+
+        Directory.Exists(contentRoot.LogsPath).ShouldBeFalse();
+    }
+
+    [Fact]
+    public void Log_EndpointOverrideAndGlobalOverride_EndpointOverrideWinsForFile()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            $$"""
+            {
+              "Serilog": {
+                "MinimumLevel": { "Default": "Information", "Override": { "{{_category}}": "Error" } },
+                "Endpoints": { "File": { "Override": { "GitHubBackup.Infrastructure": "Debug" } } }
+              }
+            }
+            """);
+
+        WriteEntry(contentRoot, WriteEachLevel);
+
+        OwnFileTexts(contentRoot).ShouldBe(["Debug", "Information", "Warning", "Error"]);
+    }
+
+    [Fact]
+    public void Log_EndpointOverrideOff_DropsSourceFromFileOnly()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            $$"""{ "Serilog": { "Endpoints": { "File": { "Override": { "{{_category}}": "Off" } } } } }""");
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(contentRoot))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            WriteEachLevel(CreateLogger(host));
+        }
+
+        OwnFileTexts(contentRoot).ShouldBeEmpty();
+        received.Select(entry => entry.Message).ShouldBe(["Information", "Warning", "Error"]);
+    }
+
+    [Fact]
+    public void Log_LiveLogLevelError_FeedReceivesOnlyErrorsAndFileKeepsDefault()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "Endpoints": { "LiveLog": { "Level": "Error" } } } }""");
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(contentRoot))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            WriteEachLevel(CreateLogger(host));
+        }
+
+        OwnFileTexts(contentRoot).ShouldBe(["Information", "Warning", "Error"]);
+        received.Select(entry => entry.Message).ShouldBe(["Error"]);
+    }
+
+    [Fact]
+    public void Log_HostWithoutLiveLogBuffer_FeedReceivesNothing()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        var received = new List<LiveLogEntry>();
+
+        using (var host = contentRoot.BuildHost())
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            TestLog.Write(CreateLogger(host), LogLevel.Warning, "Warning");
+        }
+
+        received.ShouldBeEmpty();
+        OwnFileTexts(contentRoot).ShouldBe(["Warning"]);
+    }
+
+    [Fact]
+    public void Build_InvalidMinimumLevelAndEndpointSection_ThrowsOneExceptionWithBothFailures()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "MinimumLevel": { "Default": "Off" }, "Endpoints": { "Console": "Warning" } } }""");
+
+        var exception = Should.Throw<OptionsValidationException>(() => contentRoot.BuildHost().Dispose());
+
+        exception.Failures.ShouldBe(
+        [
+            "Serilog:MinimumLevel:Default must be one of Verbose, Debug, Information, Warning, Error, Fatal.",
+            "Serilog:Endpoints:Console must be an object, not a value.",
         ]);
     }
 
@@ -286,6 +400,49 @@ public sealed class SerilogFileLoggingTests
         using var host = contentRoot.BuildHost(args);
         write(CreateLogger(host));
     }
+
+    /// <summary>
+    /// Builds a host over <paramref name="contentRoot"/> with the live log feed attached, as the WPF application builds
+    /// it.
+    /// </summary>
+    /// <param name="contentRoot">The content root of the host.</param>
+    /// <param name="configurationArguments">The configuration keys, each in the form <c>--Section:Key=value</c>.</param>
+    /// <returns>The host; the caller disposes it.</returns>
+    private static IHost BuildLiveLogHost(TemporaryContentRoot contentRoot, params string[] configurationArguments)
+    {
+        var builder = GitHubBackupHostBuilder.Create(new()
+        {
+            ConfigurationArguments = configurationArguments,
+            ContentRootPath = contentRoot.FolderPath,
+            EnvironmentName = Environments.Production,
+        });
+        builder.Services.AddGitHubBackupLiveLogBuffer(100);
+        return builder.Build();
+    }
+
+    /// <summary>
+    /// Writes one entry per level from <see cref="LogLevel.Debug"/> to <see cref="LogLevel.Error"/>, each with the
+    /// name of its level as text.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    private static void WriteEachLevel(ILogger logger)
+    {
+        foreach (var level in new[] { LogLevel.Debug, LogLevel.Information, LogLevel.Warning, LogLevel.Error })
+        {
+            var text = level.ToString();
+            TestLog.Write(logger, level, text);
+        }
+    }
+
+    /// <summary>
+    /// Returns the texts of the structured log entries this test class wrote, without the entries of the host itself.
+    /// </summary>
+    /// <param name="contentRoot">The content root of the host.</param>
+    /// <returns>The texts, in file order; empty when no entry reached the files, which then do not exist.</returns>
+    private static string?[] OwnFileTexts(TemporaryContentRoot contentRoot) =>
+        !Directory.Exists(contentRoot.LogsPath) ? [] : [.. contentRoot.ReadJsonLogEntries()
+            .Where(entry => entry.TryGetProperty("SourceContext", out var source) && source.GetString() == _category)
+            .Select(entry => entry.GetProperty("Text").GetString())];
 
     /// <summary>
     /// Creates the logger of this test class from the host.

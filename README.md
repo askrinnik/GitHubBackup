@@ -152,6 +152,12 @@ The file is optional and is not published. Every key has a default in the progra
     "MinimumLevel": {
       "Default": "Information",
       "Override": { "Microsoft.Hosting.Lifetime": "Warning" }
+    },
+    "Endpoints": {
+      "File": { "Level": null },
+      "Console": { "Level": null },
+      "LiveLog": { "Level": null },
+      "OpenTelemetry": { "Level": null }
     }
   }
 }
@@ -172,6 +178,10 @@ The file is optional and is not published. Every key has a default in the progra
 | `OpenTelemetry:Headers` | `null` | OTLP headers sent with every export, as `name=value` pairs separated by commas, for example `api-key=<license key>` for New Relic (see [Send telemetry to New Relic](#send-telemetry-to-new-relic)). The value is split from the name at the first `=`; spaces around names and values are dropped. Checked when telemetry is on: each pair needs a header name and a value, and an empty pair (`a=b,,c=d`, a trailing comma) is an error. The value is a secret and is masked as `***`. Keep it in the Windows Credential Manager (see [OTLP headers in the Credential Manager](#otlp-headers-in-the-credential-manager)), not in this file: the file keeps the value in plain text. For automation, the variable `GitHubBackup__OpenTelemetry__Headers` works too; avoid the command line, which other processes can read. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
 | `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. |
+| `Serilog:Endpoints:<name>:Level` | `null` | Level of one log endpoint: `File`, `Console`, `LiveLog` or `OpenTelemetry` (see [Log levels](#log-levels)). One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`, `Off`; `null` or an empty value takes `Serilog:MinimumLevel:Default`. `Off` switches the endpoint off. |
+| `Serilog:Endpoints:<name>:Override:<SourceContext>` | none | Optional level of that endpoint for sources with that prefix; it wins over `Serilog:MinimumLevel:Override`. One of the levels of `Level`; `Off` drops the entries of that source from the endpoint. |
+
+`Off` is valid only under `Serilog:Endpoints`. Each section `Serilog:Endpoints` and `Serilog:Endpoints:<name>`, and each `Override` in it, must be an object: a value such as `"Console": "Warning"` is an error, and so is an endpoint name that is not in the list.
 
 If a rule fails, the program exits with code `2` and prints one line per error with the key name and without the values of `GitHub:Token` and `OpenTelemetry:Headers`.
 
@@ -188,7 +198,7 @@ No other file next to the exe is part of the configuration: `ui-settings.json` b
 
 The variable `DOTNET_ENVIRONMENT` sets the environment; the default is `Production`.
 
-**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled` and `OpenTelemetry:OtlpEndpoint`, and removes `OpenTelemetry:Headers`: the editor keeps the OTLP headers in the Windows Credential Manager. Both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these four keys, adds the keys and sections that are missing and keeps every other key and section. A key `OpenTelemetry:Headers` that you write into the file by hand takes effect, but it is stored in plain text; **Save** in the editor moves it to the Credential Manager, and the previous value stays in `appsettings.json.bak` until the next **Save**. When the variable, the command line or user secrets set `OpenTelemetry:Headers`, the values in the Credential Manager and in the file have no effect, and the editor says so. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
+**Who writes the file.** You edit the file by hand. The settings editor of the desktop app (see [Desktop app](#settings-editor)) writes only `Tools:GitPath`, `Tools:SevenZipPath`, `OpenTelemetry:Enabled`, `OpenTelemetry:OtlpEndpoint` and the four keys `Serilog:Endpoints:<name>:Level` (see [Log levels](#log-levels)), and removes `OpenTelemetry:Headers`: the editor keeps the OTLP headers in the Windows Credential Manager. Both kinds of edits count the same: the program reads the file as it is at start, and the editor shows the values the program read. **Save** replaces the values of these keys, adds the keys and sections that are missing and keeps every other key and section. A key `OpenTelemetry:Headers` that you write into the file by hand takes effect, but it is stored in plain text; **Save** in the editor moves it to the Credential Manager, and the previous value stays in `appsettings.json.bak` until the next **Save**. When the variable, the command line or user secrets set `OpenTelemetry:Headers`, the values in the Credential Manager and in the file have no effect, and the editor says so. Key and section names match in any case, as in the configuration; a replaced key gets its canonical name (`GitPath`). If the file does not exist, **Save** creates it. The write is atomic, and the previous version stays in `appsettings.json.bak`. **Save** rewrites the file as indented JSON: keys, values and sections stay, comments and your formatting do not. If the file exists but is not a valid JSON object, **Save** of these groups fails with the file name and leaves the file as it is. New values apply after you restart the program.
 
 ### ui-settings.json
 
@@ -383,6 +393,8 @@ Check the result: the archive folder holds a `.zip` per repository, `sources\` h
 | `GitHubBackup.Cli set-token` | Asks for the token with hidden input and stores it in the Windows Credential Manager (`GitHubBackup:https://github.com`); exit code `0`. If the input is redirected or the write fails, it prints one error line and exits with `2`. The token is not accepted as an argument |
 | `GitHubBackup.Cli set-otlp-headers` | Asks for the OTLP headers (`OpenTelemetry:Headers`) with hidden input and stores them in the Windows Credential Manager (`GitHubBackup:OpenTelemetry:Headers`); empty input removes them; exit code `0`. Headers that are not `name=value` pairs print one error line that names the key without the value, and exit with `2`; so do redirected input and a failed write. If `appsettings.json` also sets the key, it prints a warning: the file keeps the value in plain text. The command does not change `appsettings.json`, and the headers are not accepted as an argument |
 | `GitHubBackup.Cli --help` | Help for commands and options (also `backup --help`, `validate --help`, `set-token --help`, `set-otlp-headers --help`) |
+
+Log entries go to stderr in the format of the `.log` file, next to the error lines of the program; stdout keeps only the results (see [Log levels](#log-levels)).
 
 With `dotnet run`, pass the arguments after `--`: `dotnet run --project src/GitHubBackup.Cli -- backup`. The .NET configuration keys (`--Section:Key=value`) are also accepted. Any argument error produces one line `Command-line error: ...` and exit code `2`. Option values never appear in the message. A stray argument appears only when it is at most 32 characters long, and for `set-token` and `set-otlp-headers` it never appears.
 
@@ -604,7 +616,7 @@ Open the log of the day in `logs\` for details (see [Logs, history and telemetry
 
 - **Main window.** A tree "accounts, repositories" with a group for single repositories. An icon in front of each name shows the kind of the node: account, group of single repositories or repository. Each repository shows its status and the date of the last archive, each account its status, in columns aligned across the whole tree. Icons show the status, without words, in two places of fixed width: the first place holds a check (an unfiltered run backs the entry up), a pause (the entry or its account is paused, see [Pause](#pause-paused)) or a minus (an exclusion mask matches the entry), the second place a crossed circle (the entry is `Unavailable`). An unavailable entry that is paused shows both icons. A paused account shows the pause once, on its own row; its repositories get no pause icon of their own. Paused entries and the repositories of a paused account are shown in muted text. Point at an icon to see its status as a tooltip: `Active`, `Paused`, `Unavailable`, `Unavailable, paused` or `Excluded`. The tree, the live log and, after a run, the results and the totals each stand in a separate card with a gap between the cards. Drag the gap above the log or above the results to change the height of the card below it, and the tree takes the rest of the window. The buttons **Backup all**, **Backup account** and **Backup repository** start a run. The check box **Dry run** switches the next run to dry-run mode. It is a mode, not a command: the check box does not start a run. The buttons **Settings** and **History** open the settings editor and the history.
 - **Discovery dialog.** A table of new, missing, renamed and returned repositories. You can add, skip or exclude each row or all rows at once, choose the rename variant, and edit the branch and the archive folder in the table. Missing and returned rows have no choice: the Action column shows what happens to them automatically (marked unavailable or active again).
-- **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files. The live log shows the whole log of the app session since the app started, with the same entries and levels as the log files and secrets masked; entries written before the main window opened are there too. It keeps the last 5000 entries and drops older ones. A run does not clear it, and it keeps its entries when you open the settings editor or the history and come back. The icon button **Clear log** in the top right corner of the log card clears the feed; new entries keep coming. It does not change the log files or the OTLP export.
+- **Progress.** The current repository and operation, a live log feed and a **Cancel** button. Cancel stops the current operation and removes temporary files. The live log shows the whole log of the app session since the app started, with the same entries as the log files, at the levels of the `LiveLog` endpoint (see [Log levels](#log-levels)), and secrets masked; entries written before the main window opened are there too. It keeps the last 5000 entries and drops older ones. A run does not clear it, and it keeps its entries when you open the settings editor or the history and come back. The icon button **Clear log** in the top right corner of the log card clears the feed; new entries keep coming. It does not change the log files or the OTLP export.
 - **Summary.** The same information as the console summary when the run ends. The results card holds the run header and the result table. The totals card below it holds the list of found repositories, the counters and the path of the log; it takes the height of its content. A long result table or list of found repositories scrolls inside its card. A found repository `id` is saved without a question, also in a dry run.
 - **History.** The tab **Runs** lists the runs with filters (period, status, mode) and run details. The tab **Archives** shows the archives of the repositories (see [Archive history](#archive-history)).
 
@@ -657,7 +669,7 @@ When the main window closes, the app saves its position and size, whether it is 
 
 The button **Settings** on the main screen opens the settings editor in place of the repository tree. While a backup run is active, the button is disabled: the run also writes `backup-config.json`.
 
-The editor has six sections: **General**, **Accounts**, **Repositories**, **Tools**, **Telemetry** and **GitHub token**. The list on the left selects a section, and the editor shows that section on the right, like Windows Settings. The list and the section stand in cards, like the panels of the main window, both as tall as the editor: the card of the section holds the title of the section in its first line and the cards of the section below it. **General** has the cards **Folders**, **Discovery** and **Appearance**; **Accounts** has the list of accounts, the card **Account** and the card **Repositories of the account**; **GitHub token** has the cards **Token** and **Check result**; the other sections have one card each. **Save** and **Cancel** stand at the bottom right, and **Save** has the accent color. Every time the editor opens, **General** is selected. The editor itself does not scroll: only the content of a section scrolls. The sections **General**, **Accounts** and **Repositories** change `backup-config.json`:
+The editor has seven sections: **General**, **Accounts**, **Repositories**, **Tools**, **Telemetry**, **Logging** and **GitHub token**. The list on the left selects a section, and the editor shows that section on the right, like Windows Settings. The list and the section stand in cards, like the panels of the main window, both as tall as the editor: the card of the section holds the title of the section in its first line and the cards of the section below it. **General** has the cards **Folders**, **Discovery** and **Appearance**; **Accounts** has the list of accounts, the card **Account** and the card **Repositories of the account**; **GitHub token** has the cards **Token** and **Check result**; the other sections have one card each. **Save** and **Cancel** stand at the bottom right, and **Save** has the accent color. Every time the editor opens, **General** is selected. The editor itself does not scroll: only the content of a section scrolls. The sections **General**, **Accounts** and **Repositories** change `backup-config.json`:
 
 - **General**: the archive root (`backupRoot`), the clone root (`sourcesRoot`; an empty field means the folder `sources` next to the exe), the global exclusions (masks, comma separated) and the switch `discoverAccessibleRepositories`. The section also holds the theme (see [Theme and window placement](#theme-and-window-placement));
 - **Accounts**: the list of accounts, with **Add account** and **Remove account** above it, and the details of the selected account: URL, the checkbox **Paused** below it, archive folder, exclusions and the table of its repositories. Drag the gap between the list and the details to make the list wider or narrower; the editor keeps the width in `ui-settings.json`. A URL wider than the list ends in an ellipsis, and its tooltip shows it whole. Left of each URL, the list shows the status icon of the account: a check, or a pause for a paused account, whose name is also shown in muted text; the icon has the tooltip and the UI Automation name `Active` or `Paused`. You can remove a repository of an account (the bin button at the end of its row) but not add one: discovery adds new repositories. A new account is selected at once and shows `(new account)` in the list until it has a URL. When you remove the selected account, the next account is selected, or the previous one if it was the last. Without accounts, the details show `No accounts. Add an account.`;
@@ -677,6 +689,8 @@ In the section **Tools**, the paths to git and 7-Zip go to `appsettings.json` (s
 
 The field **OTLP headers** is hidden like the token field; the checkbox **Show** next to it reveals the value while it is checked, and the value is hidden again whenever you open the editor. The field shows the value of the Credential Manager: the value you saved last, or before your first save the value read at start. If the Credential Manager holds no value but `appsettings.json` sets `OpenTelemetry:Headers`, the field shows the value of the file with a note that the file keeps it in plain text and **Save** moves it to the Credential Manager; the telemetry settings then count as changed. **Save** writes a value to the Credential Manager and removes the key from `appsettings.json`; after such a move, a dialog says that the previous value stays in `appsettings.json.bak` until the next **Save**. An empty field, or one with only spaces, means the key is not set, and **Save** removes both the credential and the key in the file. A value from the variable `GitHubBackup__OpenTelemetry__Headers`, the command line or user secrets is never shown and never saved; while such a source sets the key, the editor shows a note under the field that the value saved here has no effect. When the checkbox is on, the headers must be `name=value` pairs (see [Settings](#appsettingsjson)), and when headers are set in the field or by a source that overrides the Credential Manager, the endpoint must be `https`, or `http` for a loopback address, as at start. Otherwise the editor shows the error at the field and writes nothing; the error names the key and never the value. If the Credential Manager cannot be written, the editor shows the error in a dialog, leaves `appsettings.json` unchanged and stays open. From the moment of **Save** the value is masked as `***` in the live log, the log files and error messages. A saved change applies after you restart the program (see [Telemetry](#telemetry-opentelemetry)).
 
+In the section **Logging**, four lists **File**, **Console (CLI)**, **Live log (UI)** and **OpenTelemetry** set the level of each log endpoint (see [Log levels](#log-levels)). The first entry of each list, `Default (<level>)`, names the level of `Serilog:MinimumLevel:Default`; it means the endpoint has no level of its own, and **Save** writes it as `null`. The other entries are `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal` and `Off`. **Save** writes the four keys `Serilog:Endpoints:<name>:Level` to `appsettings.json` and keeps the `Override` keys of the endpoints and every other key and section of the file; the source overrides are edited only in the file. The lists show the levels you saved last; before your first save they show the levels the program uses now. A note at the top of the section says that the levels apply after you restart the program, for both executables.
+
 The section **GitHub token**:
 
 - **Save** stores an entered token in the Windows Credential Manager, like `set-token`. An empty field means the token stays as it is; a token of spaces only shows `The token cannot be empty.` After saving, the field is cleared. The next backup run uses the saved token without a restart. If the key `GitHub:Token` is also set, the editor shows a dialog: that source ranks above the Credential Manager, and the saved token will not be used.
@@ -693,7 +707,51 @@ The program writes one log per day to the folder `logs\` next to the exe:
 - `logs\githubbackup-YYYYMMDD.log`: readable text;
 - `logs\githubbackup-YYYYMMDD.json`: structured log (CLEF, one JSON line per event).
 
-Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token, the value of `OpenTelemetry:Headers` and authorization headers never appear in the log. The program does not delete old logs. The level comes from `Serilog:MinimumLevel` in `appsettings.json`.
+Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token, the value of `OpenTelemetry:Headers` and authorization headers never appear in the log. The program does not delete old logs.
+
+#### Log levels
+
+The program writes each log entry to up to four endpoints, each with its own levels:
+
+| Endpoint | Where the entries go | When it is active |
+|---|---|---|
+| `File` | the two daily log files | always |
+| `Console` | stderr of `GitHubBackup.Cli.exe`, in the format of the `.log` file, secrets masked; an exception shows as one line `<type>: <message>`, the stack trace stays in the file | only in `GitHubBackup.Cli.exe` |
+| `LiveLog` | the live log of the desktop app | only in `GitHubBackup.exe` |
+| `OpenTelemetry` | the OTLP export (see [Telemetry](#telemetry-opentelemetry)) | only when `OpenTelemetry:Enabled` is `true` |
+
+For each endpoint, the program takes the level of an entry from the first rule that matches:
+
+1. `Serilog:Endpoints:<name>:Override` for the source of the entry;
+2. `Serilog:MinimumLevel:Override` for the source of the entry;
+3. `Serilog:Endpoints:<name>:Level`;
+4. `Serilog:MinimumLevel:Default`.
+
+An `Override` key matches a source that equals the key or starts with the key and a dot: `GitHubBackup` matches `GitHubBackup.Infrastructure`, but not `GitHubBackupX`. Keys match in any case. If several keys of one list match, the longest one wins. The endpoint receives the entry when its level is not below the level found.
+
+The section **Logging** of the settings editor sets `Level` of each endpoint (see [Settings editor](#settings-editor)); the `Override` keys are edited only in `appsettings.json`.
+
+This example writes debug entries of the program to the files, keeps the other endpoints at `Information`, and sends only errors over OTLP:
+
+```json
+{
+  "Serilog": {
+    "MinimumLevel": { "Default": "Information" },
+    "Endpoints": {
+      "File": { "Level": "Information", "Override": { "GitHubBackup": "Debug" } },
+      "OpenTelemetry": { "Level": "Error" }
+    }
+  }
+}
+```
+
+By default, `GitHubBackup.Cli.exe` writes every log entry of level `Information` and above to stderr, also with `--silent`. The summary, the tables and the questions stay on stdout; the one-line errors of the program stay on stderr. To see fewer entries in the console, raise `Serilog:Endpoints:Console:Level`, or switch the endpoint off:
+
+```json
+{ "Serilog": { "Endpoints": { "Console": { "Level": "Off" } } } }
+```
+
+The levels apply after a restart. An error while the program starts is written to the log file at level `Information`, whatever these keys say.
 
 ### History
 
@@ -777,7 +835,7 @@ Metrics (meter `GitHubBackup`):
 Logs:
 
 - The program sends the same entries it writes to the log files (see [Logs](#logs)): the message, the level, the category and the properties of the entry as attributes, among them `RunId`, `Repository` and `Operation`.
-- The levels of `Serilog:MinimumLevel` apply to the sent entries too; there is no separate level for OTLP.
+- The sent entries follow the levels of the `OpenTelemetry` endpoint (see [Log levels](#log-levels)); without `Serilog:Endpoints:OpenTelemetry`, they follow `Serilog:MinimumLevel` like the log files.
 - Every sent entry has the attribute `level` with the name of its level (`Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical`), the same value as the severity text of the record, so a backend can show the level as an ordinary attribute. The Serilog level `Fatal` is sent as `Critical`. If the entry already has a property named `level`, the program keeps that value and adds no second attribute. The log files do not change.
 - Secrets, the token and the values of `OpenTelemetry:Headers` among them, are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
 - With telemetry off, the program registers no OpenTelemetry log provider; the log files and the live log of the desktop app are the same either way.

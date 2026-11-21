@@ -20,6 +20,9 @@ public enum SettingsSection
     /// <summary>The OpenTelemetry settings.</summary>
     Telemetry,
 
+    /// <summary>The levels of the log endpoints.</summary>
+    Logging,
+
     /// <summary>The GitHub token and its check.</summary>
     Token,
 }

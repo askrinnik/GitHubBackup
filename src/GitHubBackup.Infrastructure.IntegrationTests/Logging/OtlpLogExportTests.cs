@@ -91,6 +91,44 @@ public sealed class OtlpLogExportTests : IDisposable
     }
 
     [Fact]
+    public void Log_OpenTelemetryLevelError_ExportsOnlyErrorsAndFilesKeepDefault()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "MinimumLevel": { "Default": "Information" }, "Endpoints": { "OpenTelemetry": { "Level": "Error" } } } }""");
+
+        WriteEntries(contentRoot);
+
+        OwnRecords().Select(record => record.LogLevel).ShouldBe([LogLevel.Error]);
+        contentRoot.ReadJsonLogEntries()
+            .Where(entry => entry.TryGetProperty("SourceContext", out var source) && source.GetString() == _category)
+            .Select(entry => entry.GetProperty("Text").GetString())
+            .ShouldBe(["Information", "Warning", "Error"]);
+    }
+
+    [Fact]
+    public void Log_OpenTelemetryOverrideOff_ExportsNothingOfThatSource()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            $$"""{ "Serilog": { "Endpoints": { "OpenTelemetry": { "Level": "Debug", "Override": { "{{_category}}": "Off" } } } } }""");
+
+        WriteEntries(contentRoot);
+
+        OwnRecords().ShouldBeEmpty();
+    }
+
+    [Fact]
+    public void Log_OpenTelemetryLevelDebug_ExportsDebugOnceWhileDefaultIsWarning()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "MinimumLevel": { "Default": "Warning" }, "Endpoints": { "OpenTelemetry": { "Level": "Debug" } } } }""");
+
+        WriteEntries(contentRoot);
+
+        OwnRecords().Select(record => record.LogLevel)
+            .ShouldBe([LogLevel.Debug, LogLevel.Information, LogLevel.Warning, LogLevel.Error]);
+    }
+
+    [Fact]
     public void Log_TokenInMessagePropertyAndException_ExportsStars()
     {
         using var contentRoot = new TemporaryContentRoot(_informationAppSettings);

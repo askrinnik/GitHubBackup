@@ -1,5 +1,4 @@
 using GitHubBackup.Infrastructure.Logging;
-using Serilog.Events;
 
 namespace GitHubBackup.Infrastructure.Tests.Logging;
 
@@ -59,8 +58,23 @@ public sealed class SerilogOptionsValidatorTests
     }
 
     [Theory]
-    [InlineData("Debug", LogEventLevel.Debug)]
-    [InlineData("fatal", LogEventLevel.Fatal)]
-    public void ParseLevel_LevelName_ReturnsLevel(string value, LogEventLevel expected) =>
-        SerilogOptionsValidator.ParseLevel(value).ShouldBe(expected);
+    [InlineData("Off")]
+    [InlineData("off")]
+    public void Validate_OffAsDefault_FailsNamingKey(string level)
+    {
+        var result = _validator.Validate(null, new SerilogOptions { Default = level });
+
+        result.Failures.ShouldNotBeNull().ShouldBe([$"Serilog:MinimumLevel:Default {_acceptedLevels}"]);
+    }
+
+    [Fact]
+    public void Validate_OffAsOverride_FailsNamingKey()
+    {
+        var options = new SerilogOptions();
+        options.Override["Microsoft"] = "Off";
+
+        var result = _validator.Validate(null, options);
+
+        result.Failures.ShouldNotBeNull().ShouldBe([$"Serilog:MinimumLevel:Override:Microsoft {_acceptedLevels}"]);
+    }
 }

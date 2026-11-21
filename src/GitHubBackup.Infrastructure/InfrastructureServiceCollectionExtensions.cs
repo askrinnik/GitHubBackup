@@ -8,6 +8,7 @@ using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
+using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -105,6 +106,7 @@ public static class InfrastructureServiceCollectionExtensions
                 provider.GetRequiredService<ISecretMasker>(),
                 provider.GetRequiredService<AppSettingsFile>(),
                 provider.GetRequiredService<IOtlpHeadersStore>()));
+            services.TryAddSingleton<ILogLevelSettingsStore, JsonLogLevelSettingsStore>();
             services.TryAddSingleton<IUiSettingsStore, JsonUiSettingsStore>();
             services.TryAddSingleton<IBackupStateStore, JsonBackupStateStore>();
             services.TryAddSingleton<IRecycleBin, ShellRecycleBin>();
