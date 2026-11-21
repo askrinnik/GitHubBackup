@@ -169,6 +169,71 @@ public sealed class EndpointLevelResolverTests
         resolver.LowestLevel.ShouldBe(LogEventLevel.Verbose);
     }
 
+    [Theory]
+    [InlineData("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Debug, "Debug", false)]
+    [InlineData("Microsoft.EntityFrameworkCore.Database.Command", LogEventLevel.Information, "Debug", true)]
+    [InlineData("Microsoft.EntityFrameworkCore.Migrations", LogEventLevel.Information, "Warning", false)]
+    [InlineData("Microsoft.EntityFrameworkCore.Migrations", LogEventLevel.Warning, "Warning", true)]
+    [InlineData("System.Net.Http.HttpClient", LogEventLevel.Debug, "Debug", false)]
+    [InlineData("System.Net.Http.HttpClient", LogEventLevel.Information, "Warning", false)]
+    [InlineData("Microsoft", LogEventLevel.Debug, "Debug", false)]
+    [InlineData("system.net", LogEventLevel.Debug, "Debug", false)]
+    [InlineData("MicrosoftFoo.Component", LogEventLevel.Debug, "Debug", true)]
+    [InlineData("SystemX", LogEventLevel.Debug, "Debug", true)]
+    [InlineData("GitHubBackup.Infrastructure", LogEventLevel.Debug, "Debug", true)]
+    public void IsEnabled_LibrarySourceWithoutOverride_NeedsAtLeastInformation(
+        string sourceContext, LogEventLevel entryLevel, string endpointLevel, bool expected)
+    {
+        var resolver = Create(level: endpointLevel);
+
+        resolver.IsEnabled(CreateEvent(entryLevel, sourceContext)).ShouldBe(expected);
+    }
+
+    [Fact]
+    public void Resolve_LibrarySourceWithGlobalOverride_BypassesFloor()
+    {
+        var resolver = Create(globalOverrides: new() { ["Microsoft"] = "Debug" }, level: "Warning");
+
+        resolver.Resolve("Microsoft.EntityFrameworkCore.Database.Command").ShouldBe(LogEventLevel.Debug);
+        resolver.Resolve("System.Net.Http").ShouldBe(LogEventLevel.Warning);
+    }
+
+    [Fact]
+    public void Resolve_LibrarySourceWithEndpointOverride_BypassesFloor()
+    {
+        var resolver = Create(endpointOverrides: new() { ["Microsoft.EntityFrameworkCore"] = "Debug" }, level: "Debug");
+
+        resolver.Resolve("Microsoft.EntityFrameworkCore.Database.Command").ShouldBe(LogEventLevel.Debug);
+        resolver.Resolve("Microsoft.Extensions.Hosting").ShouldBe(LogEventLevel.Information);
+    }
+
+    [Fact]
+    public void Resolve_DefaultOptions_KeepsHostingLifetimeAtWarningAndFloorsOtherLibraries()
+    {
+        var resolver = EndpointLevelResolver.Create(new SerilogOptions(), new SerilogEndpointOptions { Level = "Debug" });
+
+        resolver.Resolve(SerilogOptions.HostingLifetimeSource).ShouldBe(LogEventLevel.Warning);
+        resolver.Resolve("Microsoft.Extensions.Hosting.Internal.Host").ShouldBe(LogEventLevel.Information);
+        resolver.Resolve("GitHubBackup.Infrastructure.Processes.ProcessRunner").ShouldBe(LogEventLevel.Debug);
+        resolver.LowestLevel.ShouldBe(LogEventLevel.Debug);
+    }
+
+    [Fact]
+    public void Resolve_LibrarySourceEndpointOff_StaysOff()
+    {
+        var resolver = Create(level: "Off");
+
+        resolver.Resolve("Microsoft.Extensions.Hosting").ShouldBeNull();
+    }
+
+    [Fact]
+    public void LowestLevel_LibraryDebugOverride_LetsDebugThroughRoot()
+    {
+        var resolver = Create(globalOverrides: new() { ["Microsoft"] = "Debug" }, level: "Warning");
+
+        resolver.LowestLevel.ShouldBe(LogEventLevel.Debug);
+    }
+
     [Fact]
     public void Lowest_SeveralEndpoints_ReturnsLowestIgnoringNull() =>
         EndpointLevelResolver.Lowest([LogEventLevel.Warning, null, LogEventLevel.Debug, LogEventLevel.Error])

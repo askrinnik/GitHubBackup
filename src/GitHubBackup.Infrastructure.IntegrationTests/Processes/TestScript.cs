@@ -7,6 +7,9 @@ namespace GitHubBackup.Infrastructure.IntegrationTests.Processes;
 /// </summary>
 internal static class TestScript
 {
+    /// <summary>The description of every request this class builds.</summary>
+    public const string Description = "Running a test script";
+
     /// <summary>Gets the path of <c>cmd.exe</c> in the Windows system folder.</summary>
     public static string CommandProcessorPath { get; } =
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
@@ -34,6 +37,7 @@ internal static class TestScript
             FileName = CommandProcessorPath,
             Arguments = ["/d", "/c", @".\" + fileName, .. arguments],
             WorkingDirectory = folder,
+            Description = Description,
         };
     }
 }

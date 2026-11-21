@@ -58,6 +58,7 @@ internal sealed class GitHubCliTokenSource(
             WorkingDirectory = fileSystem.Path.GetDirectoryName(path)!,
             EnvironmentVariables = EnvironmentVariables,
             IsStandardOutputSecret = true,
+            Description = "Reading the token of the GitHub CLI",
         };
 
         ProcessResult result;

@@ -93,6 +93,7 @@ public sealed class ProcessRunnerProcessTests : IDisposable
                 "say \"hi\"", "a \\\"b\\\" c", "end\\",
             ],
             WorkingDirectory = _folder.FolderPath,
+            Description = "Running a test script",
         };
 
         var result = await _runner.RunAsync(request, TestContext.Current.CancellationToken);

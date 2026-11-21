@@ -17,7 +17,9 @@ namespace GitHubBackup.Infrastructure.GitHub;
 /// the warning and <see cref="LastRateLimit"/>.
 /// </remarks>
 /// <param name="options">The GitHub options that hold the API address.</param>
-/// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
+/// <param name="timeProvider">
+/// The clock from which a <c>Retry-After</c> delay is counted and that measures the duration of a request.
+/// </param>
 /// <param name="logger">The logger.</param>
 internal sealed class OctokitGitHubApi(
     IOptions<GitHubOptions> options,
@@ -52,6 +54,7 @@ internal sealed class OctokitGitHubApi(
 
         return ExecuteAsync(
             $"users/{login}",
+            "Requesting the account of an owner",
             async () => OctokitModelMapper.ToAccount(await _client.User.Get(login)),
             cancellationToken);
     }
@@ -67,6 +70,7 @@ internal sealed class OctokitGitHubApi(
 
         return await GetAllRepositoriesAsync(
             "user/repos",
+            "Requesting the repositories of the authenticated user",
             new()
             {
                 ["affiliation"] = "owner,collaborator,organization_member",
@@ -83,6 +87,7 @@ internal sealed class OctokitGitHubApi(
 
         return GetAllRepositoriesAsync(
             $"orgs/{Uri.EscapeDataString(organization)}/repos",
+            "Requesting the repositories of an organization",
             new() { ["type"] = "all" },
             cancellationToken);
     }
@@ -94,6 +99,7 @@ internal sealed class OctokitGitHubApi(
 
         return GetAllRepositoriesAsync(
             $"users/{Uri.EscapeDataString(login)}/repos",
+            "Requesting the repositories of a user",
             new() { ["type"] = "all" },
             cancellationToken);
     }
@@ -109,6 +115,7 @@ internal sealed class OctokitGitHubApi(
 
         return ExecuteAsync(
             $"repos/{owner}/{name}",
+            "Requesting a repository by owner and name",
             async () => OctokitModelMapper.ToRepository(await _client.Repository.Get(owner, name)),
             cancellationToken);
     }
@@ -120,6 +127,7 @@ internal sealed class OctokitGitHubApi(
 
         return ExecuteAsync(
             $"repositories/{id}",
+            "Requesting a repository by its id",
             async () => OctokitModelMapper.ToRepository(await _client.Repository.Get(id)),
             cancellationToken);
     }
@@ -142,16 +150,18 @@ internal sealed class OctokitGitHubApi(
     /// Requests every page of a repository list.
     /// </summary>
     /// <param name="resource">The relative resource, with its path segments escaped.</param>
+    /// <param name="description">The description logged once before the first page is requested.</param>
     /// <param name="parameters">The query parameters other than the page size.</param>
     /// <param name="cancellationToken">The token that cancels the request.</param>
     /// <returns>The repositories of all pages.</returns>
     private Task<IReadOnlyList<GitHubRepository>> GetAllRepositoriesAsync(
-        string resource, Dictionary<string, string> parameters, CancellationToken cancellationToken)
+        string resource, string description, Dictionary<string, string> parameters, CancellationToken cancellationToken)
     {
         parameters["per_page"] = _pageSize;
 
         return ExecuteAsync<IReadOnlyList<GitHubRepository>>(
             resource,
+            description,
             async () =>
             {
                 List<GitHubRepository> repositories = [];
@@ -205,13 +215,21 @@ internal sealed class OctokitGitHubApi(
     /// Runs one API operation with the credentials applied, converts its failures into the
     /// <see cref="GitHubApiException"/> family and logs the rate limit state afterwards.
     /// </summary>
+    /// <remarks>
+    /// The description goes to the log before the operation at information level; the resource and the duration
+    /// follow at debug level only after a success, because a failure already names the resource in its exception.
+    /// </remarks>
     /// <typeparam name="T">The result type.</typeparam>
-    /// <param name="resource">The API resource, named in failure messages.</param>
+    /// <param name="resource">The API resource, named in failure messages and in the completion entry.</param>
+    /// <param name="description">The constant description of the operation, without logins or repository names.</param>
     /// <param name="operation">The Octokit call.</param>
     /// <param name="cancellationToken">The token that cancels the wait for the call.</param>
     /// <returns>The result of the operation.</returns>
-    private async Task<T> ExecuteAsync<T>(string resource, Func<Task<T>> operation, CancellationToken cancellationToken)
+    private async Task<T> ExecuteAsync<T>(
+        string resource, string description, Func<Task<T>> operation, CancellationToken cancellationToken)
     {
+        OctokitGitHubApiLog.Requesting(_logger, description);
+        var startedAt = _timeProvider.GetTimestamp();
         T result;
         try
         {
@@ -234,6 +252,8 @@ internal sealed class OctokitGitHubApi(
             throw new GitHubApiException($"The GitHub API request for {resource} timed out.", resource, null);
         }
 
+        var duration = _timeProvider.GetElapsedTime(startedAt);
+        OctokitGitHubApiLog.RequestCompleted(_logger, resource, duration);
         LogRateLimit();
         return result;
     }

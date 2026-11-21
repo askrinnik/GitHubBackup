@@ -40,7 +40,7 @@ internal static partial class ProcessRunnerLog
     /// </summary>
     /// <param name="logger">The logger.</param>
     /// <param name="level">
-    /// The level of the request for exit code 0, <see cref="LogLevel.Warning"/> otherwise.
+    /// The details level of the request for exit code 0, <see cref="LogLevel.Warning"/> otherwise.
     /// </param>
     /// <param name="tool">The name of the tool.</param>
     /// <param name="exitCode">The exit code.</param>
@@ -75,4 +75,14 @@ internal static partial class ProcessRunnerLog
     /// <param name="timeout">How long the run waited for the output to close.</param>
     [LoggerMessage(EventId = 6, Level = LogLevel.Warning, Message = "{Tool} output stayed open {Timeout} after the kill; stopped reading it")]
     public static partial void OutputAbandoned(ILogger logger, string tool, TimeSpan timeout);
+
+    /// <summary>
+    /// Logs the short description of a run before its command line.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="level">The level of the entry.</param>
+    /// <param name="tool">The name of the tool.</param>
+    /// <param name="description">The description of the run, with secrets masked.</param>
+    [LoggerMessage(EventId = 7, Message = "{Tool}: {Description}")]
+    public static partial void Describing(ILogger logger, LogLevel level, string tool, string description);
 }

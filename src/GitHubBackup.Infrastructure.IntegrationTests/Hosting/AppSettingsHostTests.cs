@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
@@ -52,6 +53,10 @@ public sealed class AppSettingsHostTests
         var serilog = services.GetRequiredService<IOptions<SerilogOptions>>().Value;
         serilog.Default.ShouldBe("Information");
         serilog.Override[SerilogOptions.HostingLifetimeSource].ShouldBe("Warning");
+        serilog.Override.ShouldHaveSingleItem();
+        services.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value.File.Level.ShouldBe("Debug");
+        services.GetRequiredService<ILogLevelSettingsStore>().Current
+            .ShouldBe(new LogLevelSettings(EndpointLogLevel.Debug, null, null, null));
         await host.StopAsync(TestContext.Current.CancellationToken);
         File.Exists(Path.Combine(contentRoot.FolderPath, GitHubBackupHostBuilder.AppSettingsFileName)).ShouldBeFalse();
     }

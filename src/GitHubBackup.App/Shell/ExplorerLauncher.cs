@@ -13,6 +13,12 @@ namespace GitHubBackup.App.Shell;
 /// <param name="processRunner">Starts the process and logs it.</param>
 internal sealed class ExplorerLauncher(IProcessRunner processRunner) : IExplorerLauncher
 {
+    /// <summary>The description logged before Explorer opens a folder.</summary>
+    internal const string OpenFolderDescription = "Opening a folder in Explorer";
+
+    /// <summary>The description logged before Explorer shows a file selected in its folder.</summary>
+    internal const string ShowFileDescription = "Showing a file in Explorer";
+
     /// <summary>The Windows folder, which holds <c>explorer.exe</c> and serves as the working directory.</summary>
     private readonly string _windowsFolder = Environment.GetFolderPath(Environment.SpecialFolder.Windows);
 
@@ -27,7 +33,7 @@ internal sealed class ExplorerLauncher(IProcessRunner processRunner) : IExplorer
             throw new ArgumentException($"Explorer cannot open the folder '{folder}': the path contains a comma.", nameof(folder));
         }
 
-        return RunAsync([folder], cancellationToken);
+        return RunAsync([folder], OpenFolderDescription, cancellationToken);
     }
 
     /// <inheritdoc />
@@ -38,21 +44,23 @@ internal sealed class ExplorerLauncher(IProcessRunner processRunner) : IExplorer
     public Task ShowFileAsync(string filePath, CancellationToken cancellationToken) =>
         filePath.Contains(',')
             ? OpenFolderAsync(Path.GetDirectoryName(filePath) ?? filePath, cancellationToken)
-            : RunAsync(["/select," + filePath], cancellationToken);
+            : RunAsync(["/select," + filePath], ShowFileDescription, cancellationToken);
 
     /// <summary>
     /// Starts Explorer with <paramref name="arguments"/> and waits until it exits.
     /// </summary>
     /// <param name="arguments">The arguments of Explorer.</param>
+    /// <param name="description">The short description logged before the run.</param>
     /// <param name="cancellationToken">Cancels waiting for Explorer.</param>
     /// <returns>A task that completes when Explorer has exited.</returns>
-    private async Task RunAsync(IReadOnlyList<string> arguments, CancellationToken cancellationToken) =>
+    private async Task RunAsync(IReadOnlyList<string> arguments, string description, CancellationToken cancellationToken) =>
         await processRunner.RunAsync(
             new()
             {
                 FileName = Path.Combine(_windowsFolder, "explorer.exe"),
                 Arguments = arguments,
                 WorkingDirectory = _windowsFolder,
+                Description = description,
             },
             cancellationToken);
 }

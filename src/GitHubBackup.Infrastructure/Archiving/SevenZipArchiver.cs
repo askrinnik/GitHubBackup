@@ -74,12 +74,13 @@ internal sealed class SevenZipArchiver(
 
             arguments.AddRange(["--", temporaryPath, sourceName]);
             SevenZipArchiverLog.Creating(logger, request.SourceFolder, temporaryPath);
-            await RunAsync(request, parent, arguments, cancellationToken);
+            await RunAsync(request, parent, arguments, "Creating the ZIP archive", cancellationToken);
 
             if (options.Value.VerifyArchive)
             {
                 SevenZipArchiverLog.Verifying(logger, temporaryPath);
-                await RunAsync(request, parent, ["t", "-bsp0", "-sccUTF-8", "--", temporaryPath], cancellationToken);
+                await RunAsync(
+                    request, parent, ["t", "-bsp0", "-sccUTF-8", "--", temporaryPath], "Testing the archive", cancellationToken);
             }
             else
             {
@@ -168,14 +169,25 @@ internal sealed class SevenZipArchiver(
     /// <param name="request">The archive request that names the executable.</param>
     /// <param name="workingDirectory">The folder 7-Zip runs in.</param>
     /// <param name="arguments">The 7-Zip arguments.</param>
+    /// <param name="description">The short description logged before the run.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>A task that completes when 7-Zip exits with code 0.</returns>
     /// <exception cref="ArchiveCommandException">7-Zip exits with a non-zero code.</exception>
     private async Task RunAsync(
-        ArchiveRequest request, string workingDirectory, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+        ArchiveRequest request,
+        string workingDirectory,
+        IReadOnlyList<string> arguments,
+        string description,
+        CancellationToken cancellationToken)
     {
         var result = await processRunner.RunAsync(
-            new ProcessRequest { FileName = request.SevenZipPath, Arguments = arguments, WorkingDirectory = workingDirectory },
+            new ProcessRequest
+            {
+                FileName = request.SevenZipPath,
+                Arguments = arguments,
+                WorkingDirectory = workingDirectory,
+                Description = description,
+            },
             cancellationToken);
         if (result.Succeeded)
         {

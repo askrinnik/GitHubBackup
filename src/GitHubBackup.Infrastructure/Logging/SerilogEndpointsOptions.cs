@@ -10,6 +10,12 @@ public sealed class SerilogEndpointsOptions
     /// <summary>The configuration section the options bind to.</summary>
     public const string SectionName = "Serilog:Endpoints";
 
+    /// <summary>
+    /// The level of the <see cref="File"/> endpoint when its section has no <c>Level</c> key, so the files hold the
+    /// details of the tool runs and API requests while the other endpoints get only their descriptions.
+    /// </summary>
+    public const string DefaultFileLevel = "Debug";
+
     /// <summary>Gets the levels of the daily log files.</summary>
     public SerilogEndpointOptions File { get; } = new();
 

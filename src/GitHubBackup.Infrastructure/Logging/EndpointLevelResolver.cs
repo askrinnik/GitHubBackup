@@ -10,7 +10,10 @@ namespace GitHubBackup.Infrastructure.Logging;
 /// <remarks>
 /// The first matching rule wins: an override of the endpoint, a global override, the level of the endpoint, the
 /// global default. An override matches a source context that equals its key or starts with the key and a dot,
-/// ignoring case; when several keys of one list match, the longest wins. A <see langword="null"/> level stands for
+/// ignoring case; when several keys of one list match, the longest wins. A source of the libraries
+/// (<see cref="LibrarySources"/>) that no override matches needs at least <see cref="LibraryFloor"/>, so the debug
+/// entries of the libraries stay out of an endpoint that takes the debug entries of the application, while an
+/// override of such a source lifts the floor. A <see langword="null"/> level stands for
 /// <see cref="LogLevels.Off"/>: the entry is dropped. The result is cached per source context, which is a type name and
 /// therefore comes from a small, fixed set.
 /// </remarks>
@@ -28,6 +31,12 @@ internal sealed class EndpointLevelResolver(
     IEnumerable<KeyValuePair<string, LogEventLevel>> globalOverrides,
     LogEventLevel? level)
 {
+    /// <summary>The source-context prefixes of the libraries whose entries need at least <see cref="LibraryFloor"/>.</summary>
+    public static readonly IReadOnlyList<string> LibrarySources = ["Microsoft", "System"];
+
+    /// <summary>The lowest level an entry of <see cref="LibrarySources"/> needs when no override matches its source.</summary>
+    public const LogEventLevel LibraryFloor = LogEventLevel.Information;
+
     /// <summary>The overrides of the endpoint, longest key first.</summary>
     private readonly KeyValuePair<string, LogEventLevel?>[] _endpointOverrides = [.. endpointOverrides.OrderByDescending(pair => pair.Key.Length)];
 
@@ -44,6 +53,7 @@ internal sealed class EndpointLevelResolver(
     /// Gets the lowest level any entry can need to reach this endpoint, or <see langword="null"/> when every rule
     /// drops entries.
     /// </summary>
+    /// <remarks>The library floor only raises a level, so it never lowers this value.</remarks>
     public LogEventLevel? LowestLevel =>
         _endpointOverrides.Select(pair => pair.Value)
             .Concat(_globalOverrides.Select(pair => (LogEventLevel?)pair.Value))
@@ -118,7 +128,9 @@ internal sealed class EndpointLevelResolver(
             }
         }
 
-        return _level;
+        return _level is { } endpointLevel && LibrarySources.Any(source => Matches(sourceContext, source))
+            ? (endpointLevel < LibraryFloor ? LibraryFloor : endpointLevel)
+            : _level;
     }
 
     /// <summary>

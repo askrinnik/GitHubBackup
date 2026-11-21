@@ -51,6 +51,7 @@ public static class FileLoggingServiceCollectionExtensions
             services.AddOptions<SerilogOptions>().BindSection(configuration, SerilogOptions.SectionName).ValidateOnStart();
             services.AddOptions<SerilogEndpointsOptions>()
                 .BindSection(configuration, SerilogEndpointsOptions.SectionName)
+                .PostConfigure(options => ApplyDefaultFileLevel(options, configuration))
                 .ValidateOnStart();
             services.AddOptions<LiveLogOptions>()
                 .Validate(
@@ -95,6 +96,27 @@ public static class FileLoggingServiceCollectionExtensions
         {
             services.AddSingleton(new ConsoleLogTarget(writer));
             return services;
+        }
+    }
+
+    /// <summary>
+    /// Sets the level of the <c>File</c> endpoint to <see cref="SerilogEndpointsOptions.DefaultFileLevel"/> when the
+    /// configuration has no <c>Level</c> key in its section.
+    /// </summary>
+    /// <remarks>
+    /// The key is looked up among the child keys, not by its value, so a <c>Level</c> that is present but
+    /// <see langword="null"/> or empty keeps meaning <see cref="SerilogOptions.Default"/>.
+    /// </remarks>
+    /// <param name="options">The bound options.</param>
+    /// <param name="configuration">The application configuration.</param>
+    private static void ApplyDefaultFileLevel(SerilogEndpointsOptions options, IConfiguration configuration)
+    {
+        var section = configuration.GetSection($"{SerilogEndpointsOptions.SectionName}:{nameof(SerilogEndpointsOptions.File)}");
+        var hasLevel = section.GetChildren()
+            .Any(child => string.Equals(child.Key, nameof(SerilogEndpointOptions.Level), StringComparison.OrdinalIgnoreCase));
+        if (!hasLevel)
+        {
+            options.File.Level = SerilogEndpointsOptions.DefaultFileLevel;
         }
     }
 

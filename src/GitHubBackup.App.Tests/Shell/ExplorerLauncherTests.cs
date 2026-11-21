@@ -48,6 +48,24 @@ public sealed class ExplorerLauncherTests
     }
 
     [Fact]
+    public async Task OpenFolderAsync_Folder_DescribesOpeningAFolder()
+    {
+        await _launcher.OpenFolderAsync(@"C:\backup\octo\tool", TestContext.Current.CancellationToken);
+
+        _request.ShouldNotBeNull();
+        _request.Description.ShouldBe("Opening a folder in Explorer");
+    }
+
+    [Fact]
+    public async Task ShowFileAsync_File_DescribesShowingAFile()
+    {
+        await _launcher.ShowFileAsync(@"C:\backup\octo\tool\tool 1.zip", TestContext.Current.CancellationToken);
+
+        _request.ShouldNotBeNull();
+        _request.Description.ShouldBe("Showing a file in Explorer");
+    }
+
+    [Fact]
     public async Task ShowFileAsync_FileNameWithComma_OpensContainingFolder()
     {
         await _launcher.ShowFileAsync(@"C:\backup\octo\tool\x.zip,notepad.exe", TestContext.Current.CancellationToken);

@@ -18,6 +18,10 @@ public sealed class SerilogFileLoggingTests
     /// <summary>A settings file that sets only the default level.</summary>
     private const string _informationAppSettings = """{ "Serilog": { "MinimumLevel": { "Default": "Information" } } }""";
 
+    /// <summary>A settings file whose endpoints all take the information level, the file included.</summary>
+    private const string _informationEverywhereAppSettings =
+        """{ "Serilog": { "MinimumLevel": { "Default": "Information" }, "Endpoints": { "File": { "Level": null } } } }""";
+
     /// <summary>A settings file that lowers the level of the host lifetime messages back to the default level.</summary>
     private const string _lifetimeInformationAppSettings =
         """{ "Serilog": { "MinimumLevel": { "Default": "Information", "Override": { "Microsoft.Hosting.Lifetime": "Information" } } } }""";
@@ -145,7 +149,14 @@ public sealed class SerilogFileLoggingTests
     public void Log_DefaultLevelAndOverride_WritesOnlyEntriesAtOrAboveTheirLevel()
     {
         using var contentRoot = new TemporaryContentRoot(
-            """{ "Serilog": { "MinimumLevel": { "Default": "Warning", "Override": { "Verbose.Source": "Debug" } } } }""");
+            """
+            {
+              "Serilog": {
+                "MinimumLevel": { "Default": "Warning", "Override": { "Verbose.Source": "Debug" } },
+                "Endpoints": { "File": { "Level": null } }
+              }
+            }
+            """);
 
         using (var host = contentRoot.BuildHost())
         {
@@ -184,7 +195,7 @@ public sealed class SerilogFileLoggingTests
     [Fact]
     public void Log_BeforeSubscribeWithBuffer_FeedMatchesLogFileLevelsOrderAndMasking()
     {
-        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        using var contentRoot = new TemporaryContentRoot(_informationEverywhereAppSettings);
         var received = new List<LiveLogEntry>();
         var builder = GitHubBackupHostBuilder.Create(new()
         {
@@ -240,6 +251,57 @@ public sealed class SerilogFileLoggingTests
     }
 
     [Fact]
+    public void Log_DefaultConfiguration_FileReceivesDebugAndLiveLogOnlyInformation()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(contentRoot))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            WriteEachLevel(CreateLogger(host));
+            var factory = host.Services.GetRequiredService<ILoggerFactory>();
+            var microsoft = factory.CreateLogger("Microsoft.Library");
+            var system = factory.CreateLogger("System.Net.Http");
+            TestLog.Write(microsoft, LogLevel.Debug, "Microsoft debug");
+            TestLog.Write(system, LogLevel.Debug, "System debug");
+        }
+
+        OwnFileTexts(contentRoot).ShouldBe(["Debug", "Information", "Warning", "Error"]);
+        received.Select(entry => entry.Message).ShouldBe(["Information", "Warning", "Error"]);
+        var texts = contentRoot.ReadJsonLogEntries()
+            .Select(entry => entry.TryGetProperty("Text", out var text) ? text.GetString() : null)
+            .ToArray();
+        texts.ShouldNotContain("Microsoft debug");
+        texts.ShouldNotContain("System debug");
+    }
+
+    [Fact]
+    public void Log_LibraryDebugOverride_LetsLibraryDebugThroughAndOtherLibrariesKeepFloor()
+    {
+        using var contentRoot = new TemporaryContentRoot(
+            """{ "Serilog": { "MinimumLevel": { "Default": "Warning", "Override": { "Microsoft.Library": "Debug" } } } }""");
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(contentRoot))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            var factory = host.Services.GetRequiredService<ILoggerFactory>();
+            var library = factory.CreateLogger("Microsoft.Library.Component");
+            var other = factory.CreateLogger("Microsoft.Other");
+            TestLog.Write(library, LogLevel.Debug, "Library debug");
+            TestLog.Write(other, LogLevel.Information, "Other information");
+        }
+
+        var texts = contentRoot.ReadJsonLogEntries()
+            .Select(entry => entry.TryGetProperty("Text", out var text) ? text.GetString() : null)
+            .ToArray();
+        texts.ShouldContain("Library debug");
+        texts.ShouldContain("Other information");
+        received.Select(entry => entry.Message).ShouldBe(["Library debug"]);
+    }
+
+    [Fact]
     public void Log_FileOff_WritesNoLogFile()
     {
         using var contentRoot = new TemporaryContentRoot(
@@ -289,7 +351,7 @@ public sealed class SerilogFileLoggingTests
     public void Log_LiveLogLevelError_FeedReceivesOnlyErrorsAndFileKeepsDefault()
     {
         using var contentRoot = new TemporaryContentRoot(
-            """{ "Serilog": { "Endpoints": { "LiveLog": { "Level": "Error" } } } }""");
+            """{ "Serilog": { "Endpoints": { "File": { "Level": null }, "LiveLog": { "Level": "Error" } } } }""");
         var received = new List<LiveLogEntry>();
 
         using (var host = BuildLiveLogHost(contentRoot))

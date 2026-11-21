@@ -4,6 +4,8 @@ using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.Files;
 using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using NSubstitute;
@@ -47,6 +49,19 @@ public sealed class JsonLogLevelSettingsStoreTests : IDisposable
         var store = CreateStore(endpoints: endpoints);
 
         store.Current.ShouldBe(new LogLevelSettings(EndpointLogLevel.Debug, null, null, EndpointLogLevel.Off));
+    }
+
+    [Fact]
+    public void Current_NoEndpointsSection_ReturnsDebugForFileOnly()
+    {
+        var configuration = new ConfigurationBuilder().Build();
+        using var provider = new ServiceCollection().AddGitHubBackupLogging(configuration).BuildServiceProvider();
+
+        var store = CreateStore(
+            provider.GetRequiredService<IOptions<SerilogOptions>>().Value,
+            provider.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value);
+
+        store.Current.ShouldBe(new LogLevelSettings(EndpointLogLevel.Debug, null, null, null));
     }
 
     [Theory]

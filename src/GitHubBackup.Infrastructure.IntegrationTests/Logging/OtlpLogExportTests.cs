@@ -102,7 +102,7 @@ public sealed class OtlpLogExportTests : IDisposable
         contentRoot.ReadJsonLogEntries()
             .Where(entry => entry.TryGetProperty("SourceContext", out var source) && source.GetString() == _category)
             .Select(entry => entry.GetProperty("Text").GetString())
-            .ShouldBe(["Information", "Warning", "Error"]);
+            .ShouldBe(["Debug", "Information", "Warning", "Error"]);
     }
 
     [Fact]

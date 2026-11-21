@@ -22,6 +22,8 @@ public sealed class OctokitGitHubApiTests : IDisposable
     private const int _rateLimitEventId = 1;
     private const int _currentUserRepositoriesSkippedEventId = 2;
     private const int _rateLimitLowEventId = 3;
+    private const int _requestingEventId = 4;
+    private const int _requestCompletedEventId = 5;
 
     private static readonly DateTimeOffset _now = new(2026, 11, 11, 10, 0, 0, TimeSpan.Zero);
     private static readonly DateTimeOffset _resetAt = DateTimeOffset.FromUnixTimeSeconds(_resetEpochSeconds);
@@ -55,6 +57,19 @@ public sealed class OctokitGitHubApiTests : IDisposable
     /// The calls that take a login, owner or name, each with an invalid value.
     /// </summary>
     public static TheoryData<string> InvalidInputCalls => ["account", "organization", "user", "owner", "name", "id"];
+
+    /// <summary>
+    /// Every API call with the path it requests, the description it logs and the resource of its completion entry.
+    /// </summary>
+    public static TheoryData<string, string, string, string> DescribedCalls => new()
+    {
+        { "account", "/users/octocat", "Requesting the account of an owner", "users/octocat" },
+        { "current", "/user/repos", "Requesting the repositories of the authenticated user", "user/repos" },
+        { "organization", "/orgs/acme/repos", "Requesting the repositories of an organization", "orgs/acme/repos" },
+        { "user", "/users/octocat/repos", "Requesting the repositories of a user", "users/octocat/repos" },
+        { "repository", "/repos/octocat/repo", "Requesting a repository by owner and name", "repos/octocat/repo" },
+        { "id", "/repositories/42", "Requesting a repository by its id", "repositories/42" },
+    };
 
     /// <inheritdoc />
     public void Dispose() => _server.Dispose();
@@ -320,11 +335,79 @@ public sealed class OctokitGitHubApiTests : IDisposable
 
         await CreateApi().GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken);
 
-        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
-        record.Id.Id.ShouldBe(_rateLimitEventId);
+        var record = _logger.Collector.GetSnapshot().Where(r => r.Id.Id == _rateLimitEventId).ShouldHaveSingleItem();
         record.Level.ShouldBe(LogLevel.Debug);
         record.GetStructuredStateValue("Remaining").ShouldBe("4999");
         record.GetStructuredStateValue("Limit").ShouldBe("5000");
+    }
+
+    [Theory]
+    [MemberData(nameof(DescribedCalls))]
+    public async Task AnyMethod_Success_LogsDescriptionThenCompletionAtDebug(
+        string call, string path, string description, string resource)
+    {
+        GivenCallResponse(path);
+        var api = CreateApi();
+        _timeProvider.AutoAdvanceAmount = TimeSpan.FromMilliseconds(250);
+
+        await InvokeAsync(api, call);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => record.Id.Id).ShouldBe([_requestingEventId, _requestCompletedEventId, _rateLimitEventId]);
+        records[0].Level.ShouldBe(LogLevel.Information);
+        records[0].GetStructuredStateValue("Description").ShouldBe(description);
+        records[1].Level.ShouldBe(LogLevel.Debug);
+        records[1].GetStructuredStateValue("Resource").ShouldBe(resource);
+        records[1].GetStructuredStateValue("Duration").ShouldBe(TimeSpan.FromMilliseconds(250).ToString());
+    }
+
+    [Theory]
+    [MemberData(nameof(DescribedCalls))]
+    public async Task AnyMethod_Description_NamesNoLoginOrRepository(
+        string call, string path, string description, string resource)
+    {
+        GivenCallResponse(path);
+
+        await InvokeAsync(CreateApi(), call);
+
+        var logged = _logger.Collector.GetSnapshot().First(r => r.Id.Id == _requestingEventId);
+        logged.GetStructuredStateValue("Description").ShouldBe(description);
+        description.ShouldNotContain("octocat", Case.Insensitive);
+        description.ShouldNotContain("acme", Case.Insensitive);
+        description.ShouldNotContain("repo/", Case.Insensitive);
+        description.ShouldNotContain("42");
+        resource.ShouldNotBeNullOrEmpty();
+    }
+
+    [Theory]
+    [InlineData("current", "/user/repos", null)]
+    [InlineData("organization", "/orgs/acme/repos", "type")]
+    [InlineData("user", "/users/octocat/repos", "type")]
+    public async Task RepositoryList_TwoPages_LogsOneDescriptionAndOneCompletion(
+        string call, string path, string? typeParameter)
+    {
+        GivenTwoPages(path, "owner", typeParameter);
+
+        await InvokeAsync(CreateApi(), call);
+
+        _server.LogEntries.Count.ShouldBe(2);
+        var records = _logger.Collector.GetSnapshot();
+        records.Count(r => r.Id.Id == _requestingEventId).ShouldBe(1);
+        records.Count(r => r.Id.Id == _requestCompletedEventId).ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task GetRepositoryAsync_Failure_LogsDescriptionWithoutCompletion()
+    {
+        GivenError("/repos/owner/repo", 502, "Server Error");
+
+        var exception = await Should.ThrowAsync<GitHubApiException>(
+            () => CreateApi().GetRepositoryAsync("owner", "repo", TestContext.Current.CancellationToken));
+
+        exception.StatusCode.ShouldBe(502);
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_requestingEventId);
+        record.Level.ShouldBe(LogLevel.Information);
     }
 
     [Fact]
@@ -637,6 +720,40 @@ public sealed class OctokitGitHubApiTests : IDisposable
         var api = new OctokitGitHubApi(options, _timeProvider, _logger);
         api.UseToken(_runToken);
         return api;
+    }
+
+    /// <summary>
+    /// Runs the API call named by <paramref name="call"/>, one of the names in <see cref="DescribedCalls"/>.
+    /// </summary>
+    /// <param name="api">The subject.</param>
+    /// <param name="call">The name of the call.</param>
+    /// <returns>A task that completes with the call.</returns>
+    private static Task InvokeAsync(OctokitGitHubApi api, string call)
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        return call switch
+        {
+            "account" => api.GetAccountAsync("octocat", cancellationToken),
+            "current" => api.GetCurrentUserRepositoriesAsync(cancellationToken),
+            "organization" => api.GetOrganizationRepositoriesAsync("acme", cancellationToken),
+            "user" => api.GetUserRepositoriesAsync("octocat", cancellationToken),
+            "repository" => api.GetRepositoryAsync("octocat", "repo", cancellationToken),
+            _ => api.GetRepositoryByIdAsync(42, cancellationToken),
+        };
+    }
+
+    /// <summary>
+    /// Serves a successful response for <paramref name="path"/>: a list page, an account or a repository.
+    /// </summary>
+    /// <param name="path">A path of <see cref="DescribedCalls"/>.</param>
+    private void GivenCallResponse(string path)
+    {
+        var body = path.EndsWith("/repos", StringComparison.Ordinal)
+            ? RepositoriesJson(Repository(1, "octocat", "repo"))
+            : path.StartsWith("/users/", StringComparison.Ordinal)
+                ? """{ "login": "octocat", "id": 7, "type": "User" }"""
+                : Repository(42, "octocat", "repo");
+        _server.Given(Request.Create().WithPath(path).UsingGet()).RespondWith(Json(body));
     }
 
     /// <summary>

@@ -184,6 +184,7 @@ public sealed class SevenZipArchiverTests : IDisposable
                 FileName = ToolsOptions.DefaultSevenZipPath,
                 Arguments = ["x", "-y", "-o" + target, "--", archive],
                 WorkingDirectory = _sandbox.RootPath,
+                Description = "Extracting the archive",
             },
             CancellationToken);
         result.ExitCode.ShouldBe(0);

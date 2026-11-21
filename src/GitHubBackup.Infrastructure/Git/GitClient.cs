@@ -128,6 +128,7 @@ internal sealed class GitClient(
             parent,
             environments.Remote,
             ["clone", "--no-checkout", "--origin", "origin", "--", remoteUrl, request.ClonePath],
+            GitCommandDescriptions.Clone,
             cancellationToken);
         return await SynchronizeAsync(request, environments, cancellationToken);
     }
@@ -151,6 +152,7 @@ internal sealed class GitClient(
             request.ClonePath,
             CreateEnvironment(request.Token, request.ClonePath),
             ["fetch", "origin", "--prune", "--prune-tags", "--tags", "--force"],
+            GitCommandDescriptions.Fetch,
             cancellationToken);
     }
 
@@ -220,7 +222,7 @@ internal sealed class GitClient(
 
         var output = await RunGitAsync(
             request, request.ClonePath, CreateEnvironment(request.Token, request.ClonePath), _remoteRefsArguments,
-            cancellationToken, LogLevel.Debug);
+            GitCommandDescriptions.ReadRemoteRefs, cancellationToken);
         return ParseOutput(request, _remoteRefsArguments, output, GitRefParser.ParseRemoteListing);
     }
 
@@ -248,8 +250,8 @@ internal sealed class GitClient(
         // The working directory plays the clone folder of the environment, so the ceiling is its parent and git looks
         // only at the working directory, which holds no repository, instead of walking up to an enclosing one.
         var output = await RunGitAsync(
-            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments, cancellationToken,
-            LogLevel.Debug);
+            request, workingDirectory, CreateEnvironment(request.Token, workingDirectory), arguments,
+            GitCommandDescriptions.ReadRemoteRefsWithoutClone, cancellationToken);
         return ParseOutput(request, arguments, output, GitRefParser.ParseRemoteRefs);
     }
 
@@ -315,6 +317,7 @@ internal sealed class GitClient(
             request.ClonePath,
             CreateEnvironment(token: null, request.ClonePath),
             ["remote", "set-url", "origin", remoteUrl],
+            GitCommandDescriptions.SetRemoteUrl,
             cancellationToken);
     }
 
@@ -329,6 +332,7 @@ internal sealed class GitClient(
             request.ClonePath,
             CreateEnvironment(token: null, request.ClonePath),
             _originUrlArguments,
+            GitCommandDescriptions.ReadOriginUrl,
             cancellationToken);
         if (result.ExitCode == _configKeyMissingExitCode)
         {
@@ -352,7 +356,7 @@ internal sealed class GitClient(
         cancellationToken.ThrowIfCancellationRequested();
 
         var environment = CreateEnvironment(token: null, request.ClonePath);
-        var output = await RunGitAsync(request, request.ClonePath, environment, _statusArguments, cancellationToken);
+        var output = await RunGitAsync(request, request.ClonePath, environment, _statusArguments, GitCommandDescriptions.ReadStatus, cancellationToken);
         var status = ParseOutput(request, _statusArguments, output, GitStatusParser.Parse);
         var unpushed = status.HasCommits
             ? await CountUnpushedCommitsAsync(request, "HEAD", status.Branch, knownRemoteRefs, environment, cancellationToken)
@@ -371,7 +375,8 @@ internal sealed class GitClient(
         var environment = CreateEnvironment(token: null, request.ClonePath);
         var localRef = "refs/heads/" + branch;
         var exists = await RunGitProcessAsync(
-            request, request.ClonePath, environment, ["rev-parse", "--verify", "--quiet", localRef], cancellationToken);
+            request, request.ClonePath, environment, ["rev-parse", "--verify", "--quiet", localRef],
+            GitCommandDescriptions.CheckLocalBranch, cancellationToken);
         return exists.Succeeded
             ? await CountUnpushedCommitsAsync(request, localRef, branch, knownRemoteRefs, environment, cancellationToken)
             : 0;
@@ -389,7 +394,8 @@ internal sealed class GitClient(
         foreach (var folder in await ListRepositoryFoldersAsync(request, root, cancellationToken))
         {
             var ignored = await RunGitAsync(
-                request, folder.Path, CreateEnvironment(token: null, folder.Path), _ignoredArguments, cancellationToken);
+                request, folder.Path, CreateEnvironment(token: null, folder.Path), _ignoredArguments,
+                GitCommandDescriptions.ListIgnoredFiles, cancellationToken);
             foreach (var path in SplitNulSeparated(ignored))
             {
                 if (TryResolveInside(root, folder.Prefix, path) is { } relative)
@@ -441,7 +447,7 @@ internal sealed class GitClient(
         var arguments = knownRemoteRefs is null
             ? await CurrentRefsCountArgumentsAsync(request, revision, branch, environment, cancellationToken)
             : KnownRefsCountArguments(revision, branch, knownRemoteRefs);
-        var output = await RunGitAsync(request, request.ClonePath, environment, arguments, cancellationToken);
+        var output = await RunGitAsync(request, request.ClonePath, environment, arguments, GitCommandDescriptions.CountUnpushedCommits, cancellationToken);
         return ParseOutput(request, arguments, output, ParseCount);
     }
 
@@ -470,6 +476,7 @@ internal sealed class GitClient(
                 request.ClonePath,
                 environment,
                 ["rev-parse", "--verify", "--quiet", trackingRef],
+                GitCommandDescriptions.CheckTrackingBranch,
                 cancellationToken);
             if (exists.Succeeded)
             {
@@ -554,7 +561,8 @@ internal sealed class GitClient(
             }
 
             var output = await RunGitAsync(
-                request, folder, CreateEnvironment(token: null, folder), _stageArguments, cancellationToken);
+                request, folder, CreateEnvironment(token: null, folder), _stageArguments, GitCommandDescriptions.ReadIndex,
+                cancellationToken);
             var entries = new List<(string Mode, string Path)>();
             foreach (var line in SplitNulSeparated(output))
             {
@@ -796,7 +804,8 @@ internal sealed class GitClient(
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         CancellationToken cancellationToken)
     {
-        var output = await RunGitAsync(request, request.ClonePath, environment, _localRefsArguments, cancellationToken);
+        var output = await RunGitAsync(request, request.ClonePath, environment, _localRefsArguments, GitCommandDescriptions.ReadLocalRefs,
+            cancellationToken);
         return ParseOutput(request, _localRefsArguments, output, GitRefParser.ParseLocalRefs);
     }
 
@@ -813,7 +822,8 @@ internal sealed class GitClient(
         CancellationToken cancellationToken)
     {
         var output = await RunGitAsync(
-            request, request.ClonePath, environment, _defaultBranchArguments, cancellationToken, LogLevel.Debug);
+            request, request.ClonePath, environment, _defaultBranchArguments, GitCommandDescriptions.ReadDefaultBranch,
+            cancellationToken);
         return GitRefParser.ParseDefaultBranch(output);
     }
 
@@ -834,20 +844,27 @@ internal sealed class GitClient(
         CancellationToken cancellationToken)
     {
         var remoteBranch = "origin/" + branch;
-        (string[] Arguments, bool Remote)[] steps =
+        (string[] Arguments, string Description, bool Remote)[] steps =
         [
-            (["checkout", "-B", branch, remoteBranch, "--"], false),
-            (["reset", "--hard", remoteBranch, "--"], false),
-            (request.KeepIgnoredFiles ? ["clean", "-ffd"] : ["clean", "-ffdx"], false),
-            (["submodule", "sync", "--recursive"], false),
-            (["submodule", "update", "--init", "--recursive", "--force"], true),
-            (["lfs", "pull"], true),
+            (["checkout", "-B", branch, remoteBranch, "--"], GitCommandDescriptions.Checkout, false),
+            (["reset", "--hard", remoteBranch, "--"], GitCommandDescriptions.Reset, false),
+            request.KeepIgnoredFiles
+                ? (["clean", "-ffd"], GitCommandDescriptions.CleanKeepingIgnored, false)
+                : (["clean", "-ffdx"], GitCommandDescriptions.CleanAll, false),
+            (["submodule", "sync", "--recursive"], GitCommandDescriptions.SubmoduleSync, false),
+            (["submodule", "update", "--init", "--recursive", "--force"], GitCommandDescriptions.SubmoduleUpdate, true),
+            (["lfs", "pull"], GitCommandDescriptions.LfsPull, true),
         ];
 
-        foreach (var (arguments, remote) in steps)
+        foreach (var (arguments, description, remote) in steps)
         {
             await RunGitAsync(
-                request, request.ClonePath, remote ? environments.Remote : environments.Local, arguments, cancellationToken);
+                request,
+                request.ClonePath,
+                remote ? environments.Remote : environments.Local,
+                arguments,
+                description,
+                cancellationToken);
         }
     }
 
@@ -858,8 +875,8 @@ internal sealed class GitClient(
     /// <param name="workingDirectory">The folder git runs in.</param>
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
+    /// <param name="description">The description logged before the command, one of <see cref="GitCommandDescriptions"/>.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
-    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The lines the command wrote to standard output.</returns>
     /// <exception cref="GitRepositoryNotFoundException">The command fails because the remote URL has no repository.</exception>
     /// <exception cref="GitCommandException">The command exits with a non-zero code.</exception>
@@ -868,11 +885,11 @@ internal sealed class GitClient(
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken,
-        LogLevel logLevel = LogLevel.Information)
+        string description,
+        CancellationToken cancellationToken)
     {
         var result = await RunGitProcessAsync(
-            request, workingDirectory, environment, arguments, cancellationToken, logLevel);
+            request, workingDirectory, environment, arguments, description, cancellationToken);
         EnsureSucceeded(request, arguments, result);
         return result.StandardOutput;
     }
@@ -884,16 +901,16 @@ internal sealed class GitClient(
     /// <param name="workingDirectory">The folder git runs in.</param>
     /// <param name="environment">The environment of the git process.</param>
     /// <param name="arguments">The git arguments.</param>
+    /// <param name="description">The description logged before the command, one of <see cref="GitCommandDescriptions"/>.</param>
     /// <param name="cancellationToken">Cancels the command.</param>
-    /// <param name="logLevel">The level of the start, the output and the successful exit of the process.</param>
     /// <returns>The exit code and the output of the command.</returns>
     private Task<ProcessResult> RunGitProcessAsync(
         GitRepositoryRequest request,
         string workingDirectory,
         IReadOnlyList<ProcessEnvironmentVariable> environment,
         IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken,
-        LogLevel logLevel = LogLevel.Information) =>
+        string description,
+        CancellationToken cancellationToken) =>
         processRunner.RunAsync(
             new()
             {
@@ -901,7 +918,7 @@ internal sealed class GitClient(
                 WorkingDirectory = workingDirectory,
                 Arguments = arguments,
                 EnvironmentVariables = environment,
-                LogLevel = logLevel,
+                Description = description,
             },
             cancellationToken);
 
