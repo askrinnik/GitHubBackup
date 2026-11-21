@@ -5,6 +5,7 @@ using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Authentication;
 using GitHubBackup.Core.BackupConfiguration;
 using GitHubBackup.Core.GitHub;
+using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Core.Telemetry;
 using GitHubBackup.Core.Tools;
@@ -20,7 +21,7 @@ namespace GitHubBackup.App.Tests.ViewModels;
 
 /// <summary>
 /// Tests <see cref="SettingsViewModel"/>: reading and saving the configuration, the errors and warnings of the
-/// validator, leaving the editor, the tool paths, saving the token and checking it.
+/// validator, leaving the editor, the tool paths, the log levels, saving the token and checking it.
 /// </summary>
 public sealed class SettingsViewModelTests
 {
@@ -38,6 +39,7 @@ public sealed class SettingsViewModelTests
     private readonly IBackupConfigStore _configStore = Substitute.For<IBackupConfigStore>();
     private readonly IToolPathsStore _toolPathsStore = Substitute.For<IToolPathsStore>();
     private readonly ITelemetrySettingsStore _telemetryStore = Substitute.For<ITelemetrySettingsStore>();
+    private readonly ILogLevelSettingsStore _logLevelStore = Substitute.For<ILogLevelSettingsStore>();
     private readonly ITokenStore _tokenStore = Substitute.For<ITokenStore>();
     private readonly ITokenProvider _tokenProvider = Substitute.For<ITokenProvider>();
     private readonly IGitHubTokenInspector _inspector = Substitute.For<IGitHubTokenInspector>();
@@ -63,13 +65,15 @@ public sealed class SettingsViewModelTests
         _toolPathsStore.Validate(Arg.Any<ToolPaths>()).Returns([]);
         _telemetryStore.Current.Returns(new TelemetrySettings(true, "http://localhost:4317", _fileHeaders));
         _telemetryStore.Validate(Arg.Any<TelemetrySettings>()).Returns([]);
+        _logLevelStore.DefaultLevel.Returns(EndpointLogLevel.Information);
+        _logLevelStore.Current.Returns(new LogLevelSettings(EndpointLogLevel.Debug, null, null, EndpointLogLevel.Off));
         _tokenStore.Location.Returns(_storeLocation);
         _tokenProvider.GetTokenAsync(Arg.Any<CancellationToken>()).Returns(new GitHubToken(_token, _storeLocation));
         var timeProvider = new FakeTimeProvider(new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero));
         timeProvider.SetLocalTimeZone(TimeZoneInfo.CreateCustomTimeZone("UTC+02", TimeSpan.FromHours(2), "UTC+02", "UTC+02"));
         _preferences = new(_uiSettingsStore, _themeService, NullLogger<UiPreferences>.Instance);
         _viewModel = new(
-            _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger, _preferences);
+            _configStore, _toolPathsStore, _telemetryStore, _logLevelStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker, timeProvider, _logger, _preferences);
     }
 
     [Fact]
@@ -123,7 +127,7 @@ public sealed class SettingsViewModelTests
         _preferences.Theme = UiTheme.Dark;
 
         var viewModel = new SettingsViewModel(
-            _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
+            _configStore, _toolPathsStore, _telemetryStore, _logLevelStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
             TimeProvider.System, _logger, _preferences);
 
         viewModel.SelectedTheme.Value.ShouldBe(UiTheme.Dark);
@@ -1286,18 +1290,28 @@ public sealed class SettingsViewModelTests
     }
 
     /// <summary>
+    /// Returns the entry of the level lists of the editor for <paramref name="level"/>.
+    /// </summary>
+    /// <param name="level">The level.</param>
+    /// <returns>The entry.</returns>
+    private LogLevelOption Option(EndpointLogLevel level) =>
+        _viewModel.LogLevelOptions.Single(option => option.Value == level);
+
+    /// <summary>
     /// Creates another editor over the same substitutes, as opening the editor again does.
     /// </summary>
     /// <returns>The editor.</returns>
     private SettingsViewModel CreateViewModel() => new(
-        _configStore, _toolPathsStore, _telemetryStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
+        _configStore, _toolPathsStore, _telemetryStore, _logLevelStore, _tokenStore, _tokenProvider, _inspector, _navigation, _dialogs, _masker,
         TimeProvider.System, _logger, _preferences);
 
     /// <summary>
     /// Asserts that exactly the given groups were written and the others never were.
     /// </summary>
-    private async Task AssertOnlyWrittenAsync(bool config = false, bool tools = false, bool telemetry = false, bool token = false)
+    private async Task AssertOnlyWrittenAsync(
+        bool config = false, bool tools = false, bool telemetry = false, bool token = false, bool logging = false)
     {
+        await _logLevelStore.Received(logging ? 1 : 0).SaveAsync(Arg.Any<LogLevelSettings>(), Arg.Any<CancellationToken>());
         await _configStore.Received(config ? 1 : 0).SaveAsync(Arg.Any<BackupConfig>(), Arg.Any<CancellationToken>());
         await _toolPathsStore.Received(tools ? 1 : 0).SaveAsync(Arg.Any<ToolPaths>(), Arg.Any<CancellationToken>());
         await _telemetryStore.Received(telemetry ? 1 : 0).SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>());
@@ -1422,17 +1436,109 @@ public sealed class SettingsViewModelTests
         _viewModel.Sections.Select(section => section.Section).ShouldBe(
         [
             SettingsSection.General, SettingsSection.Accounts, SettingsSection.Repositories,
-            SettingsSection.Tools, SettingsSection.Telemetry, SettingsSection.Token,
+            SettingsSection.Tools, SettingsSection.Telemetry, SettingsSection.Logging, SettingsSection.Token,
         ]);
         _viewModel.Sections.Select(section => section.Title)
-            .ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "GitHub token"]);
+            .ShouldBe(["General", "Accounts", "Repositories", "Tools", "Telemetry", "Logging", "GitHub token"]);
         _viewModel.Sections.Select(section => section.AutomationId).ShouldBe(
         [
             "SettingsSectionGeneral", "SettingsSectionAccounts", "SettingsSectionRepositories",
-            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionToken",
+            "SettingsSectionTools", "SettingsSectionTelemetry", "SettingsSectionLogging", "SettingsSectionToken",
         ]);
         _viewModel.Sections.Where(section => section.IsSelected).ShouldHaveSingleItem().ShouldBe(_viewModel.GeneralSection);
         _viewModel.Sections.ShouldAllBe(section => !section.HasErrors);
+    }
+
+    [Fact]
+    public void LogLevelOptions_DefaultFirstWithDefaultLevelThenLevels()
+    {
+        _logLevelStore.DefaultLevel.Returns(EndpointLogLevel.Warning);
+
+        var viewModel = CreateViewModel();
+
+        viewModel.LogLevelOptions.Select(option => option.Label).ShouldBe(
+            ["Default (Warning)", "Verbose", "Debug", "Information", "Warning", "Error", "Fatal", "Off"]);
+        viewModel.LogLevelOptions.Select(option => option.Value).ShouldBe(
+        [
+            null, EndpointLogLevel.Verbose, EndpointLogLevel.Debug, EndpointLogLevel.Information,
+            EndpointLogLevel.Warning, EndpointLogLevel.Error, EndpointLogLevel.Fatal, EndpointLogLevel.Off,
+        ]);
+    }
+
+    [Fact]
+    public void Constructor_LogLevels_SelectsCurrentLevelsWithoutUnsavedChanges()
+    {
+        _viewModel.SelectedFileLogLevel.Value.ShouldBe(EndpointLogLevel.Debug);
+        _viewModel.SelectedConsoleLogLevel.ShouldBe(_viewModel.LogLevelOptions[0]);
+        _viewModel.SelectedLiveLogLevel.ShouldBe(_viewModel.LogLevelOptions[0]);
+        _viewModel.SelectedOpenTelemetryLogLevel.Value.ShouldBe(EndpointLogLevel.Off);
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task Save_LogLevelsChanged_WritesThemDefaultAsNullAndNavigates()
+    {
+        await LoadAsync();
+        _viewModel.SelectedFileLogLevel = _viewModel.LogLevelOptions[0];
+        _viewModel.SelectedConsoleLogLevel = Option(EndpointLogLevel.Warning);
+        _viewModel.SelectedLiveLogLevel = Option(EndpointLogLevel.Verbose);
+
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await _logLevelStore.Received(1).SaveAsync(
+            new LogLevelSettings(null, EndpointLogLevel.Warning, EndpointLogLevel.Verbose, EndpointLogLevel.Off),
+            Arg.Any<CancellationToken>());
+        await AssertOnlyWrittenAsync(logging: true);
+        _viewModel.HasUnsavedChanges.ShouldBeFalse();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_LogLevelsUnchanged_DoesNotWriteThem()
+    {
+        await LoadAsync();
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        await AssertOnlyWrittenAsync();
+        _navigation.Received(1).NavigateTo<RepositoriesViewModel>();
+    }
+
+    [Fact]
+    public async Task Save_LogLevelsAndToken_WritesLevelsBeforeToken()
+    {
+        await LoadAsync();
+        _viewModel.OtlpEndpoint = "http://otel:4317";
+        _viewModel.SelectedFileLogLevel = Option(EndpointLogLevel.Error);
+        _viewModel.Token = _typedToken;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        Received.InOrder(() =>
+        {
+            _ = _telemetryStore.SaveAsync(Arg.Any<TelemetrySettings>(), Arg.Any<CancellationToken>());
+            _ = _logLevelStore.SaveAsync(Arg.Any<LogLevelSettings>(), Arg.Any<CancellationToken>());
+            _ = _tokenStore.WriteAsync(_typedToken, Arg.Any<CancellationToken>());
+        });
+    }
+
+    [Fact]
+    public async Task Save_LogLevelsWriteFails_ShowsDialogKeepsEditorOpenAndSelection()
+    {
+        _logLevelStore.SaveAsync(Arg.Any<LogLevelSettings>(), Arg.Any<CancellationToken>())
+            .ThrowsAsync(new IOException("appsettings.json is locked."));
+        await LoadAsync();
+        _viewModel.SelectedFileLogLevel = Option(EndpointLogLevel.Error);
+        _viewModel.Token = _typedToken;
+
+        await _viewModel.SaveCommand.ExecuteAsync(null);
+
+        _dialogs.Received(1).ShowError(SettingsViewModel.SaveFailedTitle, "appsettings.json is locked.");
+        _navigation.DidNotReceive().NavigateTo<RepositoriesViewModel>();
+        await _tokenStore.DidNotReceive().WriteAsync(Arg.Any<string>(), Arg.Any<CancellationToken>());
+        _viewModel.SelectedFileLogLevel.Value.ShouldBe(EndpointLogLevel.Error);
+        _viewModel.HasUnsavedChanges.ShouldBeTrue();
     }
 
     [Fact]

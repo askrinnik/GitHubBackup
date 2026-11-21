@@ -45,6 +45,17 @@
         <Style x:Key="LabelStyle" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,0,2" />
         </Style>
+        <!-- The name of a log endpoint, on the line of its level list. -->
+        <Style x:Key="LoggingLabelStyle" TargetType="TextBlock">
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Margin" Value="0,0,16,6" />
+        </Style>
+        <!-- The level list of a log endpoint: wide enough for the longest entry, the default with its level. -->
+        <Style x:Key="LoggingComboBoxStyle" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="MinWidth" Value="200" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="Margin" Value="0,0,0,6" />
+        </Style>
         <!-- The Remove button of a table row: an icon, so the columns of a narrow table keep their room; the tooltip
              and the UI Automation name say what it does. -->
         <Style x:Key="RowButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -795,6 +806,73 @@
                                    Style="{StaticResource NoticeStyle}"
                                    Margin="0,4,0,0"
                                    AutomationProperties.AutomationId="TelemetryHeadersInAppSettingsNote" />
+                        </StackPanel>
+                    </controls:CardPanel>
+                </ScrollViewer>
+            </GroupBox>
+
+            <GroupBox Grid.Column="1"
+                      Header="Logging"
+                      Style="{StaticResource SectionStyle}"
+                      Visibility="{Binding LoggingSection.IsSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                      AutomationProperties.AutomationId="SettingsLoggingGroup">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <controls:CardPanel Style="{StaticResource PanelCardStyle}"
+                                        VerticalAlignment="Top"
+                                        AutomationProperties.Name="Log levels"
+                                        AutomationProperties.AutomationId="SettingsLoggingCard">
+                        <StackPanel>
+                            <Label Content="{x:Static vm:SettingsViewModel.LoggingRestartNotice}"
+                                   Style="{StaticResource NoticeStyle}"
+                                   AutomationProperties.AutomationId="LoggingRestartNotice" />
+                            <Grid Margin="0,4,0,2">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="File" Style="{StaticResource LoggingLabelStyle}" />
+                                <ComboBox Grid.Row="0"
+                                          Grid.Column="1"
+                                          ItemsSource="{Binding LogLevelOptions, Mode=OneTime}"
+                                          SelectedItem="{Binding SelectedFileLogLevel, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          Style="{StaticResource LoggingComboBoxStyle}"
+                                          AutomationProperties.Name="File"
+                                          AutomationProperties.AutomationId="LogLevelFileComboBox" />
+                                <TextBlock Grid.Row="1" Text="Console (CLI)" Style="{StaticResource LoggingLabelStyle}" />
+                                <ComboBox Grid.Row="1"
+                                          Grid.Column="1"
+                                          ItemsSource="{Binding LogLevelOptions, Mode=OneTime}"
+                                          SelectedItem="{Binding SelectedConsoleLogLevel, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          Style="{StaticResource LoggingComboBoxStyle}"
+                                          AutomationProperties.Name="Console (CLI)"
+                                          AutomationProperties.AutomationId="LogLevelConsoleComboBox" />
+                                <TextBlock Grid.Row="2" Text="Live log (UI)" Style="{StaticResource LoggingLabelStyle}" />
+                                <ComboBox Grid.Row="2"
+                                          Grid.Column="1"
+                                          ItemsSource="{Binding LogLevelOptions, Mode=OneTime}"
+                                          SelectedItem="{Binding SelectedLiveLogLevel, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          Style="{StaticResource LoggingComboBoxStyle}"
+                                          AutomationProperties.Name="Live log (UI)"
+                                          AutomationProperties.AutomationId="LogLevelLiveLogComboBox" />
+                                <TextBlock Grid.Row="3" Text="OpenTelemetry" Style="{StaticResource LoggingLabelStyle}" />
+                                <ComboBox Grid.Row="3"
+                                          Grid.Column="1"
+                                          ItemsSource="{Binding LogLevelOptions, Mode=OneTime}"
+                                          SelectedItem="{Binding SelectedOpenTelemetryLogLevel, Mode=TwoWay}"
+                                          DisplayMemberPath="Label"
+                                          Style="{StaticResource LoggingComboBoxStyle}"
+                                          AutomationProperties.Name="OpenTelemetry"
+                                          AutomationProperties.AutomationId="LogLevelOpenTelemetryComboBox" />
+                            </Grid>
                         </StackPanel>
                     </controls:CardPanel>
                 </ScrollViewer>

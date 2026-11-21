@@ -8,6 +8,7 @@ using GitHubBackup.Core.Files;
 using GitHubBackup.Core.Git;
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.History;
+using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Runs;
 using GitHubBackup.Core.Security;
@@ -78,6 +79,7 @@ public sealed class InfrastructureServiceCollectionExtensionsTests
         provider.GetRequiredService<IBackupConfigStore>().ShouldBeOfType<JsonBackupConfigStore>();
         provider.GetRequiredService<IToolPathsStore>().ShouldBeOfType<JsonToolPathsStore>();
         provider.GetRequiredService<ITelemetrySettingsStore>().ShouldBeOfType<JsonTelemetrySettingsStore>();
+        provider.GetRequiredService<ILogLevelSettingsStore>().ShouldBeOfType<JsonLogLevelSettingsStore>();
     }
 
     [Fact]

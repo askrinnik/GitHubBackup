@@ -325,6 +325,168 @@ public sealed class AppSettingsFileTests : IDisposable
             """));
     }
 
+    [Fact]
+    public async Task WriteSectionValuesAsync_NestedPathMissing_AddsParentSections()
+    {
+        await _file.WriteSectionValuesAsync(
+            "Serilog:Endpoints:File", [AppSettingValue.FromText("Level", "Debug")], TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "Serilog": {
+                "Endpoints": {
+                  "File": {
+                    "Level": "Debug"
+                  }
+                }
+              }
+            }
+            """));
+    }
+
+    [Fact]
+    public async Task WriteSectionsAsync_NestedSections_KeepsOverridesAndOtherKeys()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            {
+              "Serilog": {
+                "MinimumLevel": { "Default": "Warning", "Override": { "Microsoft": "Error" } },
+                "Endpoints": {
+                  "File": { "Level": "Error", "Override": { "GitHubBackup.Infrastructure": "Verbose" } },
+                  "Custom": 1
+                }
+              },
+              "Tools": { "GitPath": null }
+            }
+            """));
+
+        await _file.WriteSectionsAsync(
+            [
+                new("Serilog:Endpoints:File", [AppSettingValue.FromText("Level", "Debug")]),
+                new("Serilog:Endpoints:Console", [AppSettingValue.FromText("Level", null)]),
+            ],
+            TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "Serilog": {
+                "MinimumLevel": {
+                  "Default": "Warning",
+                  "Override": {
+                    "Microsoft": "Error"
+                  }
+                },
+                "Endpoints": {
+                  "File": {
+                    "Level": "Debug",
+                    "Override": {
+                      "GitHubBackup.Infrastructure": "Verbose"
+                    }
+                  },
+                  "Custom": 1,
+                  "Console": {
+                    "Level": null
+                  }
+                }
+              },
+              "Tools": {
+                "GitPath": null
+              }
+            }
+            """));
+    }
+
+    [Fact]
+    public async Task WriteSectionsAsync_NestedNamesInOtherCase_ReplacesWithCanonicalNamesAndRemovesKeysFromCopies()
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData("""
+            {
+              "serilog": { "endpoints": { "file": { "level": "Error", "override": { "A": "Off" } } } },
+              "SERILOG": { "Endpoints": { "FILE": { "LEVEL": "Fatal", "Extra": 2 } } }
+            }
+            """));
+
+        await _file.WriteSectionValuesAsync(
+            "Serilog:Endpoints:File", [AppSettingValue.FromText("Level", "Debug")], TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "Serilog": {
+                "Endpoints": {
+                  "File": {
+                    "Level": "Debug",
+                    "override": {
+                      "A": "Off"
+                    }
+                  }
+                }
+              },
+              "SERILOG": {
+                "Endpoints": {
+                  "FILE": {
+                    "Extra": 2
+                  }
+                }
+              }
+            }
+            """));
+    }
+
+    [Theory]
+    [InlineData("\"text\"")]
+    [InlineData("null")]
+    public async Task WriteSectionValuesAsync_TextInPlaceOfNestedSection_ReplacesItWithSection(string value)
+    {
+        _fileSystem.AddFile(_filePath, new MockFileData($$"""{ "Serilog": { "Endpoints": {{value}}, "Other": true } }"""));
+
+        await _file.WriteSectionValuesAsync(
+            "Serilog:Endpoints:File", [AppSettingValue.FromText("Level", "Off")], TestContext.Current.CancellationToken);
+
+        ReadFile().ShouldBe(Text("""
+            {
+              "Serilog": {
+                "Endpoints": {
+                  "File": {
+                    "Level": "Off"
+                  }
+                },
+                "Other": true
+              }
+            }
+            """));
+    }
+
+    [Fact]
+    public async Task WriteSectionsAsync_SeveralSections_ReplacesFileOnceWithOneBackup()
+    {
+        const string previous = """{ "Tools": { "GitPath": "C:\\Old\\git.exe" } }""";
+        _fileSystem.AddFile(_filePath, new MockFileData(previous));
+
+        await _file.WriteSectionsAsync(
+            [
+                new("Tools", [AppSettingValue.FromText("GitPath", null)]),
+                new("Serilog:Endpoints:LiveLog", [AppSettingValue.FromText("Level", "Warning")]),
+            ],
+            TestContext.Current.CancellationToken);
+
+        _fileSystem.File.ReadAllText(_filePath + AtomicFileWriter.BackupExtension).ShouldBe(previous);
+        _fileSystem.Directory.GetFiles(_contentRootPath).Length.ShouldBe(2);
+        ReadFile().ShouldContain("\"GitPath\": null");
+        ReadFile().ShouldContain("\"Level\": \"Warning\"");
+    }
+
+    [Theory]
+    [InlineData("Serilog::File")]
+    [InlineData(":Tools")]
+    [InlineData("")]
+    public async Task WriteSectionValuesAsync_EmptyNameInPath_ThrowsAndWritesNothing(string path)
+    {
+        await Should.ThrowAsync<ArgumentException>(() => _file.WriteSectionValuesAsync(
+            path, [AppSettingValue.FromText("Level", "Debug")], TestContext.Current.CancellationToken));
+
+        _fileSystem.File.Exists(_filePath).ShouldBeFalse();
+    }
+
     /// <summary>
     /// Writes the two tool paths through the subject: a set Git path and a cleared 7-Zip path.
     /// </summary>

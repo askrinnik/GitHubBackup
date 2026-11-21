@@ -38,12 +38,31 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
     /// <summary>
     /// Sets keys of one section and keeps everything else in the file; creates the file when there is none.
     /// </summary>
+    /// <remarks>Behaves as <see cref="WriteSectionsAsync"/> with this one section.</remarks>
+    /// <param name="sectionPath">The canonical path of the section, for example <c>Tools</c>.</param>
+    /// <param name="values">The keys with their new values.</param>
+    /// <param name="cancellationToken">Cancels the write before the file is replaced.</param>
+    /// <returns>A task that completes when the file is written.</returns>
+    /// <exception cref="ArgumentException"><paramref name="sectionPath"/> has an empty name.</exception>
+    /// <exception cref="IOException">
+    /// The file cannot be read, is not a JSON object or cannot be written; it is left as it is.
+    /// </exception>
+    /// <exception cref="UnauthorizedAccessException">The file cannot be read or written; it is left as it is.</exception>
+    public Task WriteSectionValuesAsync(
+        string sectionPath, IReadOnlyList<AppSettingValue> values, CancellationToken cancellationToken) =>
+        WriteSectionsAsync([new AppSettingsSection(sectionPath, values)], cancellationToken);
+
+    /// <summary>
+    /// Sets keys of several sections in one write and keeps everything else in the file; creates the file when there
+    /// is none.
+    /// </summary>
     /// <remarks>
     /// <para>
-    /// The keys go into the first occurrence of the section whose value is an object, or, when there is none, into
-    /// a new object that takes the place of the first occurrence; a section missing from the file is added at its
-    /// end. In that occurrence the first property of each key is replaced in place and later ones are dropped; keys
-    /// missing from it are appended.
+    /// A section path names nested sections separated by <c>:</c>. At each level the keys go into the first
+    /// occurrence of the section whose value is an object, or, when there is none, into a new object that takes the
+    /// place of the first occurrence; a section missing from its parent is added at the parent's end, together with
+    /// the missing sections above it. In that occurrence the first property of each key is replaced in place and
+    /// later ones are dropped; keys missing from it are appended.
     /// </para>
     /// <para>
     /// A key made by <see cref="AppSettingValue.Remove"/> is dropped from the section and not added.
@@ -52,23 +71,26 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
     /// The keys are removed from every other object occurrence of the section, which the configuration would merge
     /// with the first one, so that no copy left there overrides the value written.
     /// </para>
+    /// <para>
+    /// The file is replaced once, so it keeps a single backup of its previous version.
+    /// </para>
     /// </remarks>
-    /// <param name="sectionName">The canonical name of the section, for example <c>Tools</c>.</param>
-    /// <param name="values">The keys with their new values.</param>
+    /// <param name="sections">The sections with the keys to set.</param>
     /// <param name="cancellationToken">Cancels the write before the file is replaced.</param>
     /// <returns>A task that completes when the file is written.</returns>
+    /// <exception cref="ArgumentException">A section path has an empty name.</exception>
     /// <exception cref="IOException">
     /// The file cannot be read, is not a JSON object or cannot be written; it is left as it is.
     /// </exception>
     /// <exception cref="UnauthorizedAccessException">The file cannot be read or written; it is left as it is.</exception>
-    public async Task WriteSectionValuesAsync(
-        string sectionName, IReadOnlyList<AppSettingValue> values, CancellationToken cancellationToken)
+    public async Task WriteSectionsAsync(IReadOnlyList<AppSettingsSection> sections, CancellationToken cancellationToken)
     {
+        var changes = SectionChange.Build(sections);
         await _gate.WaitAsync(cancellationToken);
         try
         {
             using var document = await JsonSettingsText.ReadObjectAsync(fileSystem, FilePath, cancellationToken);
-            var content = JsonSettingsText.Write(json => WriteRoot(json, document?.RootElement, sectionName, values));
+            var content = JsonSettingsText.Write(json => WriteChanged(json, document?.RootElement, changes));
             await writer.WriteAsync(FilePath, content, cancellationToken);
         }
         finally
@@ -81,101 +103,101 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
     public void Dispose() => _gate.Dispose();
 
     /// <summary>
-    /// Writes the root object: the properties of <paramref name="root"/> with the section changed.
+    /// Writes an object that receives changes: the properties of <paramref name="existing"/> with the keys and the
+    /// child sections of <paramref name="change"/> set.
     /// </summary>
     /// <param name="json">The writer.</param>
-    /// <param name="root">The root object of the file, or <see langword="null"/> when there is no file.</param>
-    /// <param name="sectionName">The canonical name of the section.</param>
-    /// <param name="values">The keys with their new values.</param>
-    private static void WriteRoot(
-        Utf8JsonWriter json, JsonElement? root, string sectionName, IReadOnlyList<AppSettingValue> values)
+    /// <param name="existing">
+    /// The object found in the file; <see langword="null"/> or a non-object value starts an empty one.
+    /// </param>
+    /// <param name="change">The keys and child sections to set.</param>
+    private static void WriteChanged(Utf8JsonWriter json, JsonElement? existing, SectionChange change)
     {
-        var properties = root?.EnumerateObject().ToList() ?? [];
-        var occurrences = properties
-            .Select((property, index) => (property, index))
-            .Where(item => IsNamed(item.property, sectionName))
-            .ToList();
-        var target = occurrences
-            .Where(item => item.property.Value.ValueKind == JsonValueKind.Object)
-            .Select(item => (int?)item.index)
-            .FirstOrDefault() ?? occurrences.Select(item => (int?)item.index).FirstOrDefault();
+        var properties = existing is { ValueKind: JsonValueKind.Object } found ? found.EnumerateObject().ToList() : [];
+        var targets = new Dictionary<int, SectionChange>();
+        foreach (var child in change.Children)
+        {
+            var occurrences = properties
+                .Select((property, index) => (property, index))
+                .Where(item => IsNamed(item.property, child.Name))
+                .ToList();
+            var target = occurrences
+                .Where(item => item.property.Value.ValueKind == JsonValueKind.Object)
+                .Select(item => (int?)item.index)
+                .FirstOrDefault() ?? occurrences.Select(item => (int?)item.index).FirstOrDefault();
+            if (target is { } index)
+            {
+                targets[index] = child;
+            }
+        }
 
+        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         json.WriteStartObject();
         for (var index = 0; index < properties.Count; index++)
         {
             var property = properties[index];
-            if (index == target)
+            if (targets.TryGetValue(index, out var child))
             {
-                json.WritePropertyName(sectionName);
-                WriteTargetSection(json, property.Value, values);
+                json.WritePropertyName(child.Name);
+                WriteChanged(json, property.Value, child);
             }
-            else if (IsNamed(property, sectionName) && property.Value.ValueKind == JsonValueKind.Object)
+            else if (change.FindChild(property.Name) is { } other)
             {
-                json.WritePropertyName(property.Name);
-                WriteWithout(json, property.Value, values);
+                WriteOtherOccurrence(json, property, other);
             }
-            else
+            else if (FindValue(change.Values, property.Name) is not { } value)
             {
                 property.WriteTo(json);
             }
-        }
-
-        if (target is null)
-        {
-            json.WritePropertyName(sectionName);
-            WriteTargetSection(json, null, values);
-        }
-
-        json.WriteEndObject();
-    }
-
-    /// <summary>
-    /// Writes the section that receives the keys.
-    /// </summary>
-    /// <param name="json">The writer.</param>
-    /// <param name="section">The section found in the file; <see langword="null"/> or a non-object value starts an empty one.</param>
-    /// <param name="values">The keys with their new values.</param>
-    private static void WriteTargetSection(Utf8JsonWriter json, JsonElement? section, IReadOnlyList<AppSettingValue> values)
-    {
-        var written = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        json.WriteStartObject();
-        if (section is { ValueKind: JsonValueKind.Object } existing)
-        {
-            foreach (var property in existing.EnumerateObject())
+            else if (written.Add(value.Key) && !value.IsRemoval)
             {
-                if (FindValue(values, property.Name) is not { } value)
-                {
-                    property.WriteTo(json);
-                }
-                else if (written.Add(value.Key) && !value.IsRemoval)
-                {
-                    json.WritePropertyName(value.Key);
-                    value.WriteValue(json);
-                }
+                json.WritePropertyName(value.Key);
+                value.WriteValue(json);
             }
         }
 
-        foreach (var value in values.Where(value => !value.IsRemoval && !written.Contains(value.Key)))
+        foreach (var value in change.Values.Where(value => !value.IsRemoval && written.Add(value.Key)))
         {
             json.WritePropertyName(value.Key);
             value.WriteValue(json);
         }
 
+        foreach (var child in change.Children.Where(child => !targets.ContainsValue(child)))
+        {
+            json.WritePropertyName(child.Name);
+            WriteChanged(json, null, child);
+        }
+
         json.WriteEndObject();
     }
 
     /// <summary>
-    /// Writes a copy of another occurrence of the section without the keys being set.
+    /// Writes an occurrence of a section that does not receive the changes: an object without the keys being set, at
+    /// every level, and any other value as it is.
     /// </summary>
     /// <param name="json">The writer.</param>
-    /// <param name="section">The object of the occurrence.</param>
-    /// <param name="values">The keys being set.</param>
-    private static void WriteWithout(Utf8JsonWriter json, JsonElement section, IReadOnlyList<AppSettingValue> values)
+    /// <param name="property">The occurrence.</param>
+    /// <param name="change">The keys and child sections being set in the section.</param>
+    private static void WriteOtherOccurrence(Utf8JsonWriter json, JsonProperty property, SectionChange change)
     {
-        json.WriteStartObject();
-        foreach (var property in section.EnumerateObject().Where(property => FindValue(values, property.Name) is null))
+        if (property.Value.ValueKind != JsonValueKind.Object)
         {
             property.WriteTo(json);
+            return;
+        }
+
+        json.WritePropertyName(property.Name);
+        json.WriteStartObject();
+        foreach (var inner in property.Value.EnumerateObject().Where(inner => FindValue(change.Values, inner.Name) is null))
+        {
+            if (change.FindChild(inner.Name) is { } child)
+            {
+                WriteOtherOccurrence(json, inner, child);
+            }
+            else
+            {
+                inner.WriteTo(json);
+            }
         }
 
         json.WriteEndObject();
@@ -198,4 +220,69 @@ internal sealed class AppSettingsFile(IFileSystem fileSystem, IHostEnvironment e
     /// <returns><see langword="true"/> when the names match.</returns>
     private static bool IsNamed(JsonProperty property, string name) =>
         string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// The changes to one object of the file: the keys set in it and the child sections that change.
+    /// </summary>
+    /// <param name="name">The canonical name of the section; empty for the root object.</param>
+    private sealed class SectionChange(string name)
+    {
+        /// <summary>Gets the canonical name of the section.</summary>
+        public string Name { get; } = name;
+
+        /// <summary>Gets the keys set in the section, in the order given.</summary>
+        public List<AppSettingValue> Values { get; } = [];
+
+        /// <summary>Gets the child sections that change, in the order first named.</summary>
+        public List<SectionChange> Children { get; } = [];
+
+        /// <summary>
+        /// Builds the changes of the root object from the sections to set.
+        /// </summary>
+        /// <param name="sections">The sections with the keys to set.</param>
+        /// <returns>The changes of the root object.</returns>
+        /// <exception cref="ArgumentException">A section path has an empty name.</exception>
+        public static SectionChange Build(IReadOnlyList<AppSettingsSection> sections)
+        {
+            var root = new SectionChange(string.Empty);
+            foreach (var section in sections)
+            {
+                var names = section.Path.Split(':');
+                if (names.Any(string.IsNullOrWhiteSpace))
+                {
+                    throw new ArgumentException($"The section path '{section.Path}' has an empty name.", nameof(sections));
+                }
+
+                var node = root;
+                foreach (var name in names)
+                {
+                    node = node.FindChild(name) ?? node.AddChild(name);
+                }
+
+                node.Values.AddRange(section.Values);
+            }
+
+            return root;
+        }
+
+        /// <summary>
+        /// Returns the child section named <paramref name="name"/> without regard to case.
+        /// </summary>
+        /// <param name="name">The name of a property in the file or of a section in a path.</param>
+        /// <returns>The child section, or <see langword="null"/> when it does not change.</returns>
+        public SectionChange? FindChild(string name) =>
+            Children.FirstOrDefault(child => string.Equals(child.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        /// <summary>
+        /// Adds a child section that changes.
+        /// </summary>
+        /// <param name="name">The canonical name of the child section.</param>
+        /// <returns>The added child section.</returns>
+        private SectionChange AddChild(string name)
+        {
+            var child = new SectionChange(name);
+            Children.Add(child);
+            return child;
+        }
+    }
 }

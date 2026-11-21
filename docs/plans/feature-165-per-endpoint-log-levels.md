@@ -172,11 +172,11 @@
 - [x] Сборка, тесты, format; коммит 1
 
 **Часть 2**
-- [ ] `EndpointLogLevel`, `LogLevelSettings`, `ILogLevelSettingsStore`
-- [ ] `AppSettingsFile`: вложенный путь и запись нескольких секций; тесты
-- [ ] `JsonLogLevelSettingsStore` и регистрация; тесты
-- [ ] `SettingsSection.Logging`, `LogLevelOption`, `SettingsViewModel`; тесты
-- [ ] Раздел Logging в `SettingsView.xaml`
-- [ ] FlaUI и скриншот-тесты (Light, Dark)
-- [ ] README: раздел Logging редактора
-- [ ] Сборка, тесты, format, UI-тесты; коммит 2
+- [x] `EndpointLogLevel`, `LogLevelSettings`, `ILogLevelSettingsStore`
+- [x] `AppSettingsFile`: вложенный путь и запись нескольких секций; тесты
+- [x] `JsonLogLevelSettingsStore` и регистрация; тесты
+- [x] `SettingsSection.Logging`, `LogLevelOption`, `SettingsViewModel`; тесты
+- [x] Раздел Logging в `SettingsView.xaml`
+- [x] FlaUI и скриншот-тесты (Light, Dark)
+- [x] README: раздел Logging редактора
+- [x] Сборка, тесты, format, UI-тесты; коммит 2
