@@ -1,5 +1,6 @@
 using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Runs;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
@@ -175,6 +176,47 @@ public sealed class SerilogFileLoggingTests
         entry.Level.ShouldBe(LogLevel.Warning);
         entry.Message.ShouldBe("Calling with ***");
         contentRoot.ReadTextLog().ShouldContain("Calling with ***");
+    }
+
+    [Fact]
+    public void Log_BeforeSubscribeWithBuffer_FeedMatchesLogFileLevelsOrderAndMasking()
+    {
+        using var contentRoot = new TemporaryContentRoot(_informationAppSettings);
+        var received = new List<LiveLogEntry>();
+        var builder = GitHubBackupHostBuilder.Create(new()
+        {
+            ConfigurationArguments = [$"--GitHub:Token={_configuredToken}"],
+            ContentRootPath = contentRoot.FolderPath,
+            EnvironmentName = Environments.Production,
+        });
+        builder.Services.AddGitHubBackupLiveLogBuffer(100);
+        using (var host = builder.Build())
+        {
+            var logger = CreateLogger(host);
+            TestLog.Write(logger, LogLevel.Information, "Before the window");
+            TestLog.Write(logger, LogLevel.Debug, "Below the level");
+            TestLog.Write(logger, LogLevel.Warning, $"Calling with {_configuredToken}");
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            TestLog.Write(logger, LogLevel.Error, "After the window opened");
+        }
+
+        var fileEntries = contentRoot.ReadJsonLogEntries()
+            .Select(entry => (
+                Level: entry.TryGetProperty("@l", out var level) ? level.GetString() : nameof(LogLevel.Information),
+                Message: entry.GetProperty("Text").GetString()))
+            .ToArray();
+        fileEntries.ShouldBe(
+        [
+            (nameof(LogLevel.Information), "Before the window"),
+            (nameof(LogLevel.Warning), "Calling with ***"),
+            (nameof(LogLevel.Error), "After the window opened"),
+        ]);
+        received.Select(entry => (entry.Level, entry.Message)).ShouldBe(
+        [
+            (LogLevel.Information, "Before the window"),
+            (LogLevel.Warning, "Calling with ***"),
+            (LogLevel.Error, "After the window opened"),
+        ]);
     }
 
     [Fact]

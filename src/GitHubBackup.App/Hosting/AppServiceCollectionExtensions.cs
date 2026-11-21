@@ -5,6 +5,7 @@ using GitHubBackup.App.Runs;
 using GitHubBackup.App.Shell;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.App.Views;
+using GitHubBackup.Infrastructure.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -28,7 +29,9 @@ internal static class AppServiceCollectionExtensions
         /// </summary>
         /// <remarks>
         /// <see cref="HostApplicationBuilder"/> registers the console lifetime even without its defaults, so it is
-        /// replaced by <see cref="DesktopHostLifetime"/>.
+        /// replaced by <see cref="DesktopHostLifetime"/>. The <see cref="RunLogViewModel"/> is a singleton that every
+        /// <see cref="RepositoriesViewModel"/> shares, and the live log feed keeps as many entries as it shows, so the
+        /// live log holds the whole session from the start of the application.
         /// </remarks>
         /// <returns>The same service collection, for chaining.</returns>
         public IServiceCollection AddGitHubBackupApp()
@@ -45,6 +48,8 @@ internal static class AppServiceCollectionExtensions
             services.AddSingleton<IDiscoveryDecisionHandlerFactory, DialogDiscoveryDecisionHandlerFactory>();
             services.AddSingleton<IBackupRunService, BackupRunService>();
             services.AddSingleton<IUiDispatcher, WpfUiDispatcher>();
+            services.AddSingleton<RunLogViewModel>();
+            services.AddGitHubBackupLiveLogBuffer(RunLogViewModel.MaxEntries);
             services.AddTransient<RepositoriesViewModel>();
             services.AddTransient<SettingsViewModel>();
             services.AddSingleton<IExplorerLauncher, ExplorerLauncher>();

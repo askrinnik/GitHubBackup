@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Globalization;
 using GitHubBackup.Core.Security;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Serilog.Core;
 using Serilog.Events;
 using Serilog.Formatting.Display;
@@ -9,43 +10,81 @@ using Serilog.Formatting.Display;
 namespace GitHubBackup.Infrastructure.Logging;
 
 /// <summary>
-/// Passes each entry the logger writes to the subscribers of the live log feed, with secrets masked.
+/// Passes each entry the logger writes to the subscribers of the live log feed, with secrets masked, and keeps the
+/// most recent entries for the subscribers that come later.
 /// </summary>
 /// <remarks>
-/// The subscribers are kept in an immutable array that is swapped on every change, so writing threads read a stable
-/// snapshot without a lock while a window subscribes or unsubscribes. Without subscribers an entry is neither rendered
-/// nor masked.
+/// One lock guards the kept entries and the subscriptions, and entries are delivered while it is held. A subscriber
+/// therefore receives the kept entries and then the new ones strictly in order, and an entry written while it
+/// subscribes is neither lost nor delivered twice. The entry is rendered and masked before the lock is taken. Without
+/// subscribers and without kept entries an entry is neither rendered nor masked.
 /// </remarks>
 /// <param name="masker">The masker applied to the rendered message, so a token never reaches the feed.</param>
-internal sealed class LiveLogSink(ISecretMasker masker) : ILogEventSink, ILiveLogFeed
+/// <param name="options">The number of entries kept for later subscribers.</param>
+internal sealed class LiveLogSink(ISecretMasker masker, IOptions<LiveLogOptions> options) : ILogEventSink, ILiveLogFeed
 {
     /// <summary>Renders the message the way the text log does: strings without quotes, structures as JSON.</summary>
     private static readonly MessageTemplateTextFormatter _messageFormatter = new("{Message:lj}", CultureInfo.InvariantCulture);
 
-    /// <summary>The current subscriptions; replaced as a whole, never changed in place.</summary>
+    /// <summary>The number of the most recent entries kept in <see cref="_buffer"/>.</summary>
+    private readonly int _capacity = options.Value.BufferCapacity;
+
+    /// <summary>Guards <see cref="_buffer"/> and <see cref="_subscriptions"/> and serialises the delivery.</summary>
+    private readonly Lock _gate = new();
+
+    /// <summary>The kept entries, oldest first, at most <see cref="_capacity"/>.</summary>
+    private readonly Queue<LiveLogEntry> _buffer = new();
+
+    /// <summary>
+    /// The current subscriptions; replaced as a whole under <see cref="_gate"/>, so <see cref="Emit"/> can check for
+    /// subscribers without the lock.
+    /// </summary>
     private ImmutableArray<Subscription> _subscriptions = [];
 
     /// <inheritdoc />
     public IDisposable Subscribe(Action<LiveLogEntry> handler)
     {
         var subscription = new Subscription(this, handler);
-        ImmutableInterlocked.Update(ref _subscriptions, static (current, added) => current.Add(added), subscription);
+        lock (_gate)
+        {
+            // The lock is reentrant, so a handler that writes to the log adds to the buffer on this thread; the replay
+            // walks a copy to stay valid.
+            foreach (var entry in _buffer.ToArray())
+            {
+                handler(entry);
+            }
+
+            _subscriptions = _subscriptions.Add(subscription);
+        }
+
         return subscription;
     }
 
     /// <inheritdoc />
     public void Emit(LogEvent logEvent)
     {
-        var subscriptions = _subscriptions;
-        if (subscriptions.IsEmpty)
+        if (_capacity == 0 && _subscriptions.IsEmpty)
         {
             return;
         }
 
         var entry = new LiveLogEntry(logEvent.Timestamp, ToLogLevel(logEvent.Level), Render(logEvent));
-        foreach (var subscription in subscriptions)
+        lock (_gate)
         {
-            subscription.Handler(entry);
+            if (_capacity > 0)
+            {
+                if (_buffer.Count == _capacity)
+                {
+                    _buffer.Dequeue();
+                }
+
+                _buffer.Enqueue(entry);
+            }
+
+            foreach (var subscription in _subscriptions)
+            {
+                subscription.Handler(entry);
+            }
         }
     }
 
@@ -88,9 +127,17 @@ internal sealed class LiveLogSink(ISecretMasker masker) : ILogEventSink, ILiveLo
     /// <summary>
     /// Removes <paramref name="subscription"/> from the subscriptions; removing it again has no effect.
     /// </summary>
+    /// <remarks>
+    /// The removal waits for a delivery in progress, so no entry reaches the handler after this method returns.
+    /// </remarks>
     /// <param name="subscription">The subscription to remove.</param>
-    private void Unsubscribe(Subscription subscription) =>
-        ImmutableInterlocked.Update(ref _subscriptions, static (current, removed) => current.Remove(removed), subscription);
+    private void Unsubscribe(Subscription subscription)
+    {
+        lock (_gate)
+        {
+            _subscriptions = _subscriptions.Remove(subscription);
+        }
+    }
 
     /// <summary>
     /// Holds one handler of the feed; disposing it unsubscribes the handler.

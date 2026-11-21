@@ -10,7 +10,7 @@ using GitHubBackup.Core.Ui;
 namespace GitHubBackup.App.Views;
 
 /// <summary>
-/// Shows the tree of accounts and repositories, the commands that start a backup, the live log of a run and its results, each in its own card.
+/// Shows the tree of accounts and repositories, the commands that start a backup, the live log of the session and the results of a run, each in its own card.
 /// </summary>
 public sealed partial class RepositoriesView : UserControl
 {
@@ -33,11 +33,20 @@ public sealed partial class RepositoriesView : UserControl
     }
 
     /// <summary>
-    /// Reads the tree when the view first appears; the ViewModel reads nothing while the container creates it.
+    /// Reads the tree when the view appears, and scrolls the live log to its newest entry; the ViewModel reads nothing
+    /// while the container creates it.
     /// </summary>
+    /// <remarks>
+    /// The live log outlives the view, so a view opened again after the settings editor or the history screen shows
+    /// entries that are already there, and would otherwise open on the oldest of them.
+    /// </remarks>
     /// <param name="sender">The view.</param>
     /// <param name="e">No data.</param>
-    private void OnLoaded(object sender, RoutedEventArgs e) => (DataContext as RepositoriesViewModel)?.RefreshCommand.Execute(null);
+    private void OnLoaded(object sender, RoutedEventArgs e)
+    {
+        (DataContext as RepositoriesViewModel)?.RefreshCommand.Execute(null);
+        QueueScrollToNewest();
+    }
 
     /// <summary>
     /// Resizes the results panel by the vertical movement of the splitter above it; the tree gives or takes the
@@ -151,7 +160,18 @@ public sealed partial class RepositoriesView : UserControl
     /// <param name="e">The change.</param>
     private void OnRunLogChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
-        if (e.Action != NotifyCollectionChangedAction.Add || _scrollToNewestQueued)
+        if (e.Action == NotifyCollectionChangedAction.Add)
+        {
+            QueueScrollToNewest();
+        }
+    }
+
+    /// <summary>
+    /// Queues one scroll of the live log to its newest entry at background priority, unless one is already queued.
+    /// </summary>
+    private void QueueScrollToNewest()
+    {
+        if (_scrollToNewestQueued)
         {
             return;
         }

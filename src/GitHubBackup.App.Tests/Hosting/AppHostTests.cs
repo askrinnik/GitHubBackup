@@ -3,20 +3,27 @@ using GitHubBackup.App.Discovery;
 using GitHubBackup.App.Hosting;
 using GitHubBackup.App.Runs;
 using GitHubBackup.App.Shell;
+using GitHubBackup.App.Tests.Runs;
 using GitHubBackup.App.ViewModels;
 using GitHubBackup.Core.Configuration;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Serilog.Core;
+using Serilog.Events;
+using Serilog.Parsing;
 
 namespace GitHubBackup.App.Tests.Hosting;
 
 /// <summary>
 /// Tests <see cref="AppHost"/>: the shared host builder with the services of the WPF application added.
 /// </summary>
-public sealed class AppHostTests : IDisposable
+public sealed partial class AppHostTests : IDisposable
 {
     private readonly TemporaryContentRoot _contentRoot = new(AppTestSettings.ValidAppSettings);
 
@@ -146,6 +153,54 @@ public sealed class AppHostTests : IDisposable
         host.Services.GetRequiredService<ILiveLogFeed>().ShouldBeSameAs(feed);
     }
 
+    [Fact]
+    public void BuildHost_RunLog_IsSingletonSharedByRepositoryScreens()
+    {
+        using var host = BuildHost();
+
+        var runLog = host.Services.GetRequiredService<RunLogViewModel>();
+
+        host.Services.GetRequiredService<RunLogViewModel>().ShouldBeSameAs(runLog);
+        host.Services.GetRequiredService<RepositoriesViewModel>().RunLog.ShouldBeSameAs(runLog);
+        host.Services.GetRequiredService<RepositoriesViewModel>().RunLog.ShouldBeSameAs(runLog);
+    }
+
+    [Fact]
+    public void BuildHost_LiveLogBuffer_KeepsAsManyEntriesAsRunLog()
+    {
+        using var host = BuildHost();
+
+        host.Services.GetRequiredService<IOptions<LiveLogOptions>>().Value.BufferCapacity.ShouldBe(RunLogViewModel.MaxEntries);
+    }
+
+    [Fact]
+    public void BuildHost_EntryWrittenBeforeRunLogExists_IsShown()
+    {
+        var dispatcher = new ManualUiDispatcher();
+        using var host = BuildHost(dispatcher);
+        WriteWarning(host.Services.GetRequiredService<ILogger<AppHostTests>>(), "Written before the window");
+
+        var runLog = host.Services.GetRequiredService<RunLogViewModel>();
+        dispatcher.RunAll();
+
+        runLog.Entries.Select(entry => entry.Message).ShouldBe(["Written before the window"]);
+    }
+
+    [Fact]
+    public void Dispose_Host_StopsDeliveringEntriesToRunLog()
+    {
+        var dispatcher = new ManualUiDispatcher();
+        var host = BuildHost(dispatcher);
+        var runLog = host.Services.GetRequiredService<RunLogViewModel>();
+        var sink = (ILogEventSink)host.Services.GetRequiredService<ILiveLogFeed>();
+
+        host.Dispose();
+        sink.Emit(new(DateTimeOffset.UnixEpoch, LogEventLevel.Warning, null, new MessageTemplateParser().Parse("After the exit"), []));
+        dispatcher.RunAll();
+
+        runLog.Entries.ShouldBeEmpty();
+    }
+
     /// <summary>
     /// Deletes the content root.
     /// </summary>
@@ -156,4 +211,26 @@ public sealed class AppHostTests : IDisposable
     /// </summary>
     /// <returns>The host, not yet started; the caller disposes it.</returns>
     private IHost BuildHost() => AppHost.BuildHost(AppTestSettings.Create(_contentRoot.FolderPath));
+
+    /// <summary>
+    /// Logs <paramref name="text"/> at <see cref="LogLevel.Warning"/>.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="text">The text of the entry.</param>
+    [LoggerMessage(EventId = 1, Level = LogLevel.Warning, Message = "{Text}")]
+    private static partial void WriteWarning(ILogger logger, string text);
+
+    /// <summary>
+    /// Builds the host of the WPF application over the content root with <paramref name="dispatcher"/> as its UI
+    /// dispatcher, so the test can run what the live log posts to the UI thread.
+    /// </summary>
+    /// <param name="dispatcher">The dispatcher the test runs by hand.</param>
+    /// <returns>The host, not yet started; the caller disposes it.</returns>
+    private IHost BuildHost(ManualUiDispatcher dispatcher)
+    {
+        var builder = GitHubBackupHostBuilder.Create(AppTestSettings.Create(_contentRoot.FolderPath));
+        builder.Services.AddGitHubBackupApp();
+        builder.Services.Replace(ServiceDescriptor.Singleton<IUiDispatcher>(dispatcher));
+        return builder.Build();
+    }
 }

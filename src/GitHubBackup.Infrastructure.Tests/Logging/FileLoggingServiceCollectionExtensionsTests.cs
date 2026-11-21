@@ -68,14 +68,47 @@ public sealed class FileLoggingServiceCollectionExtensionsTests
         exception.Failures.ShouldHaveSingleItem().ShouldStartWith("Serilog:MinimumLevel:Default must be one of ");
     }
 
+    [Fact]
+    public void AddGitHubBackupLogging_NoBufferCall_KeepsNoLiveLogEntries()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IOptions<LiveLogOptions>>().Value.BufferCapacity.ShouldBe(0);
+    }
+
+    [Fact]
+    public void AddGitHubBackupLiveLogBuffer_Capacity_SetsBufferCapacity()
+    {
+        using var provider = BuildProvider(new(), services => services.AddGitHubBackupLiveLogBuffer(5000));
+
+        provider.GetRequiredService<IOptions<LiveLogOptions>>().Value.BufferCapacity.ShouldBe(5000);
+        provider.GetRequiredService<IStartupValidator>().Validate();
+    }
+
+    [Theory]
+    [InlineData(-1)]
+    [InlineData(LiveLogOptions.MaxBufferCapacity + 1)]
+    public void AddGitHubBackupLiveLogBuffer_CapacityOutOfRange_FailsStartupValidation(int capacity)
+    {
+        using var provider = BuildProvider(new(), services => services.AddGitHubBackupLiveLogBuffer(capacity));
+
+        var exception = Should.Throw<OptionsValidationException>(() => provider.GetRequiredService<IStartupValidator>().Validate());
+
+        exception.Failures.ShouldHaveSingleItem().ShouldStartWith("LiveLogOptions:BufferCapacity must be from 0 to ");
+    }
+
     /// <summary>
     /// Builds a service provider with the logging services registered over <paramref name="values"/>.
     /// </summary>
     /// <param name="values">The configuration keys and values.</param>
+    /// <param name="configure">Adds further registrations after the logging services, if given.</param>
     /// <returns>The service provider; the caller disposes it.</returns>
-    private static ServiceProvider BuildProvider(Dictionary<string, string?> values)
+    private static ServiceProvider BuildProvider(
+        Dictionary<string, string?> values, Action<IServiceCollection>? configure = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-        return new ServiceCollection().AddGitHubBackupLogging(configuration).BuildServiceProvider();
+        var services = new ServiceCollection().AddGitHubBackupLogging(configuration);
+        configure?.Invoke(services);
+        return services.BuildServiceProvider();
     }
 }
