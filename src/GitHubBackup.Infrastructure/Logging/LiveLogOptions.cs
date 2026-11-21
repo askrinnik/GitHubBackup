@@ -18,4 +18,10 @@ public sealed class LiveLogOptions
     /// nobody.
     /// </remarks>
     public int BufferCapacity { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the host shows the feed, so entries reach it by the levels of the <c>LiveLog</c> endpoint;
+    /// a host without the feed does not attach the endpoint.
+    /// </summary>
+    public bool Enabled { get; set; }
 }

@@ -67,6 +67,24 @@ public sealed class CliEndToEndTests : IDisposable
     }
 
     [Fact]
+    public async Task Backup_SilentWithConsoleLog_WritesLogToStandardErrorAndSummaryToStandardOutput()
+    {
+        await GivenTrackedRepositoriesAsync("a");
+
+        var result = await _installation.RunAsync("backup", "--silent", "--Serilog:Endpoints:Console:Level=Information");
+
+        result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
+        result.StandardOutput.ShouldContain(nameof(BackupItemStatus.Archived));
+        result.StandardOutput.ShouldNotContain("[INF]");
+        var textLog = Directory.GetFiles(_installation.LogsPath, LogFiles.FileNamePrefix + "*" + LogFiles.TextExtension)
+            .ShouldHaveSingleItem();
+        string[] textLogLines = [.. (await File.ReadAllLinesAsync(textLog, CancellationToken)).Where(line => line.Length > 0)];
+        result.ErrorLines().ShouldBe(textLogLines, result.ToString());
+        result.StandardError.ShouldContain("[INF]");
+        result.StandardError.ShouldNotContain(CliApplicationTests.HostTestToken);
+    }
+
+    [Fact]
     public async Task Backup_SilentOneRemoteMissing_ExitsWithFailuresAndArchivesTheOther()
     {
         await GivenTrackedRepositoriesAsync("a");
