@@ -34,11 +34,24 @@ public sealed record ProcessRequest
     public bool IsStandardOutputSecret { get; init; }
 
     /// <summary>
-    /// Gets the level of the entries logged for the start, every output line and a successful exit of the process.
+    /// Gets a short English description of what the run does, logged before the command line so that the log reads
+    /// without knowledge of the tool's options.
     /// </summary>
     /// <remarks>
-    /// A failed exit is logged as <see cref="LogLevel.Warning"/> whatever this level is. Routine probes, such as the
-    /// version checks at startup, use <see cref="LogLevel.Debug"/> so that they stay out of the default log.
+    /// A constant text: it never contains a branch, a path or a URL, which belong to the detail entries only.
     /// </remarks>
+    public required string Description { get; init; }
+
+    /// <summary>Gets the level of the entry that carries <see cref="Description"/>.</summary>
     public LogLevel LogLevel { get; init; } = LogLevel.Information;
+
+    /// <summary>
+    /// Gets the level of the entries logged for the command line, every output line and a successful exit of the
+    /// process.
+    /// </summary>
+    /// <remarks>
+    /// A non-zero exit, a cancellation and a failed kill are logged as <see cref="LogLevel.Warning"/> whatever this
+    /// level is.
+    /// </remarks>
+    public LogLevel DetailsLogLevel { get; init; } = LogLevel.Debug;
 }

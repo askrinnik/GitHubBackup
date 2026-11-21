@@ -6,10 +6,12 @@ using GitHubBackup.Core.Logging;
 using GitHubBackup.Core.Processes;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Git;
+using GitHubBackup.Infrastructure.Hosting;
 using GitHubBackup.Infrastructure.Logging;
 using GitHubBackup.Infrastructure.Processes;
 using GitHubBackup.TestUtilities;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
 
@@ -41,6 +43,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
     private const int _exitedEventId = 3;
     private const int _cancelledEventId = 4;
     private const int _killFailedEventId = 5;
+    private const int _describingEventId = 7;
 
     private readonly TemporaryContentRoot _contentRoot = new(_informationAppSettings);
     private readonly FakeLogger<ProcessRunner> _logger = new();
@@ -156,57 +159,86 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
         var records = _logger.Collector.GetSnapshot();
-        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _outputLineEventId, _exitedEventId]);
+        records.Select(record => record.Id.Id).ShouldBe(
+            [_describingEventId, _startingEventId, _outputLineEventId, _outputLineEventId, _exitedEventId]);
+        var describing = records[0];
+        describing.Level.ShouldBe(LogLevel.Information);
+        describing.GetStructuredStateValue(LogProperties.Description).ShouldBe(TestScript.Description);
+        records.Skip(1).ShouldAllBe(record => record.Level == LogLevel.Debug);
         var lines = records.Where(record => record.Id.Id == _outputLineEventId).ToList();
         lines.Select(record => record.GetStructuredStateValue("Line")).ShouldBe(["first", "second"]);
         lines.ShouldAllBe(record => record.GetStructuredStateValue(LogProperties.Stream) == "stdout");
         records.ShouldAllBe(record => record.GetStructuredStateValue(LogProperties.Tool) == "cmd");
         var exited = records[^1];
-        exited.Level.ShouldBe(LogLevel.Information);
         exited.GetStructuredStateValue("ExitCode").ShouldBe("0");
         TimeSpan.Parse(exited.GetStructuredStateValue("Duration")!, CultureInfo.InvariantCulture).ShouldBeGreaterThan(TimeSpan.Zero);
     }
 
     [Fact]
-    public async Task RunAsync_DebugLevelRequest_LogsStartLinesAndExitAtDebug()
+    public async Task RunAsync_ExplicitLevels_LogsDescriptionAndDetailsAtThem()
     {
         var request = TestScript.Create(_contentRoot.FolderPath, ["echo first", ">&2 echo second"]) with
         {
-            LogLevel = LogLevel.Debug,
+            LogLevel = LogLevel.Warning,
+            DetailsLogLevel = LogLevel.Information,
         };
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
         var records = _logger.Collector.GetSnapshot();
-        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _outputLineEventId, _exitedEventId]);
-        records.ShouldAllBe(record => record.Level == LogLevel.Debug);
+        records.Select(record => (record.Id.Id, record.Level)).ShouldBe(
+        [
+            (_describingEventId, LogLevel.Warning),
+            (_startingEventId, LogLevel.Information),
+            (_outputLineEventId, LogLevel.Information),
+            (_outputLineEventId, LogLevel.Information),
+            (_exitedEventId, LogLevel.Information),
+        ]);
     }
 
     [Fact]
-    public async Task RunAsync_TraceRequestAtInformationMinimum_WritesNoStartLineOrExitEntries()
+    public async Task RunAsync_DebugDisabled_LogsOnlyDescription()
     {
         _logger.ControlLevel(LogLevel.Trace, enabled: false);
         _logger.ControlLevel(LogLevel.Debug, enabled: false);
-        var request = TestScript.Create(_contentRoot.FolderPath, ["echo first", ">&2 echo second"]) with
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo first", ">&2 echo second"]);
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_describingEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+        record.GetStructuredStateValue(LogProperties.Tool).ShouldBe("cmd");
+        record.GetStructuredStateValue(LogProperties.Description).ShouldBe(TestScript.Description);
+    }
+
+    [Fact]
+    public async Task RunAsync_DebugDisabledNonZeroExitCode_LogsDescriptionAndExitAsWarning()
+    {
+        _logger.ControlLevel(LogLevel.Trace, enabled: false);
+        _logger.ControlLevel(LogLevel.Debug, enabled: false);
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo detail", "exit /b 5"]);
+
+        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => (record.Id.Id, record.Level)).ShouldBe(
+            [(_describingEventId, LogLevel.Information), (_exitedEventId, LogLevel.Warning)]);
+    }
+
+    [Fact]
+    public async Task RunAsync_DescriptionWithSecret_IsMasked()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 0"]) with
         {
-            LogLevel = LogLevel.Trace,
+            Description = $"Running with {_token}",
         };
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
-        _logger.Collector.GetSnapshot().ShouldBeEmpty();
-    }
-
-    [Fact]
-    public async Task RunAsync_DebugLevelRequestNonZeroExitCode_LogsExitAsWarning()
-    {
-        var request = TestScript.Create(_contentRoot.FolderPath, ["exit /b 5"]) with { LogLevel = LogLevel.Debug };
-
-        await _runner.RunAsync(request, TestContext.Current.CancellationToken);
-
-        var exited = _logger.LatestRecord;
-        exited.Id.Id.ShouldBe(_exitedEventId);
-        exited.Level.ShouldBe(LogLevel.Warning);
+        var describing = _logger.Collector.GetSnapshot().Single(record => record.Id.Id == _describingEventId);
+        describing.GetStructuredStateValue(LogProperties.Description).ShouldBe("Running with ***");
+        ShouldNotContainAnywhere(describing, _token);
     }
 
     [Fact]
@@ -234,8 +266,8 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         result.StandardOutput.ShouldBe([_secretValue]);
         var records = _logger.Collector.GetSnapshot();
-        records.Select(record => record.Id.Id).ShouldBe([_startingEventId, _outputLineEventId, _exitedEventId]);
-        var line = records[1];
+        records.Select(record => record.Id.Id).ShouldBe([_describingEventId, _startingEventId, _outputLineEventId, _exitedEventId]);
+        var line = records[2];
         line.GetStructuredStateValue(LogProperties.Stream).ShouldBe("stderr");
         line.GetStructuredStateValue("Line").ShouldBe("to error");
         foreach (var record in records)
@@ -253,7 +285,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await _runner.RunAsync(request, TestContext.Current.CancellationToken);
 
-        EventIds().ShouldBe([_startingEventId, _exitedEventId]);
+        EventIds().ShouldBe([_describingEventId, _startingEventId, _exitedEventId]);
     }
 
     [Fact]
@@ -265,7 +297,7 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(() => _runner.RunAsync(request, cancellation.Token));
 
-        EventIds().ShouldBe([_startingEventId, _cancelledEventId]);
+        EventIds().ShouldBe([_describingEventId, _startingEventId, _cancelledEventId]);
     }
 
     [Fact]
@@ -290,8 +322,68 @@ public sealed class ProcessRunnerLoggingTests : IDisposable
 
         await Should.ThrowAsync<OperationCanceledException>(() => runner.RunAsync(request, cancellation.Token));
 
-        EventIds().ShouldBe([_startingEventId, _killFailedEventId, _cancelledEventId]);
-        _logger.Collector.GetSnapshot()[1].GetStructuredStateValue("Error").ShouldBe("Access is denied for ***");
+        EventIds().ShouldBe([_describingEventId, _startingEventId, _killFailedEventId, _cancelledEventId]);
+        _logger.Collector.GetSnapshot()[2].GetStructuredStateValue("Error").ShouldBe("Access is denied for ***");
+    }
+
+    [Fact]
+    public async Task RunAsync_DefaultEndpointLevels_FileGetsDetailsAndLiveLogOnlyDescription()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo detail line"]);
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost())
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            await host.Services.GetRequiredService<IProcessRunner>().RunAsync(request, TestContext.Current.CancellationToken);
+        }
+
+        received.Select(entry => (entry.Level, entry.Message)).ShouldBe(
+            [(LogLevel.Information, $"cmd: {TestScript.Description}")]);
+        var log = _contentRoot.ReadTextLog();
+        log.ShouldContain($"cmd: {TestScript.Description}");
+        log.ShouldContain("Starting cmd:");
+        log.ShouldContain("cmd stdout: detail line");
+        log.ShouldContain("cmd exited with code 0");
+    }
+
+    [Fact]
+    public async Task RunAsync_LiveLogDebugAndFileInformation_LiveLogGetsDetailsAndFileOnlyDescription()
+    {
+        var request = TestScript.Create(_contentRoot.FolderPath, ["echo detail line"]);
+        var received = new List<LiveLogEntry>();
+
+        using (var host = BuildLiveLogHost(
+            "--Serilog:Endpoints:LiveLog:Level=Debug", "--Serilog:Endpoints:File:Level=Information"))
+        {
+            using var subscription = host.Services.GetRequiredService<ILiveLogFeed>().Subscribe(received.Add);
+            await host.Services.GetRequiredService<IProcessRunner>().RunAsync(request, TestContext.Current.CancellationToken);
+        }
+
+        received.Select(entry => entry.Message).ShouldContain($"cmd: {TestScript.Description}");
+        received.ShouldContain(entry => entry.Level == LogLevel.Debug && entry.Message == "cmd stdout: detail line");
+        received.ShouldContain(entry => entry.Level == LogLevel.Debug && entry.Message.StartsWith("Starting cmd:", StringComparison.Ordinal));
+        var log = _contentRoot.ReadTextLog();
+        log.ShouldContain($"cmd: {TestScript.Description}");
+        log.ShouldNotContain("Starting cmd:");
+        log.ShouldNotContain("detail line");
+    }
+
+    /// <summary>
+    /// Builds a host over the content root with the live log feed attached, as the WPF application builds it.
+    /// </summary>
+    /// <param name="configurationArguments">The configuration keys, each in the form <c>--Section:Key=value</c>.</param>
+    /// <returns>The host; the caller disposes it.</returns>
+    private IHost BuildLiveLogHost(params string[] configurationArguments)
+    {
+        var builder = GitHubBackupHostBuilder.Create(new()
+        {
+            ConfigurationArguments = configurationArguments,
+            ContentRootPath = _contentRoot.FolderPath,
+            EnvironmentName = Environments.Production,
+        });
+        builder.Services.AddGitHubBackupLiveLogBuffer(100);
+        return builder.Build();
     }
 
     /// <summary>

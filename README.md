@@ -154,7 +154,7 @@ The file is optional and is not published. Every key has a default in the progra
       "Override": { "Microsoft.Hosting.Lifetime": "Warning" }
     },
     "Endpoints": {
-      "File": { "Level": null },
+      "File": { "Level": "Debug" },
       "Console": { "Level": null },
       "LiveLog": { "Level": null },
       "OpenTelemetry": { "Level": null }
@@ -177,8 +177,8 @@ The file is optional and is not published. Every key has a default in the progra
 | `OpenTelemetry:OtlpEndpoint` | `http://localhost:4317` | Absolute URI of the OTLP collector, checked when telemetry is on. When `OpenTelemetry:Headers` is set, the scheme must be `https`, or `http` for a loopback address, so the key of the receiver never crosses the network unencrypted. |
 | `OpenTelemetry:Headers` | `null` | OTLP headers sent with every export, as `name=value` pairs separated by commas, for example `api-key=<license key>` for New Relic (see [Send telemetry to New Relic](#send-telemetry-to-new-relic)). The value is split from the name at the first `=`; spaces around names and values are dropped. Checked when telemetry is on: each pair needs a header name and a value, and an empty pair (`a=b,,c=d`, a trailing comma) is an error. The value is a secret and is masked as `***`. Keep it in the Windows Credential Manager (see [OTLP headers in the Credential Manager](#otlp-headers-in-the-credential-manager)), not in this file: the file keeps the value in plain text. For automation, the variable `GitHubBackup__OpenTelemetry__Headers` works too; avoid the command line, which other processes can read. |
 | `Serilog:MinimumLevel:Default` | `Information` | One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
-| `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. |
-| `Serilog:Endpoints:<name>:Level` | `null` | Level of one log endpoint: `File`, `Console`, `LiveLog` or `OpenTelemetry` (see [Log levels](#log-levels)). One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`, `Off`; `null` or an empty value takes `Serilog:MinimumLevel:Default`. `Off` switches the endpoint off. |
+| `Serilog:MinimumLevel:Override:<SourceContext>` | `Microsoft.Hosting.Lifetime`: `Warning` | Optional level for sources with that prefix, for example `"Microsoft": "Warning"`. The default keeps the start and stop messages of the host ("Application started. Press Ctrl+C to shut down.") out of the log; set `"Microsoft.Hosting.Lifetime": "Information"` to log them again. A key for a `Microsoft` or `System` source also lifts the floor of the libraries (see [Log levels](#log-levels)). |
+| `Serilog:Endpoints:<name>:Level` | `Debug` for `File` when the key is missing; `null` for the others | Level of one log endpoint: `File`, `Console`, `LiveLog` or `OpenTelemetry` (see [Log levels](#log-levels)). One of `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`, `Off`; `null` or an empty value takes `Serilog:MinimumLevel:Default`, also for `File`. `Off` switches the endpoint off. |
 | `Serilog:Endpoints:<name>:Override:<SourceContext>` | none | Optional level of that endpoint for sources with that prefix; it wins over `Serilog:MinimumLevel:Override`. One of the levels of `Level`; `Off` drops the entries of that source from the endpoint. |
 
 `Off` is valid only under `Serilog:Endpoints`. Each section `Serilog:Endpoints` and `Serilog:Endpoints:<name>`, and each `Override` in it, must be an object: a value such as `"Console": "Warning"` is an error, and so is an endpoint name that is not in the list.
@@ -707,7 +707,37 @@ The program writes one log per day to the folder `logs\` next to the exe:
 - `logs\githubbackup-YYYYMMDD.log`: readable text;
 - `logs\githubbackup-YYYYMMDD.json`: structured log (CLEF, one JSON line per event).
 
-Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The log holds the full command line of every git and 7-Zip call and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`, every output line of the tools, and the exit code and duration. The token, the value of `OpenTelemetry:Headers` and authorization headers never appear in the log. The program does not delete old logs.
+Every entry has a run ID and, where it applies, the repository (`owner/repo`) and the operation (`clone`, `fetch`, `archive`). The token, the value of `OpenTelemetry:Headers` and authorization headers never appear in the log. The program does not delete old logs.
+
+#### Descriptions and details
+
+Before each run of an external program (git, git-lfs, 7-Zip, the GitHub CLI, Explorer, also the version checks at start) and before each GitHub API request, the program writes a short description of the action at level `Information`, for example:
+
+```text
+git: Switching the working tree to the target branch
+git: Removing untracked and ignored files
+7z: Testing the archive
+GitHub API: Requesting the repositories of the authenticated user
+```
+
+A description is a fixed English text: it never holds a branch, a path or a URL. The entry of a program run has the properties `Tool` and `Description`, the entry of an API request the property `Description`.
+
+The details follow at level `Debug`:
+
+- for a program: the full command line and the environment variables the program sets for it as `NAME=value` (for example `GIT_CONFIG_KEY_0=core.longpaths`), with secrets masked as `***`; every output line of the tool; the exit code and duration after exit code `0`;
+- for an API request: the resource, the duration and the remaining rate limit.
+
+A non-zero exit code, a cancelled run, a failed stop of a process, a failed API request and a low rate limit are logged at level `Warning`. The error of a failed git or 7-Zip run also quotes the last lines of the tool's error output, so the reason stays visible without the details.
+
+By default, the log files get the details, and the console of `GitHubBackup.Cli.exe`, the live log of the desktop app and the OTLP export get only the descriptions:
+
+| Entry | Files | Live log | Console | OTLP |
+|---|---|---|---|---|
+| Description (`Information`) | yes | yes | yes | yes |
+| Details (`Debug`) | yes | no | no | no |
+| Failure (`Warning`) | yes | yes | yes | yes |
+
+This comes from two defaults: `Serilog:Endpoints:File:Level` is `Debug` when the key is missing, and the other endpoints take `Serilog:MinimumLevel:Default` (`Information`). The floor of the libraries (see [Log levels](#log-levels)) keeps the debug entries of `Microsoft.*` and `System.*` out of the files. To change this, set the levels of [Log levels](#log-levels).
 
 #### Log levels
 
@@ -729,6 +759,12 @@ For each endpoint, the program takes the level of an entry from the first rule t
 
 An `Override` key matches a source that equals the key or starts with the key and a dot: `GitHubBackup` matches `GitHubBackup.Infrastructure`, but not `GitHubBackupX`. Keys match in any case. If several keys of one list match, the longest one wins. The endpoint receives the entry when its level is not below the level found.
 
+**Floor of the libraries.** For a source that is `Microsoft` or `System`, or starts with `Microsoft.` or `System.`, and that no `Override` key matches (rules 1 and 2), the level found is raised to `Information` when it is lower. So the debug entries of the .NET libraries stay out of the files, and an endpoint at `Warning` drops their `Information` entries too. An `Override` key for the namespace of a library lifts the floor, for example to see the SQL commands of the history database in the files:
+
+```json
+{ "Serilog": { "Endpoints": { "File": { "Override": { "Microsoft.EntityFrameworkCore": "Debug" } } } } }
+```
+
 The section **Logging** of the settings editor sets `Level` of each endpoint (see [Settings editor](#settings-editor)); the `Override` keys are edited only in `appsettings.json`.
 
 This example writes debug entries of the program to the files, keeps the other endpoints at `Information`, and sends only errors over OTLP:
@@ -749,6 +785,18 @@ By default, `GitHubBackup.Cli.exe` writes every log entry of level `Information`
 
 ```json
 { "Serilog": { "Endpoints": { "Console": { "Level": "Off" } } } }
+```
+
+To see the full output of the programs in the live log or send it over OTLP, set the level of that endpoint to `Debug`:
+
+```json
+{ "Serilog": { "Endpoints": { "LiveLog": { "Level": "Debug" }, "OpenTelemetry": { "Level": "Debug" } } } }
+```
+
+To keep only the descriptions in the files, set the level of `File` to `Information`; `null` does the same while `Serilog:MinimumLevel:Default` is `Information`:
+
+```json
+{ "Serilog": { "Endpoints": { "File": { "Level": "Information" } } } }
 ```
 
 The levels apply after a restart. An error while the program starts is written to the log file at level `Information`, whatever these keys say.
@@ -835,7 +883,7 @@ Metrics (meter `GitHubBackup`):
 Logs:
 
 - The program sends the same entries it writes to the log files (see [Logs](#logs)): the message, the level, the category and the properties of the entry as attributes, among them `RunId`, `Repository` and `Operation`.
-- The sent entries follow the levels of the `OpenTelemetry` endpoint (see [Log levels](#log-levels)); without `Serilog:Endpoints:OpenTelemetry`, they follow `Serilog:MinimumLevel` like the log files.
+- The sent entries follow the levels of the `OpenTelemetry` endpoint (see [Log levels](#log-levels)); without `Serilog:Endpoints:OpenTelemetry`, they follow `Serilog:MinimumLevel`, so the export gets the descriptions of program runs and API requests but not their details (see [Descriptions and details](#descriptions-and-details)).
 - Every sent entry has the attribute `level` with the name of its level (`Trace`, `Debug`, `Information`, `Warning`, `Error` or `Critical`), the same value as the severity text of the record, so a backend can show the level as an ordinary attribute. The Serilog level `Fatal` is sent as `Critical`. If the entry already has a property named `level`, the program keeps that value and adds no second attribute. The log files do not change.
 - Secrets, the token and the values of `OpenTelemetry:Headers` among them, are masked as `***` before an entry leaves the program: in the message, in the message template and in every attribute. The exception of an entry travels as the attributes `exception.type`, `exception.message` and `exception.stacktrace`, with its message and stack trace masked.
 - With telemetry off, the program registers no OpenTelemetry log provider; the log files and the live log of the desktop app are the same either way.

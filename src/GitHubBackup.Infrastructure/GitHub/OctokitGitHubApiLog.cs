@@ -42,4 +42,21 @@ internal static partial class OctokitGitHubApiLog
         Level = LogLevel.Warning,
         Message = "GitHub API rate limit is low: {Remaining}/{Limit} remaining, resets at {ResetAt}")]
     public static partial void RateLimitLow(ILogger logger, int remaining, int limit, DateTimeOffset resetAt);
+
+    /// <summary>
+    /// Logs the short description of an API operation before its first request.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="description">The description of the operation.</param>
+    [LoggerMessage(EventId = 4, Level = LogLevel.Information, Message = "GitHub API: {Description}")]
+    public static partial void Requesting(ILogger logger, string description);
+
+    /// <summary>
+    /// Logs that an API operation completed successfully.
+    /// </summary>
+    /// <param name="logger">The logger.</param>
+    /// <param name="resource">The API resource.</param>
+    /// <param name="duration">The time from the first request to the last response.</param>
+    [LoggerMessage(EventId = 5, Level = LogLevel.Debug, Message = "GitHub API {Resource} completed after {Duration}")]
+    public static partial void RequestCompleted(ILogger logger, string resource, TimeSpan duration);
 }

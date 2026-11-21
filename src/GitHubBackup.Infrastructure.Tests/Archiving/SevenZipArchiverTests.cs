@@ -145,6 +145,17 @@ public sealed class SevenZipArchiverTests
     }
 
     [Fact]
+    public async Task CreateAsync_VerifyArchiveOn_DescribesCreateAndTest()
+    {
+        _options.VerifyArchive = true;
+
+        await CreateArchiver().CreateAsync(Request(), CancellationToken);
+
+        var calls = _runner.ReceivedCalls().Select(call => (ProcessRequest)call.GetArguments()[0]!).ToList();
+        calls.Select(call => call.Description).ShouldBe(["Creating the ZIP archive", "Testing the archive"]);
+    }
+
+    [Fact]
     public async Task CreateAsync_VerifyArchiveOff_DoesNotRunTest()
     {
         _options.VerifyArchive = false;

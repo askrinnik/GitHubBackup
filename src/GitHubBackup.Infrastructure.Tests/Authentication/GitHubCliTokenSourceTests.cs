@@ -59,6 +59,7 @@ public sealed class GitHubCliTokenSourceTests
         request.Arguments.ShouldBe(["auth", "token", "--hostname", "github.com"]);
         request.WorkingDirectory.ShouldBe(_ghFolder);
         request.IsStandardOutputSecret.ShouldBeTrue();
+        request.Description.ShouldBe("Reading the token of the GitHub CLI");
         request.EnvironmentVariables.ShouldBe(
         [
             new ProcessEnvironmentVariable("GH_PROMPT_DISABLED", "1"),

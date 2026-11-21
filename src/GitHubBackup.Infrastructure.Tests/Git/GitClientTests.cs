@@ -364,38 +364,117 @@ public sealed class GitClientTests
     }
 
     [Fact]
-    public async Task GetRemoteRefsAsync_ValidRequest_RunsLsRemoteAtDebugLevel()
+    public async Task GetRemoteRefsAsync_ValidRequest_DescribesLsRemoteAtDefaultLevels()
     {
         _respond = request => Output($"{_mainCommit}	refs/heads/main");
 
         await CreateClient().GetRemoteRefsAsync(Request(_token), TestContext.Current.CancellationToken);
 
-        _requests.ShouldHaveSingleItem().LogLevel.ShouldBe(LogLevel.Debug);
+        var request = _requests.ShouldHaveSingleItem();
+        request.Description.ShouldBe("Reading the branches, tags and default branch of the server");
+        request.LogLevel.ShouldBe(LogLevel.Information);
+        request.DetailsLogLevel.ShouldBe(LogLevel.Debug);
     }
 
     [Fact]
-    public async Task GetRemoteRefsAsync_RemoteUrl_RunsLsRemoteAtDebugLevel()
+    public async Task GetRemoteRefsAsync_RemoteUrl_DescribesLsRemoteAtDefaultLevels()
     {
         _fileSystem.AddDirectory(_parentPath);
         _respond = request => Output($"{_mainCommit}	refs/heads/main");
 
         await CreateClient().GetRemoteRefsAsync(Request(_token), _remoteUrl, TestContext.Current.CancellationToken);
 
-        _requests.ShouldHaveSingleItem().LogLevel.ShouldBe(LogLevel.Debug);
+        var request = _requests.ShouldHaveSingleItem();
+        request.Description.ShouldBe("Reading the branches and tags of the server without a clone");
+        request.LogLevel.ShouldBe(LogLevel.Information);
+        request.DetailsLogLevel.ShouldBe(LogLevel.Debug);
     }
 
     [Fact]
-    public async Task CloneAsync_ValidRequest_RunsOnlyLsRemoteAtDebugLevel()
+    public async Task CloneAsync_BranchNotSet_DescribesEveryCommandAtDefaultLevels()
     {
         await CreateClient().CloneAsync(
-            Request() with { Branch = null }, _remoteUrl, TestContext.Current.CancellationToken);
+            Request(_token) with { Branch = null }, _remoteUrl, TestContext.Current.CancellationToken);
 
-        var lsRemote = _requests.Where(request => request.Arguments[0] == "ls-remote").ToList();
-        lsRemote.ShouldNotBeEmpty();
-        lsRemote.ShouldAllBe(request => request.LogLevel == LogLevel.Debug);
-        var others = _requests.Where(request => request.Arguments[0] != "ls-remote").ToList();
-        others.ShouldContain(request => request.Arguments[0] == "clone");
-        others.ShouldAllBe(request => request.LogLevel == LogLevel.Information);
+        _requests.Select(request => request.Description).ShouldBe(
+        [
+            "Cloning the repository without a checkout",
+            "Reading the branches and tags of the clone",
+            "Reading the default branch of the server",
+            "Switching the working tree to the target branch",
+            "Resetting the working tree to the server state",
+            "Removing untracked and ignored files",
+            "Synchronizing submodule URLs",
+            "Checking out submodules",
+            "Downloading the LFS files of the checked-out branch",
+        ]);
+        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Information);
+        _requests.ShouldAllBe(request => request.DetailsLogLevel == LogLevel.Debug);
+    }
+
+    [Theory]
+    [InlineData(false, "Removing untracked and ignored files")]
+    [InlineData(true, "Removing untracked files and keeping ignored files")]
+    public async Task UpdateAsync_ValidRequest_DescribesFetchAndClean(bool keepIgnoredFiles, string cleanDescription)
+    {
+        await CreateClient().UpdateAsync(
+            Request(_token) with { KeepIgnoredFiles = keepIgnoredFiles }, TestContext.Current.CancellationToken);
+
+        _requests[0].Description.ShouldBe("Fetching branches and tags from the server");
+        _requests.Single(request => request.Arguments[0] == "clean").Description.ShouldBe(cleanDescription);
+    }
+
+    [Fact]
+    public async Task CloneCheck_EveryCommand_HasDescriptionWithoutBranchPathUrlOrToken()
+    {
+        _fileSystem.AddDirectory(_parentPath);
+        _respond = request => request.Arguments switch
+        {
+            ["--no-optional-locks", "status", ..] => Output($"# branch.oid {_mainCommit}", "# branch.head main"),
+            ["rev-list", ..] => Output("0"),
+            ["config", ..] => Output(_remoteUrl),
+            _ => Respond(request),
+        };
+        var client = CreateClient();
+        var request = Request(_token);
+        var cancellationToken = TestContext.Current.CancellationToken;
+
+        await client.GetOriginUrlAsync(request, cancellationToken);
+        await client.GetWorkingCopyStatusAsync(request, null, cancellationToken);
+        await client.GetUnpushedBranchCommitsAsync(request, "main", null, cancellationToken);
+        await client.GetIgnoredPathsAsync(request, cancellationToken);
+        await client.SetRemoteUrlAsync(request, _remoteUrl, cancellationToken);
+        await client.GetRemoteRefsAsync(request, _remoteUrl, cancellationToken);
+        await client.UpdateAsync(request with { Branch = "develop" }, cancellationToken);
+
+        _requests.Select(request => request.Description).Distinct().ShouldBe(
+        [
+            "Reading the origin URL of the clone",
+            "Checking the working copy for changes and untracked files",
+            "Checking whether the remote-tracking branch exists",
+            "Counting commits that are not on the server",
+            "Checking whether the local branch exists",
+            "Reading the index for submodules and symbolic links",
+            "Listing ignored files",
+            "Pointing origin at the repository URL",
+            "Reading the branches and tags of the server without a clone",
+            "Fetching branches and tags from the server",
+            "Reading the branches and tags of the clone",
+            "Switching the working tree to the target branch",
+            "Resetting the working tree to the server state",
+            "Removing untracked and ignored files",
+            "Synchronizing submodule URLs",
+            "Checking out submodules",
+            "Downloading the LFS files of the checked-out branch",
+        ]);
+        foreach (var description in _requests.Select(request => request.Description))
+        {
+            description.ShouldNotContain("main");
+            description.ShouldNotContain("develop");
+            description.ShouldNotContain(@"C:\");
+            description.ShouldNotContain("https://");
+            description.ShouldNotContain(_token);
+        }
     }
 
     [Fact]

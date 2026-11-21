@@ -14,6 +14,7 @@ public sealed class ProcessRunnerTests
 {
     private const string _toolPath = @"C:\tools\tool.exe";
     private const string _workingDirectory = @"C:\work";
+    private const string _description = "Running the tool";
 
     private readonly MockFileSystem _fileSystem = new();
     private readonly FakeLogger<ProcessRunner> _logger = new();
@@ -36,7 +37,19 @@ public sealed class ProcessRunnerTests
     [InlineData(_toolPath, @"\work")]
     public async Task RunAsync_PathNotFullyQualified_ThrowsArgumentException(string fileName, string workingDirectory)
     {
-        var request = new ProcessRequest { FileName = fileName, WorkingDirectory = workingDirectory };
+        var request = new ProcessRequest { FileName = fileName, WorkingDirectory = workingDirectory, Description = _description };
+
+        await Should.ThrowAsync<ArgumentException>(() => _runner.RunAsync(request, TestContext.Current.CancellationToken));
+
+        _logger.Collector.GetSnapshot().ShouldBeEmpty();
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task RunAsync_EmptyDescription_ThrowsArgumentExceptionWithoutLogging(string description)
+    {
+        var request = new ProcessRequest { FileName = _toolPath, WorkingDirectory = _workingDirectory, Description = description };
 
         await Should.ThrowAsync<ArgumentException>(() => _runner.RunAsync(request, TestContext.Current.CancellationToken));
 
@@ -46,7 +59,12 @@ public sealed class ProcessRunnerTests
     [Fact]
     public async Task RunAsync_MissingExecutable_ThrowsProcessStartExceptionNamingPath()
     {
-        var request = new ProcessRequest { FileName = @"C:\tools\missing.exe", WorkingDirectory = _workingDirectory };
+        var request = new ProcessRequest
+        {
+            FileName = @"C:\tools\missing.exe",
+            WorkingDirectory = _workingDirectory,
+            Description = _description,
+        };
 
         var exception = await Should.ThrowAsync<ProcessStartException>(
             () => _runner.RunAsync(request, TestContext.Current.CancellationToken));
@@ -58,7 +76,7 @@ public sealed class ProcessRunnerTests
     [Fact]
     public async Task RunAsync_MissingWorkingDirectory_ThrowsProcessStartExceptionNamingPath()
     {
-        var request = new ProcessRequest { FileName = _toolPath, WorkingDirectory = @"C:\missing" };
+        var request = new ProcessRequest { FileName = _toolPath, WorkingDirectory = @"C:\missing", Description = _description };
 
         var exception = await Should.ThrowAsync<ProcessStartException>(
             () => _runner.RunAsync(request, TestContext.Current.CancellationToken));
@@ -70,7 +88,7 @@ public sealed class ProcessRunnerTests
     [Fact]
     public async Task RunAsync_CancelledBeforeStart_ThrowsWithoutStarting()
     {
-        var request = new ProcessRequest { FileName = _toolPath, WorkingDirectory = _workingDirectory };
+        var request = new ProcessRequest { FileName = _toolPath, WorkingDirectory = _workingDirectory, Description = _description };
 
         await Should.ThrowAsync<OperationCanceledException>(
             () => _runner.RunAsync(request, new CancellationToken(canceled: true)));

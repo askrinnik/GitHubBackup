@@ -71,7 +71,8 @@ public sealed class CliEndToEndTests : IDisposable
     {
         await GivenTrackedRepositoriesAsync("a");
 
-        var result = await _installation.RunAsync("backup", "--silent", "--Serilog:Endpoints:Console:Level=Information");
+        var result = await _installation.RunAsync(
+            "backup", "--silent", "--Serilog:Endpoints:Console:Level=Information", "--Serilog:Endpoints:File:Level=Information");
 
         result.ExitCode.ShouldBe((int)ExitCode.Success, result.ToString());
         result.StandardOutput.ShouldContain(nameof(BackupItemStatus.Archived));

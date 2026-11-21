@@ -3,6 +3,8 @@ using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
 using GitHubBackup.Infrastructure.GitHub;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Testing;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using WireMock.RequestBuilders;
@@ -18,11 +20,15 @@ public sealed class OctokitGitHubTokenInspectorTests : IDisposable
 {
     private const string _token = "ghp_InspectorTokenValue0123456789abcdefAB";
     private const long _resetEpochSeconds = 1_893_456_000;
+    private const int _requestingEventId = 1;
+    private const int _requestCompletedEventId = 2;
+    private const int _rateLimitEventId = 3;
 
     private static readonly DateTimeOffset _resetAt = DateTimeOffset.FromUnixTimeSeconds(_resetEpochSeconds);
 
     private readonly WireMockServer _server = WireMockServer.Start();
     private readonly SecretMasker _masker = new();
+    private readonly FakeLogger<OctokitGitHubTokenInspector> _logger = new();
 
     /// <inheritdoc />
     public void Dispose() => _server.Dispose();
@@ -128,6 +134,50 @@ public sealed class OctokitGitHubTokenInspectorTests : IDisposable
         await Should.ThrowAsync<OperationCanceledException>(() => check);
     }
 
+    [Theory]
+    [InlineData(_token, "Checking the GitHub token", "user", 5000, 4999)]
+    [InlineData(null, "Checking the anonymous rate limit", "rate_limit", 60, 57)]
+    public async Task InspectAsync_Succeeds_LogsDescriptionThenCompletionAndRateLimitAtDebug(
+        string? token, string description, string resource, int limit, int remaining)
+    {
+        _server.Given(Request.Create().WithPath("/user").UsingGet()).RespondWith(Json(UserJson("octocat")));
+        _server
+            .Given(Request.Create().WithPath("/rate_limit").UsingGet())
+            .RespondWith(Json($$"""
+                { "resources": { "core": { "limit": 60, "remaining": 57, "reset": {{_resetEpochSeconds}}, "used": 3 } } }
+                """));
+
+        await CreateInspector().InspectAsync(token, TestContext.Current.CancellationToken);
+
+        var records = _logger.Collector.GetSnapshot();
+        records.Select(record => record.Id.Id).ShouldBe([_requestingEventId, _requestCompletedEventId, _rateLimitEventId]);
+        records[0].Level.ShouldBe(LogLevel.Information);
+        records[0].GetStructuredStateValue("Description").ShouldBe(description);
+        records[1].Level.ShouldBe(LogLevel.Debug);
+        records[1].GetStructuredStateValue("Resource").ShouldBe(resource);
+        records[2].Level.ShouldBe(LogLevel.Debug);
+        records[2].GetStructuredStateValue("Limit").ShouldBe(limit.ToString(CultureInfo.InvariantCulture));
+        records[2].GetStructuredStateValue("Remaining").ShouldBe(remaining.ToString(CultureInfo.InvariantCulture));
+        foreach (var record in records)
+        {
+            record.Message.ShouldNotContain(_token);
+            record.StructuredState!.ShouldAllBe(pair => pair.Value == null || !pair.Value.Contains(_token));
+        }
+    }
+
+    [Fact]
+    public async Task InspectAsync_Rejected_LogsDescriptionWithoutCompletion()
+    {
+        GivenError(401, "Bad credentials");
+
+        await Should.ThrowAsync<GitHubAuthenticationException>(
+            () => CreateInspector().InspectAsync(_token, TestContext.Current.CancellationToken));
+
+        var record = _logger.Collector.GetSnapshot().ShouldHaveSingleItem();
+        record.Id.Id.ShouldBe(_requestingEventId);
+        record.Level.ShouldBe(LogLevel.Information);
+    }
+
     /// <summary>
     /// Builds the JSON body of <c>GET /user</c>.
     /// </summary>
@@ -169,5 +219,6 @@ public sealed class OctokitGitHubTokenInspectorTests : IDisposable
     private OctokitGitHubTokenInspector CreateInspector(string? apiBaseUrl = null) => new(
         Options.Create(new GitHubOptions { ApiBaseUrl = apiBaseUrl ?? _server.Url! }),
         _masker,
-        new FakeTimeProvider(new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero)));
+        new FakeTimeProvider(new DateTimeOffset(2026, 11, 14, 10, 0, 0, TimeSpan.Zero)),
+        _logger);
 }

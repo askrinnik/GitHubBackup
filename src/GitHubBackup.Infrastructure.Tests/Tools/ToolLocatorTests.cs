@@ -47,12 +47,14 @@ public sealed class ToolLocatorTests
     }
 
     [Fact]
-    public async Task LocateAsync_AllToolsPresent_RunsEveryVersionCheckAtTraceLevel()
+    public async Task LocateAsync_AllToolsPresent_DescribesEveryVersionCheckAtDefaultLevels()
     {
         await CreateLocator().LocateAsync(TestContext.Current.CancellationToken);
 
-        _requests.Count.ShouldBe(3);
-        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Trace);
+        _requests.Select(request => request.Description).ShouldBe(
+            ["Checking the git version", "Checking the Git LFS version", "Checking the 7-Zip version"]);
+        _requests.ShouldAllBe(request => request.LogLevel == LogLevel.Information);
+        _requests.ShouldAllBe(request => request.DetailsLogLevel == LogLevel.Debug);
     }
 
     [Fact]

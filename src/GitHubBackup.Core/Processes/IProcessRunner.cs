@@ -1,12 +1,19 @@
 namespace GitHubBackup.Core.Processes;
 
 /// <summary>
-/// Runs an external tool such as git or 7-Zip as a child process and logs its command line, every output line and
-/// its exit.
+/// Runs an external tool such as git or 7-Zip as a child process and logs its description, its command line, every
+/// output line and its exit.
 /// </summary>
 /// <remarks>
+/// <para>
+/// The <see cref="ProcessRequest.Description"/> entry is written at <see cref="ProcessRequest.LogLevel"/> before the
+/// process starts; the command line, the output lines and a successful exit follow at
+/// <see cref="ProcessRequest.DetailsLogLevel"/>, so the default log shows what the run does without the details.
+/// </para>
+/// <para>
 /// The exit code alone decides success: output on standard error is normal progress for git and is never treated as
 /// a failure. A non-zero exit code does not throw; the caller inspects <see cref="ProcessResult.ExitCode"/>.
+/// </para>
 /// </remarks>
 public interface IProcessRunner
 {
@@ -20,7 +27,7 @@ public interface IProcessRunner
     /// <returns>The exit code, the duration and the output of the process.</returns>
     /// <exception cref="ArgumentException">
     /// <see cref="ProcessRequest.FileName"/> or <see cref="ProcessRequest.WorkingDirectory"/> is not a fully
-    /// qualified path.
+    /// qualified path, or <see cref="ProcessRequest.Description"/> is empty or white space.
     /// </exception>
     /// <exception cref="ProcessStartException">The process cannot be started.</exception>
     /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was cancelled.</exception>

@@ -117,6 +117,41 @@ public sealed class FileLoggingServiceCollectionExtensionsTests
     }
 
     [Fact]
+    public void AddGitHubBackupLogging_NoFileLevelKey_SetsFileLevelToDebug()
+    {
+        using var provider = BuildProvider(new() { ["Serilog:Endpoints:File:Override:GitHubBackup"] = "Warning" });
+
+        var options = provider.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value;
+
+        options.File.Level.ShouldBe(SerilogEndpointsOptions.DefaultFileLevel);
+        options.File.Level.ShouldBe("Debug");
+        options.Console.Level.ShouldBeNull();
+        options.LiveLog.Level.ShouldBeNull();
+        options.OpenTelemetry.Level.ShouldBeNull();
+        provider.GetRequiredService<IStartupValidator>().Validate();
+    }
+
+    [Fact]
+    public void AddGitHubBackupLogging_NoEndpointsSection_SetsFileLevelToDebug()
+    {
+        using var provider = BuildProvider(new());
+
+        provider.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value.File.Level.ShouldBe("Debug");
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void AddGitHubBackupLogging_FileLevelKeyNullOrEmpty_KeepsMinimumLevelDefault(string? level)
+    {
+        using var provider = BuildProvider(new() { ["serilog:endpoints:file:level"] = level });
+
+        var options = provider.GetRequiredService<IOptions<SerilogEndpointsOptions>>().Value;
+
+        options.File.Level.ShouldBeNullOrEmpty();
+    }
+
+    [Fact]
     public void AddGitHubBackupLogging_InvalidEndpointLevel_FailsStartupValidationNamingKey()
     {
         using var provider = BuildProvider(new() { ["Serilog:Endpoints:LiveLog:Level"] = "Loud" });

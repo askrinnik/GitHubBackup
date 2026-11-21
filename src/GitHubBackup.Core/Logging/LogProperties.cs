@@ -19,4 +19,9 @@ public static class LogProperties
 
     /// <summary>The output stream a logged line of an external tool came from: <c>stdout</c> or <c>stderr</c>.</summary>
     public const string Stream = "Stream";
+
+    /// <summary>
+    /// The short English description of an external tool run or a GitHub API request, written before its details.
+    /// </summary>
+    public const string Description = "Description";
 }

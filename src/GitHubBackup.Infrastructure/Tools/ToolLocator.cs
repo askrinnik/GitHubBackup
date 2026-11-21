@@ -34,14 +34,19 @@ internal sealed class ToolLocator(
     {
         var gitPath = FindGit();
         var gitVersion = await RunVersionAsync(
-            "git", gitPath, ["version"], ToolVersionParser.TryParseGit, cancellationToken);
+            "git", gitPath, ["version"], "Checking the git version", ToolVersionParser.TryParseGit, cancellationToken);
 
         var lfsVersion = await RunVersionAsync(
-            "Git LFS", gitPath, ["lfs", "version"], ToolVersionParser.TryParseGitLfs, cancellationToken);
+            "Git LFS",
+            gitPath,
+            ["lfs", "version"],
+            "Checking the Git LFS version",
+            ToolVersionParser.TryParseGitLfs,
+            cancellationToken);
 
         var sevenZipPath = FindSevenZip();
         var sevenZipVersion = await RunVersionAsync(
-            "7-Zip", sevenZipPath, [], ToolVersionParser.TryParseSevenZip, cancellationToken);
+            "7-Zip", sevenZipPath, [], "Checking the 7-Zip version", ToolVersionParser.TryParseSevenZip, cancellationToken);
 
         return new ToolSet(new LocatedTool(gitPath, gitVersion), lfsVersion, new LocatedTool(sevenZipPath, sevenZipVersion));
     }
@@ -92,6 +97,7 @@ internal sealed class ToolLocator(
     /// <param name="tool">The name of the tool in messages and the log.</param>
     /// <param name="path">The path of the executable to run.</param>
     /// <param name="arguments">The arguments that make the tool print its version.</param>
+    /// <param name="description">The short description logged before the run.</param>
     /// <param name="tryParse">Reads the version from the output lines.</param>
     /// <param name="cancellationToken">Cancels the run.</param>
     /// <returns>The version the tool reported.</returns>
@@ -102,6 +108,7 @@ internal sealed class ToolLocator(
         string tool,
         string path,
         IReadOnlyList<string> arguments,
+        string description,
         TryParseVersion tryParse,
         CancellationToken cancellationToken)
     {
@@ -110,7 +117,7 @@ internal sealed class ToolLocator(
             FileName = path,
             Arguments = arguments,
             WorkingDirectory = fileSystem.Path.GetDirectoryName(path)!,
-            LogLevel = LogLevel.Trace,
+            Description = description,
         };
 
         ProcessResult result;

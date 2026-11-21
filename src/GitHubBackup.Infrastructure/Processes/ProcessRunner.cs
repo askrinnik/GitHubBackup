@@ -17,7 +17,7 @@ namespace GitHubBackup.Infrastructure.Processes;
 /// know which repository it works for.
 /// </remarks>
 /// <param name="secretMasker">
-/// Masks the command line, the environment variables and the output lines before they are logged.
+/// Masks the description, the command line, the environment variables and the output lines before they are logged.
 /// </param>
 /// <param name="fileSystem">Checks that the executable and the working directory exist.</param>
 /// <param name="timeProvider">Measures the duration of the run.</param>
@@ -67,9 +67,15 @@ internal sealed class ProcessRunner(
         var tool = Path.GetFileNameWithoutExtension(request.FileName);
         if (logger.IsEnabled(request.LogLevel))
         {
+            var description = secretMasker.Mask(request.Description);
+            ProcessRunnerLog.Describing(logger, request.LogLevel, tool, description);
+        }
+
+        if (logger.IsEnabled(request.DetailsLogLevel))
+        {
             var commandLine = secretMasker.Mask(ProcessCommandLine.Format(request.FileName, request.Arguments));
             var environment = secretMasker.Mask(ProcessEnvironmentFormat.Format(request.EnvironmentVariables));
-            ProcessRunnerLog.Starting(logger, request.LogLevel, tool, commandLine, request.WorkingDirectory, environment);
+            ProcessRunnerLog.Starting(logger, request.DetailsLogLevel, tool, commandLine, request.WorkingDirectory, environment);
         }
 
         using var process = new Process();
@@ -99,10 +105,10 @@ internal sealed class ProcessRunner(
                     tool,
                     StandardOutputStream,
                     logLines: !request.IsStandardOutputSecret,
-                    request.LogLevel,
+                    request.DetailsLogLevel,
                     readCancellation.Token),
                 ReadLinesAsync(
-                    process.StandardError, tool, StandardErrorStream, logLines: true, request.LogLevel, readCancellation.Token),
+                    process.StandardError, tool, StandardErrorStream, logLines: true, request.DetailsLogLevel, readCancellation.Token),
             ];
 
             await process.WaitForExitAsync(cancellationToken);
@@ -114,7 +120,7 @@ internal sealed class ProcessRunner(
             var exitCode = process.ExitCode;
 
             ProcessRunnerLog.Exited(
-                logger, exitCode == 0 ? request.LogLevel : LogLevel.Warning, tool, exitCode, duration);
+                logger, exitCode == 0 ? request.DetailsLogLevel : LogLevel.Warning, tool, exitCode, duration);
             return new(exitCode, duration, lines[0], lines[1]);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -131,13 +137,21 @@ internal sealed class ProcessRunner(
     }
 
     /// <summary>
-    /// Checks that the paths of <paramref name="request"/> are fully qualified and exist.
+    /// Checks that <paramref name="request"/> has a description and that its paths are fully qualified and exist.
     /// </summary>
     /// <param name="request">The request to check.</param>
-    /// <exception cref="ArgumentException">A path is not fully qualified.</exception>
+    /// <exception cref="ArgumentException">
+    /// The description is empty or white space, or a path is not fully qualified.
+    /// </exception>
     /// <exception cref="ProcessStartException">The executable or the working directory does not exist.</exception>
     private void Validate(ProcessRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.Description))
+        {
+            throw new ArgumentException(
+                $"The description of the run of '{request.FileName}' must not be empty.", nameof(request));
+        }
+
         if (!Path.IsPathFullyQualified(request.FileName))
         {
             throw new ArgumentException(

@@ -1,6 +1,7 @@
 using GitHubBackup.Core.GitHub;
 using GitHubBackup.Core.Security;
 using GitHubBackup.Infrastructure.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Octokit;
 using Octokit.Internal;
@@ -18,11 +19,15 @@ namespace GitHubBackup.Infrastructure.GitHub;
 /// </remarks>
 /// <param name="options">The GitHub options that hold the API address.</param>
 /// <param name="secretMasker">The masker that learns the token before it is sent.</param>
-/// <param name="timeProvider">The clock from which a <c>Retry-After</c> delay is counted.</param>
+/// <param name="timeProvider">
+/// The clock from which a <c>Retry-After</c> delay is counted and that measures the duration of a request.
+/// </param>
+/// <param name="logger">Writes the description, the completion and the rate limit of each check.</param>
 internal sealed class OctokitGitHubTokenInspector(
     IOptions<GitHubOptions> options,
     ISecretMasker secretMasker,
-    TimeProvider timeProvider) : IGitHubTokenInspector
+    TimeProvider timeProvider,
+    ILogger<OctokitGitHubTokenInspector> logger) : IGitHubTokenInspector
 {
     /// <summary>The resource that describes the authenticated account.</summary>
     private const string _userResource = "user";
@@ -38,12 +43,17 @@ internal sealed class OctokitGitHubTokenInspector(
     {
         if (string.IsNullOrWhiteSpace(token))
         {
-            return ExecuteAsync(_rateLimitResource, Credentials.Anonymous, InspectAnonymousAsync, cancellationToken);
+            return ExecuteAsync(
+                _rateLimitResource,
+                "Checking the anonymous rate limit",
+                Credentials.Anonymous,
+                InspectAnonymousAsync,
+                cancellationToken);
         }
 
         var value = token.Trim();
         secretMasker.Register(value);
-        return ExecuteAsync(_userResource, new(value), InspectTokenAsync, cancellationToken);
+        return ExecuteAsync(_userResource, "Checking the GitHub token", new(value), InspectTokenAsync, cancellationToken);
     }
 
     /// <summary>
@@ -93,13 +103,15 @@ internal sealed class OctokitGitHubTokenInspector(
     /// <summary>
     /// Runs one check on a new connection and converts its failures into the <see cref="GitHubApiException"/> family.
     /// </summary>
-    /// <param name="resource">The API resource, named in failure messages.</param>
+    /// <param name="resource">The API resource, named in failure messages and in the completion entry.</param>
+    /// <param name="description">The constant description of the check, logged before the request.</param>
     /// <param name="credentials">The credentials of the connection.</param>
     /// <param name="operation">The request.</param>
     /// <param name="cancellationToken">Cancels the request.</param>
     /// <returns>The information about the token.</returns>
     private async Task<GitHubTokenInfo> ExecuteAsync(
         string resource,
+        string description,
         Credentials credentials,
         Func<IConnection, CancellationToken, Task<GitHubTokenInfo>> operation,
         CancellationToken cancellationToken)
@@ -108,9 +120,19 @@ internal sealed class OctokitGitHubTokenInspector(
         // the HTTP client is disposed with the check so that repeated checks do not leak handlers and sockets.
         using var httpClient = new HttpClientAdapter(HttpMessageHandlerFactory.CreateDefault);
         var connection = OctokitConnectionFactory.Create(options.Value.ApiBaseUrl, credentials, httpClient);
+        OctokitGitHubTokenInspectorLog.Requesting(logger, description);
+        var startedAt = timeProvider.GetTimestamp();
         try
         {
-            return await operation(connection, cancellationToken).WaitAsync(cancellationToken);
+            var info = await operation(connection, cancellationToken).WaitAsync(cancellationToken);
+            var duration = timeProvider.GetElapsedTime(startedAt);
+            OctokitGitHubTokenInspectorLog.RequestCompleted(logger, resource, duration);
+            if (info.RateLimit is { } rateLimit)
+            {
+                OctokitGitHubTokenInspectorLog.RateLimit(logger, rateLimit.Remaining, rateLimit.Limit, rateLimit.ResetsAt);
+            }
+
+            return info;
         }
         catch (ApiException exception)
         {
